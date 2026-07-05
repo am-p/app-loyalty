@@ -1,2 +1,0 @@
-* lunes 29
-claude --resume 4548319e-2a49-468a-bf53-96dd28fa3920
