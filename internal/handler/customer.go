@@ -6,7 +6,7 @@ import (
 	"net/http"
 
 	"clientesFrecuentes/internal/model"
-	"clientesFrecuentes/internal/repository"
+	"clientesFrecuentes/internal/service"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -30,7 +30,7 @@ func (h *CustomerHandler) RegisterCustomer(c *gin.Context) {
 		return
 	}
 
-	if err := repository.InsertQuery(h.Pool, customer); err != nil {
+	if err := service.RegisterCustomer(h.Pool, customer); err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			c.JSON(http.StatusConflict, gin.H{"error": "email already registered"})
