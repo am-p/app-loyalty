@@ -26,7 +26,7 @@ func main() {
 	}
 
 	router := gin.Default()
-	h := handler.CustomerHandler{Pool: connPool}
-	router.POST("/customers", h.RegisterCustomer)
+	h := handler.ShopHandler{Pool: connPool}
+	router.POST("/shops", h.RegisterShop)
 	router.Run()
 }
