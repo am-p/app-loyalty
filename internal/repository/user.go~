@@ -12,7 +12,7 @@ func CreateTableQuery(p *pgxpool.Pool) error {
 	return err
 }
 
-func InsertShop(p *pgxpool.Pool, s model.Shop) error {
-	_, err := p.Exec(context.Background(), "INSERT INTO shops(name, email, password) values($1, $2, $3)", s.Name, s.Email, s.Password)
+func InsertShop(p *pgxpool.Pool, u model.User) error {
+	_, err := p.Exec(context.Background(), "INSERT INTO shops(name, email, password) values($1, $2, $3)", u.Name, u.Email, u.PasswordHash)
 	return err
 }
