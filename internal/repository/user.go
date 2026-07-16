@@ -12,7 +12,8 @@ func CreateTableQuery(p *pgxpool.Pool) error {
 	return err
 }
 
-func InsertUser(p *pgxpool.Pool, u model.User) error {
-	_, err := p.Exec(context.Background(), "INSERT INTO users(name, email, password) values($1, $2, $3)", u.Name, u.Email, u.PasswordHash)
-	return err
+func InsertUser(p *pgxpool.Pool, u model.User) (int64, error) {
+	var id int64
+	err := p.QueryRow(context.Background(), "INSERT INTO users(name, email, password_hash, role) values($1, $2, $3, $4) RETURNING id", u.Name, u.Email, u.PasswordHash, u.Role).Scan(&id)
+	return id, err
 }
