@@ -18,14 +18,14 @@ type UserHandler struct {
 }
 
 func (h *UserHandler) RegisterUser(c *gin.Context) {
-	var shop model.User
+	var req model.RegisterRequest
 
-	if err := c.ShouldBindJSON(&shop); err != nil {
+	if  err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request: check name, email and password"})
 		return
 	}
 
-	if err := service.RegisterUser(h.Pool, shop); err != nil {
+	if _, err := service.RegisterUser(h.Pool, req); err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			c.JSON(http.StatusConflict, gin.H{"error": "email already registered"})
