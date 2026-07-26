@@ -2,6 +2,7 @@ package config
 
 import (
 	"log"
+	"os"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -15,8 +16,12 @@ func Config() *pgxpool.Config {
 	const defaultHealthCheckPeriod = time.Minute
 	const defaultConnectTimeout = time.Second * 5
 
-	const DATABASE_URL string = "postgres://loyalty:loyalty@localhost:5432/loyalty_dev"
-	dbConfig, err := pgxpool.ParseConfig(DATABASE_URL)
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		log.Fatal("DATABASE_URL is not set")
+	}
+
+	dbConfig, err := pgxpool.ParseConfig(databaseURL)
 	if err != nil {
 		log.Fatal("Failed to create a config, error: ", err)
 	}

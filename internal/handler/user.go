@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 
+	"clientesFrecuentes/internal/auth"
 	"clientesFrecuentes/internal/model"
 	"clientesFrecuentes/internal/service"
 
@@ -38,8 +39,15 @@ func (h *UserHandler) RegisterUser(c *gin.Context) {
 		return
 	}
 
+	token, err := auth.GenerateToken(id, "CLIENTE_FINAL")
+	if err != nil {
+		log.Println("token error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"message": "No pudimos completar el registro, intenta más tarde"})
+		return
+	}
+
 	c.JSON(http.StatusCreated, model.AuthResponse{
-		Token: "pending-jwt",
+		Token: token,
 		User: model.UserResponse{
 			ID:    id,
 			Email: req.Email,

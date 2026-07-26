@@ -10,9 +10,14 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/joho/godotenv"
 )
 
 func main() {
+	if err := godotenv.Load(); err != nil {
+		log.Println("No .env file found, using environment variables")
+	}
+
 	connPool, err := pgxpool.NewWithConfig(context.Background(), config.Config())
 	if err != nil {
 		log.Fatal("Error while creating connection to the database!! ", err)
