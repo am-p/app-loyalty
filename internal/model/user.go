@@ -19,3 +19,16 @@ type User struct {
 	ClientID     *int64    `json:"id_cliente"`
 	CreatedAt    time.Time `json:"-"`
 }
+
+type UserResponse struct {
+	ID           int64   `json:"id_usuario"`
+	Email        string  `json:"email"`
+	Name         string  `json:"nombre"`
+	Role         string  `json:"rol"`
+	Subscription *string `json:"suscripcion"`
+}
+
+type AuthResponse struct {
+	Token string       `json:"token"`
+	User  UserResponse `json:"usuario"`
+}

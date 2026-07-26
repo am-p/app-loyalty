@@ -20,22 +20,31 @@ type UserHandler struct {
 func (h *UserHandler) RegisterUser(c *gin.Context) {
 	var req model.RegisterRequest
 
-	if  err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request: check name, email and password"})
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "Datos inválidos: revisa nombre, email y contraseña"})
 		return
 	}
 
-	if _, err := service.RegisterUser(h.Pool, req); err != nil {
+	id, err := service.RegisterUser(h.Pool, req)
+	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-			c.JSON(http.StatusConflict, gin.H{"error": "email already registered"})
+			c.JSON(http.StatusConflict, gin.H{"message": "El email ya está registrado"})
 			return
 		}
 
 		log.Println("insert error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not save shop"})
+		c.JSON(http.StatusInternalServerError, gin.H{"message": "No pudimos completar el registro, intenta más tarde"})
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"message": "user registered"})
+	c.JSON(http.StatusCreated, model.AuthResponse{
+		Token: "pending-jwt",
+		User: model.UserResponse{
+			ID:    id,
+			Email: req.Email,
+			Name:  req.Name,
+			Role:  "CLIENTE_FINAL",
+		},
+	})
 }
