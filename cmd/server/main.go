@@ -33,5 +33,6 @@ func main() {
 	router := gin.Default()
 	h := handler.UserHandler{Pool: connPool}
 	router.POST("/auth/register", h.RegisterUser)
+	router.POST("/auth/login", h.LoginUser)
 	router.Run()
 }

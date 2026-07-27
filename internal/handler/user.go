@@ -56,3 +56,41 @@ func (h *UserHandler) RegisterUser(c *gin.Context) {
 		},
 	})
 }
+
+func (h *UserHandler) LoginUser(c *gin.Context) {
+	var req model.LoginRequest
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "Datos inválidos: email y contraseña"})
+		return
+	}
+
+	user, err := service.LoginUser(h.Pool, req)
+	if err != nil {
+		if errors.Is(err, service.ErrInvalidCredentials) {
+			c.JSON(http.StatusUnauthorized, gin.H{"message": "El correo o la contraseña son incorrectos"})
+			return
+		}
+
+		log.Println("login error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"message": "No pudimos iniciar sesión, intenta más tarde"})
+		return
+	}
+
+	token, err := auth.GenerateToken(user.ID, user.Role)
+	if err != nil {
+		log.Println("token error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"message": "No pudimos iniciar sesión, intenta más tarde"})
+		return
+	}
+
+	c.JSON(http.StatusOK, model.AuthResponse{
+		Token: token,
+		User: model.UserResponse{
+			ID:    user.ID,
+			Email: user.Email,
+			Name:  user.Name,
+			Role:  user.Role,
+		},
+	})
+}
