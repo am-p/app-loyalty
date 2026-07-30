@@ -23,6 +23,15 @@ func InsertUser(p *pgxpool.Pool, u model.User) (int64, error) {
 	return id, err
 }
 
+func GetUserByID(p *pgxpool.Pool, id int64) (model.User, error) {
+	var u model.User
+	err := p.QueryRow(context.Background(),
+		"SELECT id, email, password_hash, name, role FROM users WHERE id = $1",
+		id,
+	).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Name, &u.Role)
+	return u, err
+}
+
 func GetUserByEmail(p *pgxpool.Pool, email string) (model.User, error) {
 	var u model.User
 	err := p.QueryRow(context.Background(),

@@ -7,9 +7,11 @@ import (
 
 	"clientesFrecuentes/internal/auth"
 	"clientesFrecuentes/internal/model"
+	"clientesFrecuentes/internal/repository"
 	"clientesFrecuentes/internal/service"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -92,5 +94,40 @@ func (h *UserHandler) LoginUser(c *gin.Context) {
 			Name:  user.Name,
 			Role:  user.Role,
 		},
+	})
+}
+
+func (h *UserHandler) Me(c *gin.Context) {
+	value, exists := c.Get("userID")
+	if !exists {
+		log.Println("me error: userID missing from context")
+		c.JSON(http.StatusInternalServerError, gin.H{"message": "No pudimos obtener tu perfil, intenta más tarde"})
+		return
+	}
+
+	userID, ok := value.(int64)
+	if !ok {
+		log.Printf("me error: userID has type %T, want int64", value)
+		c.JSON(http.StatusInternalServerError, gin.H{"message": "No pudimos obtener tu perfil, intenta más tarde"})
+		return
+	}
+
+	user, err := repository.GetUserByID(h.Pool, userID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			c.JSON(http.StatusNotFound, gin.H{"message": "Usuario no encontrado"})
+			return
+		}
+
+		log.Println("me error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"message": "No pudimos obtener tu perfil, intenta más tarde"})
+		return
+	}
+
+	c.JSON(http.StatusOK, model.UserResponse{
+		ID:    user.ID,
+		Email: user.Email,
+		Name:  user.Name,
+		Role:  user.Role,
 	})
 }

@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"log"
+	"os"
 
 	"clientesFrecuentes/internal/config"
 	"clientesFrecuentes/internal/handler"
+	"clientesFrecuentes/internal/middleware"
 	"clientesFrecuentes/internal/repository"
 
 	"github.com/gin-gonic/gin"
@@ -16,6 +18,10 @@ import (
 func main() {
 	if err := godotenv.Load(); err != nil {
 		log.Println("No .env file found, using environment variables")
+	}
+
+	if os.Getenv("JWT_SECRET") == "" {
+		log.Fatal("JWT_SECRET is not set")
 	}
 
 	connPool, err := pgxpool.NewWithConfig(context.Background(), config.Config())
@@ -34,5 +40,6 @@ func main() {
 	h := handler.UserHandler{Pool: connPool}
 	router.POST("/auth/register", h.RegisterUser)
 	router.POST("/auth/login", h.LoginUser)
+	router.GET("/me", middleware.RequireAuth(), h.Me)
 	router.Run()
 }

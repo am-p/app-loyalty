@@ -46,23 +46,12 @@ The API listens on **http://localhost:8080**.
 | `DATABASE_URL` | PostgreSQL connection string                      |
 | `JWT_SECRET`   | Key used to sign JWTs. Must be secret and random.  |
 
+The server exits at startup if either one is missing.
+
 ## Database
 
-Defined in `docker-compose.yml` (PostgreSQL 16):
-
-| Setting  | Value         |
-|----------|---------------|
-| Host     | localhost     |
-| Port     | 5432          |
-| User     | loyalty       |
-| Password | loyalty       |
-| Database | loyalty_dev   |
-
-To inspect it:
-
-```bash
-docker compose exec db psql -U loyalty -d loyalty_dev
-```
+PostgreSQL 16, defined in `docker-compose.yml`. Connection details are not
+documented here — they live in `docker-compose.yml` and in your local `.env`.
 
 ### `users` table
 
@@ -117,25 +106,92 @@ Validation: all fields required, `email` must be a valid email, `password` minim
 | 409    | Email already registered             |
 | 500    | Unexpected server/database error     |
 
+### POST /auth/login
+
+```bash
+curl -X POST http://localhost:8080/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"ariel@example.com","password":"12345678"}'
+```
+
+`200 OK` — same body as register: `token` plus `usuario`.
+
+| Status | Meaning                                                       |
+|--------|---------------------------------------------------------------|
+| 200    | Authenticated                                                 |
+| 400    | Invalid JSON or missing fields                                |
+| 401    | Wrong password, unknown email, or account without a password  |
+| 500    | Unexpected server/database error                              |
+
+All three 401 cases return the same message, so the response never reveals
+whether an email is registered.
+
+### GET /me
+
+Returns the user the token belongs to, so the app can restore a session on
+startup. Requires authentication.
+
+```bash
+TOKEN='paste-the-token-from-login-here'
+
+curl http://localhost:8080/me \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+`200 OK` — the `usuario` object alone, with no token:
+
+```json
+{
+  "id_usuario": 1,
+  "email": "ariel@example.com",
+  "nombre": "Ariel",
+  "rol": "CLIENTE_FINAL",
+  "suscripcion": null
+}
+```
+
+| Status | Meaning                                                  |
+|--------|----------------------------------------------------------|
+| 200    | OK                                                       |
+| 401    | Missing, malformed, forged or expired token              |
+| 404    | Token is valid but the account no longer exists          |
+| 500    | Unexpected server/database error                         |
+
+Checks worth running against `/me`:
+
+```bash
+curl -i http://localhost:8080/me                                 # 401 — no header
+curl -i http://localhost:8080/me -H "Authorization: $TOKEN"      # 401 — no "Bearer " prefix
+curl -i http://localhost:8080/me -H "Authorization: Bearer abc"  # 401 — not a JWT
+```
+
+Then take a valid token, change one character in its middle section and send it:
+still 401. That is the signature check working — the payload is readable by
+anyone, but it cannot be edited without `JWT_SECRET`.
+
 ### Authentication
 
 The `token` is a JWT signed with `JWT_SECRET` (HS256), valid for 24 hours, with claims
-`sub` (user id), `rol`, `iat` and `exp`. Protected endpoints will expect it as:
+`sub` (user id), `rol`, `iat` and `exp`. Protected endpoints expect it as:
 
 ```
 Authorization: Bearer <token>
 ```
 
-Not implemented yet: `POST /auth/login`, `POST /auth/google`, `GET /me`.
+The token is signed, not encrypted: its payload is readable by anyone holding it.
+Never put anything secret in the claims.
+
+Not implemented yet: `POST /auth/google`.
 
 ## Project structure
 
 ```
 cmd/server/          main.go — entry point, wiring, routes
-internal/auth/       JWT generation
+internal/auth/       JWT generation and verification
 internal/config/     database pool configuration
 internal/handler/    HTTP handlers (Gin)
+internal/middleware/ Bearer token check for protected routes
 internal/model/      domain structs and request/response DTOs
 internal/repository/ SQL queries (pgx)
-internal/service/    business logic (hashing, role assignment)
+internal/service/    business logic (hashing, credential checking)
 ```
