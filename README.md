@@ -25,6 +25,7 @@ cd clientesFrecuentes
 # 1. Configuration
 cp .env.example .env
 # set JWT_SECRET, e.g. with: openssl rand -base64 32
+# set GOOGLE_CLIENT_ID to the OAuth client ID the Expo app uses
 
 # 2. Start PostgreSQL
 docker compose up -d
@@ -41,12 +42,18 @@ The API listens on **http://localhost:8080**.
 
 `.env` (git-ignored, see `.env.example`):
 
-| Variable       | Description                                       |
-|----------------|---------------------------------------------------|
-| `DATABASE_URL` | PostgreSQL connection string                      |
-| `JWT_SECRET`   | Key used to sign JWTs. Must be secret and random.  |
+| Variable           | Description                                                    |
+|--------------------|----------------------------------------------------------------|
+| `DATABASE_URL`     | PostgreSQL connection string                                   |
+| `JWT_SECRET`       | Key used to sign JWTs. Must be secret and random.               |
+| `GOOGLE_CLIENT_ID` | OAuth client ID of the Expo app. Not secret — it ships in the app. |
 
-The server exits at startup if either one is missing.
+The server exits at startup if any of them is missing.
+
+`GOOGLE_CLIENT_ID` must be the *same* client ID the frontend signs in with, since
+it is checked against the `aud` claim of every Google token. Expo apps often
+register several (iOS, Android, Web) — the right one is whichever the app
+actually uses, frequently the Web client ID even on mobile.
 
 ## Database
 
@@ -126,6 +133,60 @@ curl -X POST http://localhost:8080/auth/login \
 All three 401 cases return the same message, so the response never reveals
 whether an email is registered.
 
+### POST /auth/google
+
+Signs in with a Google ID token. The Expo app runs Google Sign-In, Google hands it
+an `id_token`, and the app posts that string here. The account is created if it
+doesn't exist yet.
+
+```bash
+curl -X POST http://localhost:8080/auth/google \
+  -H "Content-Type: application/json" \
+  -d '{"id_token":"eyJhbGciOiJSUzI1NiIsImtpZCI6IjEyMzQifQ..."}'
+```
+
+`200 OK` — same body as login: `token` plus `usuario`. Note 200 and not 201, even
+when the account was just created; the frontend is written against that.
+
+| Status | Meaning                                                                          |
+|--------|----------------------------------------------------------------------------------|
+| 200    | Authenticated                                                                    |
+| 400    | Invalid JSON or missing `id_token`                                               |
+| 401    | Token not signed by Google, expired, issued for another app, or email unverified |
+| 500    | Unexpected server/database error                                                 |
+
+The `id_token` is Google's, signed by Google with RS256, and is verified against
+Google's public keys — it is not, and cannot be, checked with `JWT_SECRET`. Its
+`aud` claim must match `GOOGLE_CLIENT_ID`, so a token minted for any other
+application is rejected. Google's token is used once, here; every request after
+this one uses the token this endpoint returns.
+
+Three cases are handled:
+
+1. A user with that `google_id` exists → returned as is.
+2. No such `google_id`, but the verified email matches an existing account → the
+   account is linked (`google_id` is stored) and returned. This is how someone who
+   registered with a password starts using Google Sign-In.
+3. Neither → a new `CLIENTE_FINAL` account is created, with no password.
+
+Case 2 treats a verified Google email as proof of ownership of an existing
+account, which is only safe because the `email_verified` claim is required to be
+true. An account whose email Google never verified is rejected with 401.
+
+Checks worth running without a real Google token:
+
+```bash
+curl -i -X POST http://localhost:8080/auth/google \
+  -H "Content-Type: application/json" -d '{"id_token":"abc"}'   # 401 — not a Google token
+
+curl -i -X POST http://localhost:8080/auth/google \
+  -H "Content-Type: application/json" -d '{}'                   # 400 — missing field
+```
+
+A real token needs the frontend (or Google's OAuth Playground) and the real
+`GOOGLE_CLIENT_ID`. After a successful Google login, the returned token works
+against `/me` exactly like one from a password login.
+
 ### GET /me
 
 Returns the user the token belongs to, so the app can restore a session on
@@ -181,7 +242,8 @@ Authorization: Bearer <token>
 The token is signed, not encrypted: its payload is readable by anyone holding it.
 Never put anything secret in the claims.
 
-Not implemented yet: `POST /auth/google`.
+Google accounts have no `password_hash`, so a password login against one fails
+with the same 401 as any other bad credential.
 
 ## Project structure
 

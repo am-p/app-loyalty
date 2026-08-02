@@ -24,6 +24,10 @@ func main() {
 		log.Fatal("JWT_SECRET is not set")
 	}
 
+	if os.Getenv("GOOGLE_CLIENT_ID") == "" {
+		log.Fatal("GOOGLE_CLIENT_ID is not set")
+	}
+
 	connPool, err := pgxpool.NewWithConfig(context.Background(), config.Config())
 	if err != nil {
 		log.Fatal("Error while creating connection to the database!! ", err)
@@ -40,6 +44,7 @@ func main() {
 	h := handler.UserHandler{Pool: connPool}
 	router.POST("/auth/register", h.RegisterUser)
 	router.POST("/auth/login", h.LoginUser)
+	router.POST("/auth/google", h.GoogleAuth)
 	router.GET("/me", middleware.RequireAuth(), h.Me)
 	router.Run()
 }

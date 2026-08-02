@@ -97,6 +97,44 @@ func (h *UserHandler) LoginUser(c *gin.Context) {
 	})
 }
 
+func (h *UserHandler) GoogleAuth(c *gin.Context) {
+	var req model.GoogleAuthRequest
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "Datos inválidos: falta el token de Google"})
+		return
+	}
+
+	user, err := service.LoginWithGoogle(h.Pool, req.IDToken)
+	if err != nil {
+		if errors.Is(err, auth.ErrInvalidGoogleToken) {
+			c.JSON(http.StatusUnauthorized, gin.H{"message": "No pudimos validar tu cuenta de Google"})
+			return
+		}
+
+		log.Println("google auth error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"message": "No pudimos iniciar sesión, intenta más tarde"})
+		return
+	}
+
+	token, err := auth.GenerateToken(user.ID, user.Role)
+	if err != nil {
+		log.Println("token error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"message": "No pudimos iniciar sesión, intenta más tarde"})
+		return
+	}
+
+	c.JSON(http.StatusOK, model.AuthResponse{
+		Token: token,
+		User: model.UserResponse{
+			ID:    user.ID,
+			Email: user.Email,
+			Name:  user.Name,
+			Role:  user.Role,
+		},
+	})
+}
+
 func (h *UserHandler) Me(c *gin.Context) {
 	value, exists := c.Get("userID")
 	if !exists {
