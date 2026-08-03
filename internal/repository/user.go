@@ -26,27 +26,27 @@ func InsertUser(p *pgxpool.Pool, u model.User) (int64, error) {
 func GetUserByID(p *pgxpool.Pool, id int64) (model.User, error) {
 	var u model.User
 	err := p.QueryRow(context.Background(),
-		"SELECT id, email, password_hash, name, role FROM users WHERE id = $1",
+		"SELECT id, email, password_hash, google_id, name, role FROM users WHERE id = $1",
 		id,
-	).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Name, &u.Role)
+	).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.GoogleID, &u.Name, &u.Role)
 	return u, err
 }
 
 func GetUserByEmail(p *pgxpool.Pool, email string) (model.User, error) {
 	var u model.User
 	err := p.QueryRow(context.Background(),
-		"SELECT id, email, password_hash, name, role FROM users WHERE email = $1",
+		"SELECT id, email, password_hash, google_id, name, role FROM users WHERE email = $1",
 		email,
-	).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Name, &u.Role)
+	).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.GoogleID, &u.Name, &u.Role)
 	return u, err
 }
 
 func GetUserByGoogleID(p *pgxpool.Pool, googleID string) (model.User, error) {
 	var u model.User
 	err := p.QueryRow(context.Background(),
-		"SELECT id, email, password_hash, name, role FROM users WHERE google_id = $1",
+		"SELECT id, email, password_hash, google_id, name, role FROM users WHERE google_id = $1",
 		googleID,
-	).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Name, &u.Role)
+	).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.GoogleID, &u.Name, &u.Role)
 	return u, err
 }
 

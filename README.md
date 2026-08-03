@@ -25,7 +25,7 @@ cd clientesFrecuentes
 # 1. Configuration
 cp .env.example .env
 # set JWT_SECRET, e.g. with: openssl rand -base64 32
-# set GOOGLE_CLIENT_ID to the OAuth client ID the Expo app uses
+# set GOOGLE_CLIENT_ID to the "Web application" OAuth client ID (see Configuration)
 
 # 2. Start PostgreSQL
 docker compose up -d
@@ -46,16 +46,28 @@ The API listens on **http://localhost:8080**.
 |--------------------|----------------------------------------------------------------|
 | `DATABASE_URL`     | PostgreSQL connection string                                   |
 | `JWT_SECRET`       | Key used to sign JWTs. Must be secret and random.               |
-| `GOOGLE_CLIENT_ID` | OAuth client ID of the Expo app. Not secret — it ships in the app. |
+| `GOOGLE_CLIENT_ID` | OAuth client ID of type *Web application*. Not secret — it ships in the app. |
 | `CORS_ORIGINS`     | Optional. Comma-separated origins allowed to call the API from a browser. |
 
 The server exits at startup if any of the first three is missing. `CORS_ORIGINS`
 is optional and defaults to allowing every origin.
 
-`GOOGLE_CLIENT_ID` must be the *same* client ID the frontend signs in with, since
-it is checked against the `aud` claim of every Google token. Expo apps often
-register several (iOS, Android, Web) — the right one is whichever the app
-actually uses, frequently the Web client ID even on mobile.
+`GOOGLE_CLIENT_ID` is checked against the `aud` claim of every Google token, so
+it must be the same client ID the frontend signs in with.
+
+The project registers several OAuth clients in one Google Cloud project: an
+**Android** and an **iOS** client, which identify the app binary (package name +
+SHA-1, bundle ID), and one **Web application** client, which identifies *this
+server*. "Web application" is a client type, not a statement about where the UI
+runs — it is the type with no binary attached. The Web client ID is the one that
+belongs here, and the app passes the same string as `webClientId` (some libraries
+call it `serverClientId`) so Google mints tokens with `aud` set to it.
+
+If iOS logins return 401 while Android returns 200, the iOS SDK is putting its
+own client ID in `aud`. Decode a real token with `idtoken.ParsePayload` to
+confirm, then validate against a set of allowed audiences instead: pass `""` to
+`idtoken.Validate` to skip its single-audience check and compare
+`payload.Audience` yourself, asserting `payload.Issuer` too.
 
 ### CORS
 
@@ -111,6 +123,36 @@ documented here — they live in `docker-compose.yml` and in your local `.env`.
 ## API
 
 Error responses are always `{"message": "<texto para el usuario, en español>"}`.
+
+### Testing with Postman
+
+Every endpoint below is shown as `curl`, but the same requests work from Postman.
+
+**Sending a body** (`/auth/register`, `/auth/login`, `/auth/google`): choose the
+method, paste the URL, then **Body → raw → JSON** in the dropdown on the right.
+Picking `JSON` sets `Content-Type: application/json` for you — don't add it by
+hand in the Headers tab as well.
+
+**Sending the token** (`/me`): open the **Authorization** tab, type **Bearer
+Token**, and paste the token into the *Token* field.
+
+Paste the token *only* — not the word `Bearer`, and not the surrounding quotes
+from the JSON response. Postman adds the `Bearer ` prefix itself, so pasting
+`Bearer eyJ…` sends `Authorization: Bearer Bearer eyJ…` and the server answers
+`401`. This is the most common reason a token that "should work" doesn't.
+
+**Reusing the token automatically.** In the `/auth/login` request, open the
+**Scripts → Post-response** tab and add:
+
+```javascript
+pm.collectionVariables.set("token", pm.response.json().token);
+```
+
+Then in `/me` put `{{token}}` in the Token field. Logging in refreshes it and
+`/me` picks up the new one with no copy-pasting.
+
+Tokens last 24 hours. A `401` with `Sesión inválida o expirada` on a request that
+worked yesterday means exactly that — log in again.
 
 ### POST /auth/register
 
@@ -217,9 +259,19 @@ curl -i -X POST http://localhost:8080/auth/google \
   -H "Content-Type: application/json" -d '{}'                   # 400 — missing field
 ```
 
-A real token needs the frontend (or Google's OAuth Playground) and the real
-`GOOGLE_CLIENT_ID`. After a successful Google login, the returned token works
-against `/me` exactly like one from a password login.
+Sending one of *your own* `/auth/login` tokens here is the useful negative test:
+three valid segments, but HS256 and the wrong `aud`, so still `401`.
+
+Postman cannot produce a real Google token — signing in with Google happens in
+the app or a browser, not in an HTTP client. To reach `200` before the frontend
+is ready, add `http://localhost:5173` to **Authorized JavaScript origins** on the
+Web client, serve a one-file page using Google Identity Services, sign in, and
+copy the `credential` value it hands the callback. That string has `aud` set to
+`GOOGLE_CLIENT_ID`, so it is accepted, and it exercises the real paths — account
+creation, account linking, the `email_verified` check.
+
+After a successful Google login the returned token works against `/me` exactly
+like one from a password login.
 
 ### GET /me
 
