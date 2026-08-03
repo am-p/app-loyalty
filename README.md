@@ -47,13 +47,47 @@ The API listens on **http://localhost:8080**.
 | `DATABASE_URL`     | PostgreSQL connection string                                   |
 | `JWT_SECRET`       | Key used to sign JWTs. Must be secret and random.               |
 | `GOOGLE_CLIENT_ID` | OAuth client ID of the Expo app. Not secret — it ships in the app. |
+| `CORS_ORIGINS`     | Optional. Comma-separated origins allowed to call the API from a browser. |
 
-The server exits at startup if any of them is missing.
+The server exits at startup if any of the first three is missing. `CORS_ORIGINS`
+is optional and defaults to allowing every origin.
 
 `GOOGLE_CLIENT_ID` must be the *same* client ID the frontend signs in with, since
 it is checked against the `aud` claim of every Google token. Expo apps often
 register several (iOS, Android, Web) — the right one is whichever the app
 actually uses, frequently the Web client ID even on mobile.
+
+### CORS
+
+Browsers refuse to hand a cross-origin response to the page unless the server
+allows it, so **Expo Web** — served from a different port than this API — needs
+the API to say so. Native iOS and Android builds have no origin and are
+unaffected.
+
+Allowed methods are `GET, POST, PUT, DELETE, OPTIONS`, and allowed headers are
+`Origin`, `Content-Type` and `Authorization`. The last one matters: without it the
+browser blocks every authenticated request, since that is the header the Bearer
+token travels in.
+
+Leaving `CORS_ORIGINS` empty allows every origin, which is convenient while the
+frontend's dev server port keeps changing. Set it before deploying anywhere
+public:
+
+```
+CORS_ORIGINS=http://localhost:8081,https://app.puntazo.com
+```
+
+To check it is working, send the preflight request a browser would send:
+
+```bash
+curl -i -X OPTIONS http://localhost:8080/auth/google \
+  -H "Origin: http://localhost:8081" \
+  -H "Access-Control-Request-Method: POST" \
+  -H "Access-Control-Request-Headers: content-type"
+```
+
+`204` with an `Access-Control-Allow-Origin` header means it is configured. A `404`
+means the server is running an older build — restart it.
 
 ## Database
 

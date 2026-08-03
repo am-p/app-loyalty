@@ -41,6 +41,8 @@ func main() {
 	}
 
 	router := gin.Default()
+	router.Use(middleware.CORS())
+
 	h := handler.UserHandler{Pool: connPool}
 	router.POST("/auth/register", h.RegisterUser)
 	router.POST("/auth/login", h.LoginUser)
