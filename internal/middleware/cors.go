@@ -21,7 +21,7 @@ func CORS() gin.HandlerFunc {
 	if origins == "" {
 		config.AllowAllOrigins = true
 	} else {
-		for _, origin := range strings.Split(origins, ",") {
+		for origin := range strings.SplitSeq(origins, ",") {
 			if trimmed := strings.TrimSpace(origin); trimmed != "" {
 				config.AllowOrigins = append(config.AllowOrigins, trimmed)
 			}
