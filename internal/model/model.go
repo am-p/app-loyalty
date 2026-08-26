@@ -129,21 +129,24 @@ type BrandMetricsSummary struct {
 	LastMovementAt      *time.Time `json:"last_movement_at"`
 }
 type MovementPreviewRequest struct {
-	Operation string `json:"operation"`
-	QRToken   string `json:"qr_token"`
-	BranchID  int64  `json:"branch_id"`
-	BenefitID *int64 `json:"benefit_id,omitempty"`
+	Operation    string `json:"operation"`
+	QRToken      string `json:"qr_token,omitempty"`
+	CustomerCode string `json:"customer_code,omitempty"`
+	BranchID     int64  `json:"branch_id"`
+	BenefitID    *int64 `json:"benefit_id,omitempty"`
 }
 type ConfirmAccumulationRequest struct {
-	PreviewID string `json:"preview_id"`
-	QRToken   string `json:"qr_token"`
-	BranchID  int64  `json:"branch_id"`
+	PreviewID    string `json:"preview_id"`
+	QRToken      string `json:"qr_token,omitempty"`
+	CustomerCode string `json:"customer_code,omitempty"`
+	BranchID     int64  `json:"branch_id"`
 }
 type ConfirmRedemptionRequest struct {
-	PreviewID string `json:"preview_id"`
-	QRToken   string `json:"qr_token"`
-	BranchID  int64  `json:"branch_id"`
-	BenefitID int64  `json:"benefit_id"`
+	PreviewID    string `json:"preview_id"`
+	QRToken      string `json:"qr_token,omitempty"`
+	CustomerCode string `json:"customer_code,omitempty"`
+	BranchID     int64  `json:"branch_id"`
+	BenefitID    int64  `json:"benefit_id"`
 }
 type PreviewCustomer struct {
 	ID   int64  `json:"id"`

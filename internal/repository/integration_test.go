@@ -158,7 +158,8 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 		t.Fatalf("rollback leaked brand/idempotency: %d/%d pending=%d", brandsBefore, brandsAfter, pending)
 	}
 
-	previewReq := model.MovementPreviewRequest{Operation: "ACUMULACION", QRToken: customer.QRToken, BranchID: merchant.Merchant.Branch.ID}
+	memberCode := fmt.Sprintf("#USER-%04d", customer.ID)
+	previewReq := model.MovementPreviewRequest{Operation: "ACUMULACION", CustomerCode: memberCode, BranchID: merchant.Merchant.Branch.ID}
 	preview, err := svc.Preview(ctx, merchant.User.ID, previewReq)
 	if err != nil {
 		t.Fatal(err)
@@ -172,13 +173,16 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if cards != 0 || movements != 0 {
 		t.Fatalf("preview mutated cards=%d movements=%d", cards, movements)
 	}
-	confirmReq := model.ConfirmAccumulationRequest{PreviewID: preview.ID, QRToken: customer.QRToken, BranchID: merchant.Merchant.Branch.ID}
+	confirmReq := model.ConfirmAccumulationRequest{PreviewID: preview.ID, CustomerCode: memberCode, BranchID: merchant.Merchant.Branch.ID}
+	normalizedConfirmReq := confirmReq
+	normalizedConfirmReq.QRToken = customer.QRToken
+	normalizedConfirmReq.CustomerCode = ""
 	pendingKey := uuid.NewString()
 	pendingTx, err := pool.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = pendingTx.Exec(ctx, `INSERT INTO solicitudes_idempotentes(idempotency_key,actor_scope,operacion,fingerprint,estado) VALUES($1,$2,'CONFIRM_ACUMULACION',$3,'PENDING')`, pendingKey, fmt.Sprintf("user:%d", merchant.User.ID), service.Fingerprint(confirmReq)); err != nil {
+	if _, err = pendingTx.Exec(ctx, `INSERT INTO solicitudes_idempotentes(idempotency_key,actor_scope,operacion,fingerprint,estado) VALUES($1,$2,'CONFIRM_ACUMULACION',$3,'PENDING')`, pendingKey, fmt.Sprintf("user:%d", merchant.User.ID), service.Fingerprint(normalizedConfirmReq)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = svc.ConfirmAccumulation(ctx, merchant.User.ID, pendingKey, uuid.NewString(), confirmReq); !errors.Is(err, repository.ErrIdempotencyInProgress) {

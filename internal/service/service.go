@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"net/mail"
+	"strconv"
 	"strings"
 	"time"
 
@@ -267,7 +268,7 @@ func pagination(page, size int, total int64) web.Pagination {
 }
 
 func (s *Service) Preview(ctx context.Context, actorID int64, req model.MovementPreviewRequest) (model.Preview, error) {
-	if req.Operation != "ACUMULACION" && req.Operation != "CANJE" || len(req.QRToken) < 32 || req.BranchID < 1 {
+	if req.Operation != "ACUMULACION" && req.Operation != "CANJE" || req.BranchID < 1 {
 		return model.Preview{}, ErrInvalidRequest
 	}
 	if req.Operation == "ACUMULACION" && req.BenefitID != nil {
@@ -276,26 +277,73 @@ func (s *Service) Preview(ctx context.Context, actorID int64, req model.Movement
 	if req.Operation == "CANJE" && (req.BenefitID == nil || *req.BenefitID < 1) {
 		return model.Preview{}, ErrInvalidRequest
 	}
+	token, err := s.resolveMovementIdentity(req.QRToken, req.CustomerCode)
+	if err != nil {
+		return model.Preview{}, err
+	}
+	req.QRToken = token
+	req.CustomerCode = ""
 	return s.Repo.CreatePreview(ctx, actorID, req, s.QRHash(req.QRToken), Fingerprint(req))
 }
 
 func (s *Service) ConfirmAccumulation(ctx context.Context, actorID int64, key, requestID string, req model.ConfirmAccumulationRequest) (repository.IdempotentResult, error) {
-	if len(req.QRToken) < 32 || req.BranchID < 1 {
+	if req.BranchID < 1 {
 		return repository.IdempotentResult{}, ErrInvalidRequest
 	}
 	if _, err := uuid.Parse(req.PreviewID); err != nil {
 		return repository.IdempotentResult{}, ErrInvalidRequest
 	}
+	token, err := s.resolveMovementIdentity(req.QRToken, req.CustomerCode)
+	if err != nil {
+		return repository.IdempotentResult{}, err
+	}
+	req.QRToken = token
+	req.CustomerCode = ""
 	return s.confirm(ctx, repository.ConfirmInput{ActorID: actorID, Key: key, Fingerprint: Fingerprint(req), PreviewID: req.PreviewID, QRHash: s.QRHash(req.QRToken), BranchID: req.BranchID, Operation: "ACUMULACION"}, requestID)
 }
 func (s *Service) ConfirmRedemption(ctx context.Context, actorID int64, key, requestID string, req model.ConfirmRedemptionRequest) (repository.IdempotentResult, error) {
-	if len(req.QRToken) < 32 || req.BranchID < 1 || req.BenefitID < 1 {
+	if req.BranchID < 1 || req.BenefitID < 1 {
 		return repository.IdempotentResult{}, ErrInvalidRequest
 	}
 	if _, err := uuid.Parse(req.PreviewID); err != nil {
 		return repository.IdempotentResult{}, ErrInvalidRequest
 	}
+	token, err := s.resolveMovementIdentity(req.QRToken, req.CustomerCode)
+	if err != nil {
+		return repository.IdempotentResult{}, err
+	}
+	req.QRToken = token
+	req.CustomerCode = ""
 	return s.confirm(ctx, repository.ConfirmInput{ActorID: actorID, Key: key, Fingerprint: Fingerprint(req), PreviewID: req.PreviewID, QRHash: s.QRHash(req.QRToken), BranchID: req.BranchID, BenefitID: &req.BenefitID, Operation: "CANJE"}, requestID)
+}
+
+func (s *Service) resolveMovementIdentity(qrToken, customerCode string) (string, error) {
+	qrToken = strings.TrimSpace(qrToken)
+	customerCode = strings.TrimSpace(customerCode)
+	if (qrToken == "") == (customerCode == "") {
+		return "", ErrInvalidRequest
+	}
+	if qrToken != "" {
+		if len(qrToken) < 32 || len(qrToken) > 256 {
+			return "", ErrInvalidRequest
+		}
+		return qrToken, nil
+	}
+
+	normalizedCode := strings.ToUpper(strings.TrimPrefix(customerCode, "#"))
+	if !strings.HasPrefix(normalizedCode, "USER-") {
+		return "", ErrInvalidRequest
+	}
+	digits := strings.TrimPrefix(normalizedCode, "USER-")
+	if len(digits) < 4 || len(digits) > 19 {
+		return "", ErrInvalidRequest
+	}
+	customerID, err := strconv.ParseInt(digits, 10, 64)
+	if err != nil || customerID < 1 {
+		return "", ErrInvalidRequest
+	}
+	token, _ := s.QRForUser(customerID)
+	return token, nil
 }
 func (s *Service) confirm(ctx context.Context, in repository.ConfirmInput, requestID string) (repository.IdempotentResult, error) {
 	if _, err := uuid.Parse(in.Key); err != nil {
