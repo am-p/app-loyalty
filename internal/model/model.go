@@ -109,6 +109,25 @@ type Card struct {
 	BalanceStamps int64   `json:"balance_stamps"`
 	Benefit       Benefit `json:"benefit"`
 }
+type BrandCustomer struct {
+	CustomerID     int64      `json:"customer_id"`
+	CardID         int64      `json:"card_id"`
+	Name           string     `json:"name"`
+	Email          string     `json:"email"`
+	BalanceStamps  int64      `json:"balance_stamps"`
+	MovementsCount int64      `json:"movements_count"`
+	LastMovementAt *time.Time `json:"last_movement_at"`
+	JoinedAt       time.Time  `json:"joined_at"`
+}
+type BrandMetricsSummary struct {
+	ActiveCustomers     int64      `json:"active_customers"`
+	CurrentStampBalance int64      `json:"current_stamp_balance"`
+	Accumulations       int64      `json:"accumulations"`
+	Redemptions         int64      `json:"redemptions"`
+	StampsIssued        int64      `json:"stamps_issued"`
+	StampsRedeemed      int64      `json:"stamps_redeemed"`
+	LastMovementAt      *time.Time `json:"last_movement_at"`
+}
 type MovementPreviewRequest struct {
 	Operation string `json:"operation"`
 	QRToken   string `json:"qr_token"`

@@ -237,6 +237,53 @@ func (h *Handler) BrandMovements(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, web.PageEnvelope[model.Movement]{Data: data, Pagination: p, RequestID: web.RequestID(c)})
 }
+func (h *Handler) BrandCustomers(c *gin.Context) {
+	a, ok := actor(c)
+	if !ok {
+		return
+	}
+	if a.AccountType != "PERSONAL_MARCA" {
+		writeErr(c, service.ErrForbidden)
+		return
+	}
+	brandID, err := positiveID(c.Param("brand_id"))
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	page, size, err := pagination(c)
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	data, p, err := h.Service.BrandCustomers(c.Request.Context(), a.ID, brandID, page, size, c.Query("search"))
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, web.PageEnvelope[model.BrandCustomer]{Data: data, Pagination: p, RequestID: web.RequestID(c)})
+}
+func (h *Handler) BrandMetrics(c *gin.Context) {
+	a, ok := actor(c)
+	if !ok {
+		return
+	}
+	if a.AccountType != "PERSONAL_MARCA" {
+		writeErr(c, service.ErrForbidden)
+		return
+	}
+	brandID, err := positiveID(c.Param("brand_id"))
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	data, err := h.Service.BrandMetrics(c.Request.Context(), a.ID, brandID)
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, web.Envelope[model.BrandMetricsSummary]{Data: data, RequestID: web.RequestID(c)})
+}
 func (h *Handler) Preview(c *gin.Context) {
 	a, ok := actor(c)
 	if !ok {

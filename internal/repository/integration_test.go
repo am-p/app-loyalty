@@ -284,6 +284,31 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 		t.Fatalf("balance=%d err=%v", balance, err)
 	}
 
+	brandCustomers, customerPagination, err := svc.BrandCustomers(ctx, merchant.User.ID, merchant.Merchant.BrandID, 1, 20, " CLIENT@ ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if customerPagination.TotalItems != 1 || customerPagination.TotalPages != 1 || len(brandCustomers) != 1 {
+		t.Fatalf("brand customer page=%+v items=%+v", customerPagination, brandCustomers)
+	}
+	brandCustomer := brandCustomers[0]
+	if brandCustomer.CustomerID != customer.ID || brandCustomer.Email != "client@example.com" || brandCustomer.Name != "Client" ||
+		brandCustomer.BalanceStamps != 0 || brandCustomer.MovementsCount != 12 || brandCustomer.LastMovementAt == nil || brandCustomer.JoinedAt.IsZero() {
+		t.Fatalf("unexpected brand customer %+v", brandCustomer)
+	}
+	emptyCustomers, emptyPagination, err := svc.BrandCustomers(ctx, merchant.User.ID, merchant.Merchant.BrandID, 1, 20, "not-present")
+	if err != nil || len(emptyCustomers) != 0 || emptyPagination.TotalItems != 0 || emptyPagination.TotalPages != 0 {
+		t.Fatalf("filtered customers page=%+v items=%+v err=%v", emptyPagination, emptyCustomers, err)
+	}
+	metrics, err := svc.BrandMetrics(ctx, merchant.User.ID, merchant.Merchant.BrandID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metrics.ActiveCustomers != 1 || metrics.CurrentStampBalance != 0 || metrics.Accumulations != 10 || metrics.Redemptions != 2 ||
+		metrics.StampsIssued != 10 || metrics.StampsRedeemed != 10 || metrics.LastMovementAt == nil {
+		t.Fatalf("unexpected brand metrics %+v", metrics)
+	}
+
 	secondReq := model.RegisterDemoMerchantRequest{Email: "owner2@example.com", Password: "merchant-pass", OwnerName: "Owner2", BrandName: "Brand2", BranchName: "Other"}
 	secondRaw, err := svc.RegisterDemoMerchant(ctx, uuid.NewString(), "demo-access-code", uuid.NewString(), secondReq)
 	if err != nil {
@@ -295,6 +320,24 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	alien.BranchID = second.Data.Merchant.Branch.ID
 	if _, err = svc.Preview(ctx, merchant.User.ID, alien); !errors.Is(err, repository.ErrNotFound) {
 		t.Fatalf("ownership: %v", err)
+	}
+	if _, _, err = svc.BrandCustomers(ctx, second.Data.User.ID, merchant.Merchant.BrandID, 1, 20, ""); !errors.Is(err, repository.ErrNotFound) {
+		t.Fatalf("customer list ownership: %v", err)
+	}
+	if _, err = svc.BrandMetrics(ctx, second.Data.User.ID, merchant.Merchant.BrandID); !errors.Is(err, repository.ErrNotFound) {
+		t.Fatalf("metrics ownership: %v", err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE membresias_marca SET activo=false WHERE usuario_id=$1 AND marca_id=$2`, merchant.User.ID, merchant.Merchant.BrandID); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = svc.BrandCustomers(ctx, merchant.User.ID, merchant.Merchant.BrandID, 1, 20, ""); !errors.Is(err, repository.ErrNotFound) {
+		t.Fatalf("inactive membership customer list: %v", err)
+	}
+	if _, err = svc.BrandMetrics(ctx, merchant.User.ID, merchant.Merchant.BrandID); !errors.Is(err, repository.ErrNotFound) {
+		t.Fatalf("inactive membership metrics: %v", err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE membresias_marca SET activo=true WHERE usuario_id=$1 AND marca_id=$2`, merchant.User.ID, merchant.Merchant.BrandID); err != nil {
+		t.Fatal(err)
 	}
 	if err = repo.CheckSchema(ctx, "0001"); err != nil {
 		t.Fatal(err)

@@ -117,6 +117,98 @@ func (r *Repository) ListBrandMovements(ctx context.Context, actorID, brandID in
 	return r.listMovements(ctx, `h.marca_id=$1 AND EXISTS(SELECT 1 FROM membresias_marca mm JOIN membresias_sucursales ms ON ms.membresia_id=mm.id WHERE mm.usuario_id=$2 AND mm.marca_id=$1 AND mm.activo AND ms.activo AND ms.sucursal_id=h.sucursal_id)`, []any{brandID, actorID}, page, pageSize, total)
 }
 
+func (r *Repository) ListBrandCustomers(ctx context.Context, actorID, brandID int64, page, pageSize int, search string) ([]model.BrandCustomer, int64, error) {
+	tx, err := r.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return nil, 0, err
+	}
+	defer tx.Rollback(ctx)
+
+	var authorized bool
+	err = tx.QueryRow(ctx, `SELECT EXISTS(
+		SELECT 1 FROM usuarios u
+		JOIN membresias_marca mm ON mm.usuario_id=u.id AND mm.activo AND mm.rol='PROPIETARIO'
+		JOIN marcas m ON m.id=mm.marca_id AND m.activo AND m.deleted_at IS NULL
+		WHERE u.id=$1 AND u.tipo_cuenta='PERSONAL_MARCA' AND u.activo AND u.deleted_at IS NULL AND m.id=$2
+	)`, actorID, brandID).Scan(&authorized)
+	if err != nil {
+		return nil, 0, err
+	}
+	if !authorized {
+		return nil, 0, ErrNotFound
+	}
+
+	const cardsFrom = ` FROM tarjetas t
+		JOIN usuarios u ON u.id=t.usuario_id AND u.tipo_cuenta='CLIENTE_FINAL' AND u.activo AND u.deleted_at IS NULL`
+	const cardsWhere = ` WHERE t.marca_id=$1 AND t.activo AND t.deleted_at IS NULL
+		AND ($2='' OR strpos(lower(u.nombre),lower($2))>0 OR strpos(lower(u.email::text),lower($2))>0)`
+	var total int64
+	if err = tx.QueryRow(ctx, `SELECT count(*)`+cardsFrom+cardsWhere, brandID, search).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	rows, err := tx.Query(ctx, `SELECT u.id,t.id,u.nombre,u.email::text,t.saldo_sellos,
+		count(h.id),max(h.occurred_at),t.created_at`+cardsFrom+`
+		LEFT JOIN historial_movimientos h ON h.tarjeta_id=t.id AND h.marca_id=t.marca_id`+cardsWhere+`
+		GROUP BY u.id,t.id,u.nombre,u.email,t.saldo_sellos,t.created_at
+		ORDER BY max(h.occurred_at) DESC NULLS LAST,t.id DESC LIMIT $3 OFFSET $4`, brandID, search, pageSize, (page-1)*pageSize)
+	if err != nil {
+		return nil, 0, err
+	}
+	items := make([]model.BrandCustomer, 0)
+	for rows.Next() {
+		var item model.BrandCustomer
+		if err = rows.Scan(&item.CustomerID, &item.CardID, &item.Name, &item.Email, &item.BalanceStamps, &item.MovementsCount, &item.LastMovementAt, &item.JoinedAt); err != nil {
+			rows.Close()
+			return nil, 0, err
+		}
+		items = append(items, item)
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return nil, 0, err
+	}
+	rows.Close()
+	if err = tx.Commit(ctx); err != nil {
+		return nil, 0, err
+	}
+	return items, total, nil
+}
+
+func (r *Repository) BrandMetricsSummary(ctx context.Context, actorID, brandID int64) (model.BrandMetricsSummary, error) {
+	const query = `WITH authorized AS (
+		SELECT 1 FROM usuarios u
+		JOIN membresias_marca mm ON mm.usuario_id=u.id AND mm.activo AND mm.rol='PROPIETARIO'
+		JOIN marcas m ON m.id=mm.marca_id AND m.activo AND m.deleted_at IS NULL
+		WHERE u.id=$1 AND u.tipo_cuenta='PERSONAL_MARCA' AND u.activo AND u.deleted_at IS NULL AND m.id=$2
+	), active_cards AS (
+		SELECT count(*) AS active_customers,COALESCE(sum(t.saldo_sellos),0)::bigint AS current_stamp_balance
+		FROM tarjetas t JOIN usuarios u ON u.id=t.usuario_id AND u.tipo_cuenta='CLIENTE_FINAL' AND u.activo AND u.deleted_at IS NULL
+		WHERE t.marca_id=$2 AND t.activo AND t.deleted_at IS NULL AND EXISTS(SELECT 1 FROM authorized)
+	), ledger AS (
+		SELECT count(*) FILTER(WHERE h.operacion='ACUMULACION') AS accumulations,
+			count(*) FILTER(WHERE h.operacion='CANJE') AS redemptions,
+			COALESCE(sum(h.cantidad) FILTER(WHERE h.operacion='ACUMULACION' AND h.sentido='CREDITO'),0)::bigint AS stamps_issued,
+			COALESCE(sum(h.cantidad) FILTER(WHERE h.operacion='CANJE' AND h.sentido='DEBITO'),0)::bigint AS stamps_redeemed,
+			max(h.occurred_at) AS last_movement_at
+		FROM historial_movimientos h WHERE h.marca_id=$2 AND EXISTS(SELECT 1 FROM authorized)
+	)
+	SELECT EXISTS(SELECT 1 FROM authorized),active_cards.active_customers,active_cards.current_stamp_balance,
+		ledger.accumulations,ledger.redemptions,ledger.stamps_issued,ledger.stamps_redeemed,ledger.last_movement_at
+	FROM active_cards CROSS JOIN ledger`
+	var authorized bool
+	var result model.BrandMetricsSummary
+	err := r.Pool.QueryRow(ctx, query, actorID, brandID).Scan(&authorized, &result.ActiveCustomers, &result.CurrentStampBalance,
+		&result.Accumulations, &result.Redemptions, &result.StampsIssued, &result.StampsRedeemed, &result.LastMovementAt)
+	if err != nil {
+		return model.BrandMetricsSummary{}, err
+	}
+	if !authorized {
+		return model.BrandMetricsSummary{}, ErrNotFound
+	}
+	return result, nil
+}
+
 func (r *Repository) listMovements(ctx context.Context, where string, args []any, page, pageSize int, total int64) ([]model.Movement, int64, error) {
 	q := `SELECT h.id,h.operation_id,h.tarjeta_id,h.marca_id,m.nombre,h.sucursal_id,s.nombre,h.operacion,h.sentido,h.cantidad,h.saldo_anterior,h.saldo_posterior,h.beneficio_nombre_snapshot,h.beneficio_requisito_snapshot,h.occurred_at FROM historial_movimientos h JOIN tarjetas t ON t.id=h.tarjeta_id JOIN marcas m ON m.id=h.marca_id JOIN sucursales s ON s.id=h.sucursal_id WHERE ` + where
 	args = append(args, pageSize, (page-1)*pageSize)

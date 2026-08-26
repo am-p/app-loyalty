@@ -247,6 +247,17 @@ func (s *Service) BrandMovements(ctx context.Context, actorID, brandID int64, pa
 	items, total, err := s.Repo.ListBrandMovements(ctx, actorID, brandID, page, size)
 	return items, pagination(page, size, total), err
 }
+func (s *Service) BrandCustomers(ctx context.Context, actorID, brandID int64, page, size int, search string) ([]model.BrandCustomer, web.Pagination, error) {
+	search = strings.TrimSpace(search)
+	if len([]rune(search)) > 120 {
+		return nil, web.Pagination{}, ErrInvalidRequest
+	}
+	items, total, err := s.Repo.ListBrandCustomers(ctx, actorID, brandID, page, size, search)
+	return items, pagination(page, size, total), err
+}
+func (s *Service) BrandMetrics(ctx context.Context, actorID, brandID int64) (model.BrandMetricsSummary, error) {
+	return s.Repo.BrandMetricsSummary(ctx, actorID, brandID)
+}
 func pagination(page, size int, total int64) web.Pagination {
 	pages := int64(0)
 	if total > 0 {

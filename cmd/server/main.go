@@ -84,6 +84,8 @@ func newRouter(h *handler.Handler, tokens *auth.Tokens, logger *slog.Logger) *gi
 	authenticated.GET("/marcas", h.ListBrands)
 	authenticated.GET("/marcas/:brand_id", h.Brand)
 	authenticated.GET("/marcas/:brand_id/movimientos", h.BrandMovements)
+	authenticated.GET("/marcas/:brand_id/clientes", h.BrandCustomers)
+	authenticated.GET("/marcas/:brand_id/metricas/resumen", h.BrandMetrics)
 	authenticated.GET("/clientes/me", h.Customer)
 	authenticated.GET("/clientes/me/tarjetas", h.Cards)
 	authenticated.GET("/clientes/me/tarjetas/:card_id/movimientos", h.CardMovements)
