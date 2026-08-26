@@ -1,0 +1,12 @@
+DROP TABLE IF EXISTS solicitudes_idempotentes;
+DROP TABLE IF EXISTS historial_movimientos;
+DROP TABLE IF EXISTS previews_movimiento;
+DROP TABLE IF EXISTS tarjetas;
+DROP TABLE IF EXISTS accesos_demo;
+DROP TABLE IF EXISTS beneficios;
+DROP TABLE IF EXISTS programas_fidelidad;
+DROP TABLE IF EXISTS membresias_sucursales;
+DROP TABLE IF EXISTS sucursales;
+DROP TABLE IF EXISTS membresias_marca;
+DROP TABLE IF EXISTS marcas;
+DROP TABLE IF EXISTS usuarios;
