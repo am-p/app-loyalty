@@ -17,16 +17,19 @@ type Claims struct {
 }
 type Tokens struct {
 	Secret []byte
+	Issuer string
 	Now    func() time.Time
 }
 
-func NewTokens(secret string) *Tokens { return &Tokens{Secret: []byte(secret), Now: time.Now} }
+func NewTokens(secret, issuer string) *Tokens {
+	return &Tokens{Secret: []byte(secret), Issuer: issuer, Now: time.Now}
+}
 
 func (t *Tokens) Generate(userID int64, accountType string) (string, error) {
 	now := t.Now().UTC()
 	claims := Claims{AccountType: accountType, RegisteredClaims: jwt.RegisteredClaims{
 		Subject: strconv.FormatInt(userID, 10), IssuedAt: jwt.NewNumericDate(now), ExpiresAt: jwt.NewNumericDate(now.Add(24 * time.Hour)),
-		Issuer: "puntazo-preview", Audience: []string{"puntazo-app"},
+		Issuer: t.Issuer, Audience: []string{"puntazo-app"},
 	}}
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(t.Secret)
 }
@@ -38,7 +41,7 @@ func (t *Tokens) Parse(raw string) (int64, string, error) {
 			return nil, fmt.Errorf("unexpected signing method")
 		}
 		return t.Secret, nil
-	}, jwt.WithAudience("puntazo-app"), jwt.WithIssuer("puntazo-preview"), jwt.WithExpirationRequired(), jwt.WithTimeFunc(t.Now))
+	}, jwt.WithAudience("puntazo-app"), jwt.WithIssuer(t.Issuer), jwt.WithExpirationRequired(), jwt.WithTimeFunc(t.Now))
 	if err != nil || !token.Valid {
 		return 0, "", ErrInvalidToken
 	}

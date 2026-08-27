@@ -44,7 +44,7 @@ func main() {
 	}
 	defer pool.Close()
 	repo := repository.New(pool)
-	tokens := auth.NewTokens(cfg.JWTSecret)
+	tokens := auth.NewTokens(cfg.JWTSecret, cfg.JWTIssuer)
 	svc := service.New(repo, tokens, cfg)
 	h := &handler.Handler{Service: svc, Repo: repo, Limiter: middleware.NewRateLimiter(), Logger: logger, TrustedProxyCount: cfg.TrustedProxyCount}
 	router := newRouter(h, tokens, logger)

@@ -15,6 +15,7 @@ const MaxJSONBytes int64 = 1 << 20
 type Config struct {
 	DatabaseURL           string
 	JWTSecret             string
+	JWTIssuer             string
 	QRPepper              string
 	DemoAccessCodeHash    string
 	DemoSignupEnabled     bool
@@ -30,7 +31,7 @@ type Config struct {
 
 func Load() (Config, error) {
 	c := Config{
-		DatabaseURL: os.Getenv("DATABASE_URL"), JWTSecret: os.Getenv("JWT_SECRET"),
+		DatabaseURL: os.Getenv("DATABASE_URL"), JWTSecret: os.Getenv("JWT_SECRET"), JWTIssuer: envDefault("JWT_ISSUER", "puntazo"),
 		QRPepper: os.Getenv("QR_PEPPER"), DemoAccessCodeHash: os.Getenv("DEMO_ACCESS_CODE_HASH"),
 		DemoSignupEnabled: envBool("DEMO_SIGNUP_ENABLED", false), AppVersion: envDefault("APP_VERSION", "dev"),
 		GitCommit: envDefault("GIT_COMMIT", "0000000"), ExpectedSchemaVersion: envDefault("EXPECTED_SCHEMA_VERSION", "0001"),
@@ -42,6 +43,9 @@ func Load() (Config, error) {
 	}
 	if len(c.JWTSecret) < 32 {
 		return Config{}, errors.New("JWT_SECRET must be at least 32 bytes")
+	}
+	if c.JWTIssuer == "" {
+		return Config{}, errors.New("JWT_ISSUER must not be empty")
 	}
 	if len(c.QRPepper) < 32 {
 		return Config{}, errors.New("QR_PEPPER must be at least 32 bytes")
@@ -71,7 +75,11 @@ func fourDigits(value string) bool {
 }
 
 func (c Config) PoolConfig() (*pgxpool.Config, error) {
-	pc, err := pgxpool.ParseConfig(c.DatabaseURL)
+	return ParsePoolConfig(c.DatabaseURL)
+}
+
+func ParsePoolConfig(databaseURL string) (*pgxpool.Config, error) {
+	pc, err := pgxpool.ParseConfig(databaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("parse DATABASE_URL: %w", err)
 	}

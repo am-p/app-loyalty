@@ -20,11 +20,11 @@ func main() {
 	if len(os.Args) != 2 || (os.Args[1] != "up" && os.Args[1] != "down") {
 		fatal("usage: migrate up|down")
 	}
-	cfg, err := config.Load()
-	if err != nil {
-		fatal(err.Error())
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		fatal("DATABASE_URL is required")
 	}
-	pc, err := cfg.PoolConfig()
+	pc, err := config.ParsePoolConfig(databaseURL)
 	if err != nil {
 		fatal(err.Error())
 	}

@@ -26,7 +26,7 @@ func (s *actorStoreStub) ActiveAccountType(_ context.Context, _ int64) (string, 
 
 func TestPreviouslyIssuedTokenStopsAfterSuspension(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	tokens := auth.NewTokens("01234567890123456789012345678901")
+	tokens := auth.NewTokens("01234567890123456789012345678901", "puntazo")
 	raw, err := tokens.Generate(7, "CLIENTE_FINAL")
 	if err != nil {
 		t.Fatal(err)
@@ -58,7 +58,7 @@ func TestPreviouslyIssuedTokenStopsAfterSuspension(t *testing.T) {
 
 func TestUnauthenticatedResponseIsUniform(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	tokens := auth.NewTokens("01234567890123456789012345678901")
+	tokens := auth.NewTokens("01234567890123456789012345678901", "puntazo")
 	store := &actorStoreStub{err: errors.New("inactive")}
 	router := gin.New()
 	router.Use(func(c *gin.Context) { c.Set(web.RequestIDKey, "00000000-0000-0000-0000-000000000001") })

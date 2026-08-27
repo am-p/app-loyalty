@@ -20,7 +20,7 @@ func TestPublicHealthAndVersionContract(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	svc := &service.Service{Config: config.Config{AppVersion: "0.1.0", GitCommit: "abcdef0", ExpectedSchemaVersion: "0001"}}
 	h := &handler.Handler{Service: svc, Limiter: middleware.NewRateLimiter(), Logger: logger}
-	r := newRouter(h, auth.NewTokens("01234567890123456789012345678901"), logger)
+	r := newRouter(h, auth.NewTokens("01234567890123456789012345678901", "puntazo"), logger)
 	for _, path := range []string{"/v1/health/live", "/v1/version"} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		w := httptest.NewRecorder()
@@ -34,7 +34,7 @@ func TestPublicHealthAndVersionContract(t *testing.T) {
 func TestAuthRequiredUsesStableEnvelope(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	h := &handler.Handler{Service: &service.Service{}, Limiter: middleware.NewRateLimiter(), Logger: logger}
-	r := newRouter(h, auth.NewTokens("01234567890123456789012345678901"), logger)
+	r := newRouter(h, auth.NewTokens("01234567890123456789012345678901", "puntazo"), logger)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/me", nil))
 	if w.Code != http.StatusUnauthorized {
@@ -52,7 +52,7 @@ func TestAuthRequiredUsesStableEnvelope(t *testing.T) {
 func TestStrictJSONRejectsUnknownAndOversized(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	h := &handler.Handler{Service: &service.Service{}, Limiter: middleware.NewRateLimiter(), Logger: logger}
-	r := newRouter(h, auth.NewTokens("01234567890123456789012345678901"), logger)
+	r := newRouter(h, auth.NewTokens("01234567890123456789012345678901", "puntazo"), logger)
 	request := httptest.NewRequest(http.MethodPost, "/v1/auth/register", bytes.NewBufferString(`{"email":"a@example.com","password":"1234567890","name":"A","role":"ADMIN"}`))
 	request.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
