@@ -50,7 +50,11 @@ func run(ctx context.Context, pool *pgxpool.Pool, direction, dir string) error {
 	if _, err = conn.Exec(ctx, `SELECT pg_advisory_lock(73194211)`); err != nil {
 		return err
 	}
-	defer conn.Exec(context.Background(), `SELECT pg_advisory_unlock(73194211)`)
+	defer func() {
+		unlockCtx, unlockCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer unlockCancel()
+		_, _ = conn.Exec(unlockCtx, `SELECT pg_advisory_unlock(73194211)`)
+	}()
 	if _, err = conn.Exec(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations(version CHAR(4) PRIMARY KEY,applied_at TIMESTAMPTZ NOT NULL DEFAULT now())`); err != nil {
 		return err
 	}

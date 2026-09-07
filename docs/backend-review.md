@@ -119,7 +119,7 @@ El portal documental externo sigue fijado al main legacy del source lock. Esta
 rama documenta aquí su organización; no se actualiza ese lock como si el PR
 estuviera fusionado. Las URLs, flujos, esquema y OpenAPI de Sellos no cambiaron.
 
-### Resultado local — 6 de septiembre de 2026
+### Resultado de verificación — 7 de septiembre de 2026
 
 - `go build ./...` y `go vet ./...`: correctos.
 - `go test -race ./... -count=1` con `TEST_DATABASE_URL`: correcto.
@@ -132,6 +132,7 @@ estuviera fusionado. Las URLs, flujos, esquema y OpenAPI de Sellos no cambiaron.
   política del pool y sustitución de umbrales por constantes equivalentes.
 - PostgreSQL 16 temporal local detenido después de las pruebas. No se usaron
   datos del despliegue. Docker no estaba activo; no se reconstruyeron imágenes.
+- OpenAPI válido con 16 advertencias editoriales preexistentes: servidor local,
+  descripciones de tags y resúmenes de algunas operaciones.
 
-Los cambios permanecen locales para revisión; no se enviaron commits ni se
-ejecutó un despliegue.
+Esta verificación no ejecutó un despliegue.
