@@ -10,6 +10,9 @@ type rateEntry struct {
 	Expires time.Time
 	Count   int
 }
+
+// RateLimiter counts requests in fixed windows within this process only.
+// Restarting clears the counters; replicas do not share them.
 type RateLimiter struct {
 	mu      sync.Mutex
 	entries map[string]rateEntry

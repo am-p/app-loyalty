@@ -13,6 +13,8 @@ import (
 
 const ActorKey = "actor"
 
+// Actor is the authenticated identity after checking current account state.
+// It does not grant access to a brand: resource membership is checked separately.
 type Actor struct {
 	ID          int64
 	AccountType string
