@@ -4,6 +4,15 @@ API de la vertical `DEMO-01-SELLOS`, implementada con Go, Gin, pgx y PostgreSQL 
 
 Esta versión parte de una base PostgreSQL nueva. No migra ni reutiliza cuentas de la tabla legacy `users`.
 
+La organización del código y las aclaraciones de la revisión de Ariel están en
+[`docs/backend-review.md`](./docs/backend-review.md). Los endpoints y las reglas
+de Sellos se conservan; el pool recupera el presupuesto original de 4 conexiones
+máximas, 0 mínimas y 30 minutos de inactividad, compartido por API y migrador.
+
+Los JWT del backend legacy no son compatibles con los claims y validaciones de
+esta versión: al pasar a Sellos se requiere iniciar sesión nuevamente. La vigencia
+sigue siendo 24 horas; los aliases HTTP legacy no convierten tokens anteriores.
+
 ## Desarrollo local
 
 Requisitos: Go 1.25, Docker y Docker Compose.
@@ -67,9 +76,16 @@ ALLOW_MIGRATION_DOWN=true go run ./cmd/migrate down
 | `CORS_ORIGINS` | Orígenes web exactos permitidos, separados por comas. |
 | `GOOGLE_CLIENT_ID` | Audiencia web de Google; opcional para el alias legado. |
 | `EXPECTED_SCHEMA_VERSION` | Versión de esquema requerida por readiness; por defecto `0001`. |
+| `APP_VERSION` | Etiqueta de versión informada por `/v1/version`; por defecto `dev`. |
+| `GIT_COMMIT` | Revisión del código informada por `/v1/version`; `0000000` si no se proporciona. No ejecuta Git. |
 | `TRUSTED_PROXY_COUNT` | Cantidad de proxies confiables para resolver la IP usada por rate limits. |
 
 Los secretos se configuran únicamente en el runtime. Nunca deben copiarse al frontend ni a variables `EXPO_PUBLIC_*`.
+
+El despliegue debe proporcionar el SHA real de la revisión construida en
+`GIT_COMMIT` y el esquema correspondiente en `EXPECTED_SCHEMA_VERSION`.
+La API informa esa etiqueta; no verifica por sí misma el contenido del binario.
+Configurar la versión de esquema no aplica migraciones.
 
 ## Verificación
 

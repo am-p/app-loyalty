@@ -2,12 +2,9 @@ package config
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"strconv"
 	"time"
-
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const MaxJSONBytes int64 = 1 << 20
@@ -74,30 +71,13 @@ func fourDigits(value string) bool {
 	return true
 }
 
-func (c Config) PoolConfig() (*pgxpool.Config, error) {
-	return ParsePoolConfig(c.DatabaseURL)
-}
-
-func ParsePoolConfig(databaseURL string) (*pgxpool.Config, error) {
-	pc, err := pgxpool.ParseConfig(databaseURL)
-	if err != nil {
-		return nil, fmt.Errorf("parse DATABASE_URL: %w", err)
-	}
-	pc.MaxConns = 10
-	pc.MinConns = 1
-	pc.MaxConnLifetime = time.Hour
-	pc.MaxConnIdleTime = 15 * time.Minute
-	pc.HealthCheckPeriod = time.Minute
-	pc.ConnConfig.ConnectTimeout = 5 * time.Second
-	return pc, nil
-}
-
 func envDefault(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
 	}
 	return fallback
 }
+
 func envBool(key string, fallback bool) bool {
 	v, err := strconv.ParseBool(os.Getenv(key))
 	if err != nil {
@@ -105,6 +85,7 @@ func envBool(key string, fallback bool) bool {
 	}
 	return v
 }
+
 func envInt(key string, fallback int) int {
 	v, err := strconv.Atoi(os.Getenv(key))
 	if err != nil || v < 0 {
