@@ -2,51 +2,65 @@ package main
 
 import (
 	"context"
-	"log"
+	"errors"
+	"log/slog"
+	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
+	"clientesFrecuentes/internal/auth"
 	"clientesFrecuentes/internal/config"
 	"clientesFrecuentes/internal/handler"
 	"clientesFrecuentes/internal/middleware"
 	"clientesFrecuentes/internal/repository"
+	"clientesFrecuentes/internal/service"
 
-	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 )
 
 func main() {
-	if err := godotenv.Load(); err != nil {
-		log.Println("No .env file found, using environment variables")
-	}
-
-	if os.Getenv("JWT_SECRET") == "" {
-		log.Fatal("JWT_SECRET is not set")
-	}
-
-	if os.Getenv("GOOGLE_CLIENT_ID") == "" {
-		log.Fatal("GOOGLE_CLIENT_ID is not set")
-	}
-
-	connPool, err := pgxpool.NewWithConfig(context.Background(), config.Config())
+	_ = godotenv.Load()
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	cfg, err := config.Load()
 	if err != nil {
-		log.Fatal("Error while creating connection to the database!! ", err)
+		logger.Error("invalid configuration", "error", err)
+		os.Exit(1)
 	}
-
-	defer connPool.Close()
-
-	err = repository.CreateTableQuery(connPool)
+	poolConfig, err := cfg.PoolConfig()
 	if err != nil {
-		log.Fatal("Could not create the table: ", err)
+		logger.Error("invalid database configuration", "error", err)
+		os.Exit(1)
 	}
-
-	router := gin.Default()
-	router.Use(middleware.CORS())
-
-	h := handler.UserHandler{Pool: connPool}
-	router.POST("/auth/register", h.RegisterUser)
-	router.POST("/auth/login", h.LoginUser)
-	router.POST("/auth/google", h.GoogleAuth)
-	router.GET("/me", middleware.RequireAuth(), h.Me)
-	router.Run()
+	startupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	pool, err := pgxpool.NewWithConfig(startupCtx, poolConfig)
+	cancel()
+	if err != nil {
+		logger.Error("database pool failed", "error", err)
+		os.Exit(1)
+	}
+	defer pool.Close()
+	repo := repository.New(pool)
+	tokens := auth.NewTokens(cfg.JWTSecret, cfg.JWTIssuer)
+	svc := service.New(repo, tokens, cfg)
+	h := &handler.Handler{Service: svc, Repo: repo, Limiter: middleware.NewRateLimiter(), Logger: logger, TrustedProxyCount: cfg.TrustedProxyCount}
+	router := newRouter(h, tokens, logger)
+	server := &http.Server{Addr: ":" + cfg.Port, Handler: router, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: cfg.ReadTimeout, WriteTimeout: cfg.WriteTimeout, IdleTimeout: cfg.IdleTimeout, MaxHeaderBytes: 32 << 10}
+	go func() {
+		logger.Info("server starting", "port", cfg.Port, "version", cfg.AppVersion)
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logger.Error("server failed", "error", err)
+			os.Exit(1)
+		}
+	}()
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
+	<-stop
+	ctx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
+	if err := server.Shutdown(ctx); err != nil {
+		logger.Error("graceful shutdown failed", "error", err)
+	}
 }

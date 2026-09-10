@@ -10,13 +10,15 @@ import (
 
 var ErrInvalidGoogleToken = errors.New("invalid google token")
 
-func VerifyGoogleToken(idToken string) (googleID, email, name string, err error) {
+// VerifyGoogleToken propagates request cancellation to Google's public-key
+// download when the validator's certificate cache needs refreshing.
+func VerifyGoogleToken(ctx context.Context, idToken string) (googleID, email, name string, err error) {
 	clientID := os.Getenv("GOOGLE_CLIENT_ID")
 	if clientID == "" {
 		return "", "", "", errors.New("GOOGLE_CLIENT_ID is not set")
 	}
 
-	payload, err := idtoken.Validate(context.Background(), idToken, clientID)
+	payload, err := idtoken.Validate(ctx, idToken, clientID)
 	if err != nil {
 		return "", "", "", ErrInvalidGoogleToken
 	}

@@ -1,37 +1,28 @@
 package config
 
 import (
-	"log"
-	"os"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func Config() *pgxpool.Config {
-	const defaultMaxConns = int32(4)
-	const defaultMinConns = int32(0)
-	const defaultMaxConnLifetime = time.Hour
-	const defaultMaxConnIdleTime = time.Minute * 30
-	const defaultHealthCheckPeriod = time.Minute
-	const defaultConnectTimeout = time.Second * 5
+func (c Config) PoolConfig() (*pgxpool.Config, error) {
+	return ParsePoolConfig(c.DatabaseURL)
+}
 
-	databaseURL := os.Getenv("DATABASE_URL")
-	if databaseURL == "" {
-		log.Fatal("DATABASE_URL is not set")
-	}
-
-	dbConfig, err := pgxpool.ParseConfig(databaseURL)
+// ParsePoolConfig is shared by the API and migrator. Keep the original pool
+// budget until deployment measurements justify a different connection policy.
+func ParsePoolConfig(databaseURL string) (*pgxpool.Config, error) {
+	pc, err := pgxpool.ParseConfig(databaseURL)
 	if err != nil {
-		log.Fatal("Failed to create a config, error: ", err)
+		return nil, fmt.Errorf("parse DATABASE_URL: %w", err)
 	}
-
-	dbConfig.MaxConns = defaultMaxConns
-	dbConfig.MinConns = defaultMinConns
-	dbConfig.MaxConnLifetime = defaultMaxConnLifetime
-	dbConfig.MaxConnIdleTime = defaultMaxConnIdleTime
-	dbConfig.HealthCheckPeriod = defaultHealthCheckPeriod
-	dbConfig.ConnConfig.ConnectTimeout = defaultConnectTimeout
-
-	return dbConfig
+	pc.MaxConns = 4
+	pc.MinConns = 0
+	pc.MaxConnLifetime = time.Hour
+	pc.MaxConnIdleTime = 30 * time.Minute
+	pc.HealthCheckPeriod = time.Minute
+	pc.ConnConfig.ConnectTimeout = 5 * time.Second
+	return pc, nil
 }

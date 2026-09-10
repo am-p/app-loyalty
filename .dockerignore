@@ -1,0 +1,11 @@
+.git
+.env
+.env.*
+bin
+tmp
+coverage
+*.log
+Dockerfile*
+docker-compose*.yml
+README.md
+openapi.yaml
