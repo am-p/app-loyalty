@@ -22,7 +22,7 @@ func (r *Repository) CreatePreview(ctx context.Context, actorID int64, req model
 	defer tx.Rollback(ctx)
 	var brandID, programID int64
 	var branchName, programType string
-	err = tx.QueryRow(ctx, `SELECT s.marca_id,s.nombre,p.id,p.tipo FROM membresias_marca mm JOIN membresias_sucursales ms ON ms.membresia_id=mm.id AND ms.marca_id=mm.marca_id AND ms.activo JOIN sucursales s ON s.id=ms.sucursal_id AND s.marca_id=ms.marca_id AND s.activo JOIN marcas m ON m.id=s.marca_id AND m.activo JOIN programas_fidelidad p ON p.marca_id=m.id AND p.activo JOIN accesos_demo a ON a.marca_id=m.id AND a.activo WHERE mm.usuario_id=$1 AND mm.activo AND s.id=$2 AND EXISTS(SELECT 1 FROM beneficios configured WHERE configured.programa_id=p.id AND configured.activo)`, actorID, req.BranchID).Scan(&brandID, &branchName, &programID, &programType)
+	err = tx.QueryRow(ctx, `SELECT s.marca_id,s.nombre,p.id,p.tipo FROM membresias_marca mm JOIN sucursales s ON s.marca_id=mm.marca_id AND s.activo LEFT JOIN membresias_sucursales ms ON ms.membresia_id=mm.id AND ms.marca_id=mm.marca_id AND ms.sucursal_id=s.id AND ms.activo JOIN marcas m ON m.id=s.marca_id AND m.activo JOIN programas_fidelidad p ON p.marca_id=m.id AND p.activo JOIN accesos_demo a ON a.marca_id=m.id AND a.activo WHERE mm.usuario_id=$1 AND mm.activo AND s.id=$2 AND (mm.rol IN ('PROPIETARIO','ADMINISTRADOR') OR ms.sucursal_id IS NOT NULL) AND EXISTS(SELECT 1 FROM beneficios configured WHERE configured.programa_id=p.id AND configured.activo)`, actorID, req.BranchID).Scan(&brandID, &branchName, &programID, &programType)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.Preview{}, ErrNotFound
 	}
@@ -155,7 +155,7 @@ func (r *Repository) ConfirmMovement(ctx context.Context, in ConfirmInput, build
 	}
 	var branchName, brandName, programType string
 	var programID int64
-	err = tx.QueryRow(ctx, `SELECT s.nombre,m.nombre,p.id,p.tipo FROM membresias_marca mm JOIN membresias_sucursales ms ON ms.membresia_id=mm.id AND ms.marca_id=mm.marca_id AND ms.activo JOIN sucursales s ON s.id=ms.sucursal_id AND s.marca_id=ms.marca_id AND s.activo JOIN marcas m ON m.id=s.marca_id AND m.activo JOIN programas_fidelidad p ON p.marca_id=m.id AND p.activo JOIN accesos_demo a ON a.marca_id=m.id AND a.activo WHERE mm.usuario_id=$1 AND mm.activo AND s.id=$2 AND m.id=$3`, in.ActorID, in.BranchID, p.BrandID).Scan(&branchName, &brandName, &programID, &programType)
+	err = tx.QueryRow(ctx, `SELECT s.nombre,m.nombre,p.id,p.tipo FROM membresias_marca mm JOIN sucursales s ON s.marca_id=mm.marca_id AND s.activo LEFT JOIN membresias_sucursales ms ON ms.membresia_id=mm.id AND ms.marca_id=mm.marca_id AND ms.sucursal_id=s.id AND ms.activo JOIN marcas m ON m.id=s.marca_id AND m.activo JOIN programas_fidelidad p ON p.marca_id=m.id AND p.activo JOIN accesos_demo a ON a.marca_id=m.id AND a.activo WHERE mm.usuario_id=$1 AND mm.activo AND s.id=$2 AND m.id=$3 AND (mm.rol IN ('PROPIETARIO','ADMINISTRADOR') OR ms.sucursal_id IS NOT NULL) FOR SHARE OF p`, in.ActorID, in.BranchID, p.BrandID).Scan(&branchName, &brandName, &programID, &programType)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return IdempotentResult{}, ErrNotFound
 	}

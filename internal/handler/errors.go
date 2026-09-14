@@ -45,6 +45,8 @@ func writeErr(c *gin.Context, err error) {
 		web.Error(c, http.StatusConflict, "OWNERSHIP_TRANSFER_REQUIRED", "Transferí la propiedad antes de eliminar la cuenta", nil)
 	case errors.Is(err, repository.ErrProgramTypeImmutable):
 		web.Error(c, http.StatusConflict, "PROGRAM_TYPE_IMMUTABLE", "El tipo de programa no puede cambiar después del primer movimiento", nil)
+	case errors.Is(err, repository.ErrProgramTypeHasBenefits):
+		web.Error(c, http.StatusConflict, "PROGRAM_TYPE_HAS_BENEFITS", "Eliminá los beneficios antes de cambiar el tipo de programa", nil)
 	case errors.Is(err, repository.ErrConflict):
 		web.Error(c, http.StatusConflict, "RESOURCE_CONFLICT", "La operación viola una invariante activa", nil)
 	case errors.Is(err, service.ErrIdentityToken):

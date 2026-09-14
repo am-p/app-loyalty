@@ -13,11 +13,11 @@ const merchantContextSelect = `SELECT m.id,m.nombre,m.descripcion,m.color_primar
 		p.id,p.marca_id,p.tipo,p.sellos_por_acumulacion,p.activo,p.nombre_unidad,p.version,p.created_at,p.updated_at,
 	a.tipo,a.precio_minor,a.moneda,a.cobro_automatico,a.activo,a.started_at
 	FROM membresias_marca mm JOIN marcas m ON m.id=mm.marca_id AND m.activo
-	JOIN membresias_sucursales ms ON ms.membresia_id=mm.id AND ms.marca_id=mm.marca_id AND ms.activo
-	JOIN sucursales s ON s.id=ms.sucursal_id AND s.marca_id=ms.marca_id AND s.activo
+	JOIN sucursales s ON s.marca_id=mm.marca_id AND s.activo
+	LEFT JOIN membresias_sucursales ms ON ms.membresia_id=mm.id AND ms.marca_id=mm.marca_id AND ms.sucursal_id=s.id AND ms.activo
 	JOIN programas_fidelidad p ON p.marca_id=m.id AND p.activo
 	JOIN accesos_demo a ON a.marca_id=m.id AND a.activo
-	WHERE mm.usuario_id=$1 AND mm.activo`
+	WHERE mm.usuario_id=$1 AND mm.activo AND (mm.rol IN ('PROPIETARIO','ADMINISTRADOR') OR ms.sucursal_id IS NOT NULL)`
 
 func scanMerchant(row pgx.Row) (model.MerchantContext, error) {
 	var m model.MerchantContext

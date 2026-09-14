@@ -69,14 +69,13 @@ func (r *Repository) DeleteBrand(ctx context.Context, actorID, brandID int64, ve
 }
 
 func (r *Repository) ListBranches(ctx context.Context, actorID, brandID int64) ([]model.Branch, error) {
-	var ok bool
-	if err := r.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM membresias_marca WHERE usuario_id=$1 AND marca_id=$2 AND activo)`, actorID, brandID).Scan(&ok); err != nil {
+	var role string
+	if err := r.Pool.QueryRow(ctx, `SELECT rol FROM membresias_marca WHERE usuario_id=$1 AND marca_id=$2 AND activo`, actorID, brandID).Scan(&role); errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	} else if err != nil {
 		return nil, err
 	}
-	if !ok {
-		return nil, ErrNotFound
-	}
-	rows, err := r.Pool.Query(ctx, `SELECT id,marca_id,nombre,direccion,activo,localidad,provincia,codigo_postal,latitud,longitud,principal,version,created_at,updated_at FROM sucursales WHERE marca_id=$1 ORDER BY id`, brandID)
+	rows, err := r.Pool.Query(ctx, `SELECT s.id,s.marca_id,s.nombre,s.direccion,s.activo,s.localidad,s.provincia,s.codigo_postal,s.latitud,s.longitud,s.principal,s.version,s.created_at,s.updated_at FROM sucursales s WHERE s.marca_id=$1 AND ($2 IN ('PROPIETARIO','ADMINISTRADOR') OR EXISTS(SELECT 1 FROM membresias_marca mm JOIN membresias_sucursales ms ON ms.membresia_id=mm.id AND ms.activo WHERE mm.usuario_id=$3 AND mm.marca_id=$1 AND mm.activo AND ms.sucursal_id=s.id)) ORDER BY s.id`, brandID, role, actorID)
 	if err != nil {
 		return nil, err
 	}
@@ -96,23 +95,31 @@ func scanBranch(row rowScanner, b *model.Branch) error {
 }
 func (r *Repository) GetBranch(ctx context.Context, actorID, brandID, branchID int64) (model.Branch, error) {
 	var b model.Branch
-	err := scanBranch(r.Pool.QueryRow(ctx, `SELECT s.id,s.marca_id,s.nombre,s.direccion,s.activo,s.localidad,s.provincia,s.codigo_postal,s.latitud,s.longitud,s.principal,s.version,s.created_at,s.updated_at FROM sucursales s WHERE s.id=$3 AND s.marca_id=$2 AND EXISTS(SELECT 1 FROM membresias_marca WHERE usuario_id=$1 AND marca_id=$2 AND activo)`, actorID, brandID, branchID), &b)
+	err := scanBranch(r.Pool.QueryRow(ctx, `SELECT s.id,s.marca_id,s.nombre,s.direccion,s.activo,s.localidad,s.provincia,s.codigo_postal,s.latitud,s.longitud,s.principal,s.version,s.created_at,s.updated_at FROM sucursales s JOIN membresias_marca mm ON mm.marca_id=s.marca_id AND mm.usuario_id=$1 AND mm.activo LEFT JOIN membresias_sucursales ms ON ms.membresia_id=mm.id AND ms.sucursal_id=s.id AND ms.activo WHERE s.id=$3 AND s.marca_id=$2 AND (mm.rol IN ('PROPIETARIO','ADMINISTRADOR') OR ms.sucursal_id IS NOT NULL)`, actorID, brandID, branchID), &b)
 	if errors.Is(err, pgx.ErrNoRows) {
 		err = ErrNotFound
 	}
 	return b, err
 }
 func (r *Repository) CreateBranch(ctx context.Context, actorID, brandID int64, req model.CreateBranchRequest) (model.Branch, error) {
+	tx, err := r.Pool.Begin(ctx)
+	if err != nil {
+		return model.Branch{}, err
+	}
+	defer tx.Rollback(ctx)
 	var role string
-	if err := r.Pool.QueryRow(ctx, `SELECT rol FROM membresias_marca WHERE usuario_id=$1 AND marca_id=$2 AND activo`, actorID, brandID).Scan(&role); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT mm.rol FROM membresias_marca mm JOIN marcas m ON m.id=mm.marca_id AND m.activo WHERE mm.usuario_id=$1 AND mm.marca_id=$2 AND mm.activo FOR UPDATE OF m`, actorID, brandID).Scan(&role); err != nil {
 		return model.Branch{}, ErrNotFound
 	}
 	if !mutableRole(role) {
 		return model.Branch{}, ErrForbidden
 	}
 	var b model.Branch
-	err := scanBranch(r.Pool.QueryRow(ctx, `INSERT INTO sucursales(marca_id,nombre,direccion,localidad,provincia,codigo_postal,latitud,longitud) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id,marca_id,nombre,direccion,activo,localidad,provincia,codigo_postal,latitud,longitud,principal,version,created_at,updated_at`, brandID, req.Name, req.Address, req.Locality, req.Province, req.PostalCode, req.Latitude, req.Longitude), &b)
-	return b, err
+	err = scanBranch(tx.QueryRow(ctx, `INSERT INTO sucursales(marca_id,nombre,direccion,localidad,provincia,codigo_postal,latitud,longitud) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id,marca_id,nombre,direccion,activo,localidad,provincia,codigo_postal,latitud,longitud,principal,version,created_at,updated_at`, brandID, req.Name, req.Address, req.Locality, req.Province, req.PostalCode, req.Latitude, req.Longitude), &b)
+	if err != nil {
+		return b, err
+	}
+	return b, tx.Commit(ctx)
 }
 func (r *Repository) UpdateBranch(ctx context.Context, actorID, brandID, branchID int64, version int, req model.UpdateBranchRequest) (model.Branch, error) {
 	tx, err := r.Pool.Begin(ctx)
@@ -121,11 +128,23 @@ func (r *Repository) UpdateBranch(ctx context.Context, actorID, brandID, branchI
 	}
 	defer tx.Rollback(ctx)
 	var role string
-	if err = tx.QueryRow(ctx, `SELECT rol FROM membresias_marca WHERE usuario_id=$1 AND marca_id=$2 AND activo`, actorID, brandID).Scan(&role); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT mm.rol FROM membresias_marca mm JOIN marcas m ON m.id=mm.marca_id WHERE mm.usuario_id=$1 AND mm.marca_id=$2 AND mm.activo FOR UPDATE OF m`, actorID, brandID).Scan(&role); err != nil {
 		return model.Branch{}, ErrNotFound
 	}
 	if !mutableRole(role) {
 		return model.Branch{}, ErrForbidden
+	}
+	var currentVersion int
+	if err = tx.QueryRow(ctx, `SELECT version FROM sucursales WHERE id=$1 AND marca_id=$2 AND activo FOR UPDATE`, branchID, brandID).Scan(&currentVersion); errors.Is(err, pgx.ErrNoRows) {
+		return model.Branch{}, ErrNotFound
+	} else if err != nil {
+		return model.Branch{}, err
+	}
+	if currentVersion != version {
+		return model.Branch{}, ErrPreconditionFailed
+	}
+	if _, err = tx.Exec(ctx, `SELECT id FROM sucursales WHERE marca_id=$1 AND activo FOR UPDATE`, brandID); err != nil {
+		return model.Branch{}, err
 	}
 	if req.Primary != nil && *req.Primary {
 		if _, err = tx.Exec(ctx, `UPDATE sucursales SET principal=false,version=version+1,updated_at=now() WHERE marca_id=$1 AND principal AND activo AND id<>$2`, brandID, branchID); err != nil {
@@ -154,10 +173,15 @@ func (r *Repository) UpdateBranch(ctx context.Context, actorID, brandID, branchI
 	return r.GetBranch(ctx, actorID, brandID, branchID)
 }
 func (r *Repository) DeleteBranch(ctx context.Context, actorID, brandID, branchID int64, version int) error {
+	tx, err := r.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
 	var role string
 	var primary bool
 	var activeCount int
-	err := r.Pool.QueryRow(ctx, `SELECT mm.rol,s.principal,(SELECT count(*) FROM sucursales WHERE marca_id=$2 AND activo AND deleted_at IS NULL) FROM membresias_marca mm JOIN sucursales s ON s.marca_id=mm.marca_id WHERE mm.usuario_id=$1 AND mm.marca_id=$2 AND mm.activo AND s.id=$3 AND s.activo`, actorID, brandID, branchID).Scan(&role, &primary, &activeCount)
+	err = tx.QueryRow(ctx, `SELECT mm.rol,s.principal,(SELECT count(*) FROM sucursales WHERE marca_id=$2 AND activo AND deleted_at IS NULL) FROM membresias_marca mm JOIN marcas m ON m.id=mm.marca_id JOIN sucursales s ON s.marca_id=mm.marca_id WHERE mm.usuario_id=$1 AND mm.marca_id=$2 AND mm.activo AND s.id=$3 AND s.activo FOR UPDATE OF m,s`, actorID, brandID, branchID).Scan(&role, &primary, &activeCount)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	}
@@ -170,14 +194,17 @@ func (r *Repository) DeleteBranch(ctx context.Context, actorID, brandID, branchI
 	if primary || activeCount <= 1 {
 		return ErrConflict
 	}
-	tag, err := r.Pool.Exec(ctx, `UPDATE sucursales SET activo=false,deleted_at=now(),version=version+1,updated_at=now() WHERE id=$1 AND marca_id=$2 AND version=$3 AND activo`, branchID, brandID, version)
+	if _, err = tx.Exec(ctx, `SELECT id FROM sucursales WHERE marca_id=$1 AND activo FOR UPDATE`, brandID); err != nil {
+		return err
+	}
+	tag, err := tx.Exec(ctx, `UPDATE sucursales SET activo=false,deleted_at=now(),version=version+1,updated_at=now() WHERE id=$1 AND marca_id=$2 AND version=$3 AND activo`, branchID, brandID, version)
 	if err != nil {
 		return err
 	}
 	if tag.RowsAffected() != 1 {
 		return ErrPreconditionFailed
 	}
-	return nil
+	return tx.Commit(ctx)
 }
 
 func (r *Repository) GetProgram(ctx context.Context, actorID, brandID int64) (model.Program, error) {
@@ -189,9 +216,14 @@ func (r *Repository) GetProgram(ctx context.Context, actorID, brandID int64) (mo
 	return p, err
 }
 func (r *Repository) UpdateProgram(ctx context.Context, actorID, brandID int64, version int, req model.UpdateProgramRequest) (model.Program, error) {
+	tx, err := r.Pool.Begin(ctx)
+	if err != nil {
+		return model.Program{}, err
+	}
+	defer tx.Rollback(ctx)
 	var role, current string
 	var id int64
-	err := r.Pool.QueryRow(ctx, `SELECT mm.rol,p.id,p.tipo FROM membresias_marca mm JOIN programas_fidelidad p ON p.marca_id=mm.marca_id WHERE mm.usuario_id=$1 AND mm.marca_id=$2 AND mm.activo`, actorID, brandID).Scan(&role, &id, &current)
+	err = tx.QueryRow(ctx, `SELECT mm.rol,p.id,p.tipo FROM membresias_marca mm JOIN programas_fidelidad p ON p.marca_id=mm.marca_id WHERE mm.usuario_id=$1 AND mm.marca_id=$2 AND mm.activo FOR UPDATE OF p`, actorID, brandID).Scan(&role, &id, &current)
 	if err != nil {
 		return model.Program{}, ErrNotFound
 	}
@@ -199,10 +231,15 @@ func (r *Repository) UpdateProgram(ctx context.Context, actorID, brandID int64, 
 		return model.Program{}, ErrForbidden
 	}
 	if current != req.Type {
-		var moved bool
-		_ = r.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM historial_movimientos WHERE marca_id=$1)`, brandID).Scan(&moved)
+		var moved, hasBenefits bool
+		if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM historial_movimientos WHERE marca_id=$1),EXISTS(SELECT 1 FROM beneficios WHERE programa_id=$2)`, brandID, id).Scan(&moved, &hasBenefits); err != nil {
+			return model.Program{}, err
+		}
 		if moved {
 			return model.Program{}, ErrProgramTypeImmutable
+		}
+		if hasBenefits {
+			return model.Program{}, ErrProgramTypeHasBenefits
 		}
 	}
 	var stamps *int64
@@ -210,12 +247,15 @@ func (r *Repository) UpdateProgram(ctx context.Context, actorID, brandID int64, 
 		one := int64(1)
 		stamps = &one
 	}
-	tag, err := r.Pool.Exec(ctx, `UPDATE programas_fidelidad SET tipo=$1,nombre_unidad=$2,activo=$3,sellos_por_acumulacion=$4,version=version+1,updated_at=now() WHERE id=$5 AND version=$6`, req.Type, req.UnitName, req.Active, stamps, id, version)
+	tag, err := tx.Exec(ctx, `UPDATE programas_fidelidad SET tipo=$1,nombre_unidad=$2,activo=$3,sellos_por_acumulacion=$4,version=version+1,updated_at=now() WHERE id=$5 AND version=$6`, req.Type, req.UnitName, req.Active, stamps, id, version)
 	if err != nil {
 		return model.Program{}, err
 	}
 	if tag.RowsAffected() != 1 {
 		return model.Program{}, ErrPreconditionFailed
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return model.Program{}, err
 	}
 	return r.GetProgram(ctx, actorID, brandID)
 }
