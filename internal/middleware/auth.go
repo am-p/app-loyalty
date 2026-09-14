@@ -18,10 +18,11 @@ const ActorKey = "actor"
 type Actor struct {
 	ID          int64
 	AccountType string
+	SessionID   string
 }
 
 type ActiveActorStore interface {
-	ActiveAccountType(ctx context.Context, userID int64) (string, error)
+	ActiveSessionAccountType(ctx context.Context, userID int64, sessionID string) (string, error)
 }
 
 func RequireAuth(tokens *auth.Tokens, actors ActiveActorStore) gin.HandlerFunc {
@@ -31,7 +32,7 @@ func RequireAuth(tokens *auth.Tokens, actors ActiveActorStore) gin.HandlerFunc {
 			unauthenticated(c)
 			return
 		}
-		userID, accountType, err := tokens.Parse(raw)
+		userID, accountType, sessionID, err := tokens.ParseSession(raw)
 		if err != nil {
 			unauthenticated(c)
 			return
@@ -43,12 +44,12 @@ func RequireAuth(tokens *auth.Tokens, actors ActiveActorStore) gin.HandlerFunc {
 			unauthenticated(c)
 			return
 		}
-		activeAccountType, err := actors.ActiveAccountType(c.Request.Context(), userID)
+		activeAccountType, err := actors.ActiveSessionAccountType(c.Request.Context(), userID, sessionID)
 		if err != nil || activeAccountType != accountType {
 			unauthenticated(c)
 			return
 		}
-		c.Set(ActorKey, Actor{ID: userID, AccountType: activeAccountType})
+		c.Set(ActorKey, Actor{ID: userID, AccountType: activeAccountType, SessionID: sessionID})
 		c.Next()
 	}
 }

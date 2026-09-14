@@ -64,15 +64,19 @@ func (s *Service) RegisterDemoMerchant(ctx context.Context, key, requestID strin
 		BranchAddress                                     *string
 		ProgramType                                       string
 	}{email, req.Password, owner, brand, branch, req.BranchAddress, programType})
+	credentials, err := newSessionCredentials()
+	if err != nil {
+		return repository.IdempotentResult{}, err
+	}
 	var result repository.IdempotentResult
 	err = retry(ctx, func() error {
 		var e error
-		result, e = s.Repo.CreateDemoMerchant(ctx, key, fingerprint, email, string(passwordHash), owner, brand, branch, req.BranchAddress, programType, func(u model.User, m model.MerchantContext) ([]byte, error) {
-			token, e := s.Tokens.Generate(u.ID, u.AccountType)
+		result, e = s.Repo.CreateDemoMerchant(ctx, key, fingerprint, email, string(passwordHash), owner, brand, branch, req.BranchAddress, programType, credentials.id, credentials.hash, credentials.expiresAt, func(u model.User, m model.MerchantContext) ([]byte, error) {
+			merchantSession, e := s.session(u, credentials)
 			if e != nil {
 				return nil, e
 			}
-			return json.Marshal(web.Envelope[model.DemoMerchantData]{Data: model.DemoMerchantData{Session: session(token), User: u, Merchant: m}, RequestID: requestID})
+			return json.Marshal(web.Envelope[model.DemoMerchantData]{Data: model.DemoMerchantData{Session: merchantSession, User: u, Merchant: m}, RequestID: requestID})
 		})
 		return e
 	})

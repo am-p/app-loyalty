@@ -131,6 +131,35 @@ paths:
               schema: { $ref: '#/components/schemas/AuthEnvelope' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '429': { $ref: '#/components/responses/RateLimited' }
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      operationId: refreshSession
+      summary: Rota el refresh token y emite una sesión nueva
+      security: []
+      x-puntazo-implementation: IMPLEMENTED
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RefreshRequest' }
+      responses:
+        '200':
+          description: Sesión rotada; el refresh token anterior queda invalidado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logout
+      summary: Revoca la sesión autenticada
+      x-puntazo-implementation: IMPLEMENTED
+      responses:
+        '204': { description: Sesión revocada }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
   /me:
     get:
       tags: [Cuenta]
@@ -484,21 +513,22 @@ components:
       properties:
         brand_id: { type: integer, format: int64 }
         brand_name: { type: string }
-        role: { type: string, const: PROPIETARIO }
+        role: { type: string, enum: [PROPIETARIO, ADMINISTRADOR, OPERADOR] }
         branch_ids:
           type: array
           items: { type: integer, format: int64 }
     Session:
       type: object
       additionalProperties: false
-      required: [access_token, token_type, expires_in]
+      required: [access_token, refresh_token, token_type, expires_in]
       properties:
         access_token: { type: string }
+        refresh_token: { type: string }
         token_type: { type: string, const: Bearer }
         expires_in:
           type: integer
-          const: 86400
-          description: Sesión demo sin refresh; refresh tokens permanecen diferidos
+          const: 900
+          description: Vida del access token en segundos; el refresh token rota en cada uso
     AuthData:
       type: object
       additionalProperties: false
@@ -555,6 +585,12 @@ components:
       properties:
         email: { type: string, format: email }
         password: { type: string, format: password }
+    RefreshRequest:
+      type: object
+      additionalProperties: false
+      required: [refresh_token]
+      properties:
+        refresh_token: { type: string, minLength: 40, maxLength: 256 }
     CurrentUser:
       type: object
       additionalProperties: false

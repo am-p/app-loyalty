@@ -1,0 +1,69 @@
+package repository
+
+import (
+	"context"
+	"errors"
+	"time"
+
+	"clientesFrecuentes/internal/model"
+
+	"github.com/jackc/pgx/v5"
+)
+
+func (r *Repository) CreateSession(ctx context.Context, id string, userID int64, refreshHash []byte, expiresAt time.Time) error {
+	_, err := r.Pool.Exec(ctx, `INSERT INTO sesiones_auth(id,usuario_id,refresh_hash,expires_at) VALUES($1,$2,$3,$4)`, id, userID, refreshHash, expiresAt)
+	return err
+}
+
+func (r *Repository) RotateSession(ctx context.Context, refreshHash []byte, replacementID string, replacementHash []byte, replacementExpiresAt time.Time) (model.User, error) {
+	tx, err := r.Pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return model.User{}, err
+	}
+	defer tx.Rollback(ctx)
+	var oldID string
+	var revokedAt *time.Time
+	var expiresAt time.Time
+	var u model.User
+	err = tx.QueryRow(ctx, `SELECT s.id,s.revoked_at,s.expires_at,u.id,u.email::text,u.nombre,u.tipo_cuenta,u.activo,u.created_at
+		FROM sesiones_auth s JOIN usuarios u ON u.id=s.usuario_id
+		WHERE s.refresh_hash=$1 AND u.activo AND u.deleted_at IS NULL FOR UPDATE OF s`, refreshHash).
+		Scan(&oldID, &revokedAt, &expiresAt, &u.ID, &u.Email, &u.Name, &u.AccountType, &u.Active, &u.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.User{}, ErrNotFound
+	}
+	if err != nil {
+		return model.User{}, err
+	}
+	if revokedAt != nil || !expiresAt.After(time.Now()) {
+		return model.User{}, ErrNotFound
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO sesiones_auth(id,usuario_id,refresh_hash,expires_at) VALUES($1,$2,$3,$4)`, replacementID, u.ID, replacementHash, replacementExpiresAt); err != nil {
+		return model.User{}, err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE sesiones_auth SET revoked_at=now(),replaced_by=$2,last_used_at=now() WHERE id=$1`, oldID, replacementID); err != nil {
+		return model.User{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return model.User{}, err
+	}
+	return u, nil
+}
+
+func (r *Repository) RevokeSession(ctx context.Context, userID int64, sessionID string) error {
+	command, err := r.Pool.Exec(ctx, `UPDATE sesiones_auth SET revoked_at=COALESCE(revoked_at,now()) WHERE id=$1 AND usuario_id=$2`, sessionID, userID)
+	if err != nil {
+		return err
+	}
+	if command.RowsAffected() != 1 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (r *Repository) ActiveSessionAccountType(ctx context.Context, userID int64, sessionID string) (string, error) {
+	var accountType string
+	err := r.Pool.QueryRow(ctx, `SELECT u.tipo_cuenta FROM sesiones_auth s JOIN usuarios u ON u.id=s.usuario_id
+		WHERE s.id=$1 AND s.usuario_id=$2 AND s.revoked_at IS NULL AND s.expires_at>now() AND u.activo AND u.deleted_at IS NULL`, sessionID, userID).Scan(&accountType)
+	return accountType, err
+}

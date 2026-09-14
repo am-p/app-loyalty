@@ -20,7 +20,7 @@ type actorStoreStub struct {
 	calls       int
 }
 
-func (s *actorStoreStub) ActiveAccountType(_ context.Context, _ int64) (string, error) {
+func (s *actorStoreStub) ActiveSessionAccountType(_ context.Context, _ int64, _ string) (string, error) {
 	s.calls++
 	return s.accountType, s.err
 }

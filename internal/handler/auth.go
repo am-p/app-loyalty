@@ -45,6 +45,35 @@ func (h *Handler) Login(c *gin.Context) {
 	c.JSON(http.StatusOK, web.Envelope[model.AuthData]{Data: data, RequestID: web.RequestID(c)})
 }
 
+func (h *Handler) Refresh(c *gin.Context) {
+	var req model.RefreshRequest
+	if decode(c, &req) != nil {
+		writeErr(c, service.ErrInvalidRequest)
+		return
+	}
+	if !h.limit(c, "refresh:ip:"+h.clientIP(c), loginAttempts, loginWindow) {
+		return
+	}
+	data, err := h.Service.Refresh(c.Request.Context(), req.RefreshToken)
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, web.Envelope[model.AuthData]{Data: data, RequestID: web.RequestID(c)})
+}
+
+func (h *Handler) Logout(c *gin.Context) {
+	a, ok := actor(c)
+	if !ok {
+		return
+	}
+	if err := h.Service.Logout(c.Request.Context(), a.ID, a.SessionID); err != nil {
+		writeErr(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
 func (h *Handler) Me(c *gin.Context) {
 	a, ok := actor(c)
 	if !ok {

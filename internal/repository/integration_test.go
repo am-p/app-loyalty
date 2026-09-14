@@ -79,11 +79,18 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if _, err = pool.Exec(ctx, string(tenantMigration)); err != nil {
 		t.Fatalf("migration 0003: %v", err)
 	}
-	if _, err = pool.Exec(ctx, `CREATE TABLE schema_migrations(version CHAR(4) PRIMARY KEY,applied_at TIMESTAMPTZ NOT NULL DEFAULT now()); INSERT INTO schema_migrations(version) VALUES('0001'),('0002'),('0003')`); err != nil {
+	sessionMigration, err := os.ReadFile(filepath.Join("..", "..", "migrations", "0004_auth_sessions.up.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, string(sessionMigration)); err != nil {
+		t.Fatalf("migration 0004: %v", err)
+	}
+	if _, err = pool.Exec(ctx, `CREATE TABLE schema_migrations(version CHAR(4) PRIMARY KEY,applied_at TIMESTAMPTZ NOT NULL DEFAULT now()); INSERT INTO schema_migrations(version) VALUES('0001'),('0002'),('0003'),('0004')`); err != nil {
 		t.Fatal(err)
 	}
 	demoHash, _ := bcrypt.GenerateFromPassword([]byte("demo-access-code"), bcrypt.MinCost)
-	cfg := config.Config{JWTSecret: "jwt-secret-0123456789012345678901", JWTIssuer: "puntazo", QRPepper: "qr-pepper-01234567890123456789012", DemoAccessCodeHash: string(demoHash), DemoSignupEnabled: true, ExpectedSchemaVersion: "0003"}
+	cfg := config.Config{JWTSecret: "jwt-secret-0123456789012345678901", JWTIssuer: "puntazo", QRPepper: "qr-pepper-01234567890123456789012", DemoAccessCodeHash: string(demoHash), DemoSignupEnabled: true, ExpectedSchemaVersion: "0004"}
 	repo := repository.New(pool)
 	tokens := auth.NewTokens(cfg.JWTSecret, cfg.JWTIssuer)
 	svc := service.New(repo, tokens, cfg)
@@ -95,20 +102,32 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	protected := gin.New()
 	protected.GET("/protected", middleware.RequireAuth(tokens, repo), func(c *gin.Context) { c.Status(http.StatusNoContent) })
-	authorizedRequest := func() *httptest.ResponseRecorder {
+	authorizedRequest := func(accessToken string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodGet, "/protected", nil)
-		req.Header.Set("Authorization", "Bearer "+customerAuth.Session.AccessToken)
+		req.Header.Set("Authorization", "Bearer "+accessToken)
 		w := httptest.NewRecorder()
 		protected.ServeHTTP(w, req)
 		return w
 	}
-	if w := authorizedRequest(); w.Code != http.StatusNoContent {
+	if w := authorizedRequest(customerAuth.Session.AccessToken); w.Code != http.StatusNoContent {
 		t.Fatalf("active token status=%d body=%s", w.Code, w.Body.String())
+	}
+	originalAccess := customerAuth.Session.AccessToken
+	originalRefresh := customerAuth.Session.RefreshToken
+	customerAuth, err = svc.Refresh(ctx, customerAuth.Session.RefreshToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w := authorizedRequest(originalAccess); w.Code != http.StatusUnauthorized {
+		t.Fatalf("rotated access token status=%d body=%s", w.Code, w.Body.String())
+	}
+	if _, err = svc.Refresh(ctx, originalRefresh); !errors.Is(err, service.ErrInvalidCredentials) {
+		t.Fatalf("refresh token replay: %v", err)
 	}
 	if _, err = pool.Exec(ctx, `UPDATE usuarios SET activo=false WHERE id=$1`, customerAuth.User.ID); err != nil {
 		t.Fatal(err)
 	}
-	w := authorizedRequest()
+	w := authorizedRequest(customerAuth.Session.AccessToken)
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("suspended token status=%d body=%s", w.Code, w.Body.String())
 	}
@@ -121,6 +140,16 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	}
 	if _, err = pool.Exec(ctx, `UPDATE usuarios SET activo=true WHERE id=$1`, customerAuth.User.ID); err != nil {
 		t.Fatal(err)
+	}
+	_, _, sessionID, err := tokens.ParseSession(customerAuth.Session.AccessToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = svc.Logout(ctx, customerAuth.User.ID, sessionID); err != nil {
+		t.Fatal(err)
+	}
+	if w = authorizedRequest(customerAuth.Session.AccessToken); w.Code != http.StatusUnauthorized {
+		t.Fatalf("logged out token status=%d body=%s", w.Code, w.Body.String())
 	}
 	customer, err := svc.Customer(ctx, customerAuth.User.ID)
 	if err != nil {
@@ -411,7 +440,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if _, err = pool.Exec(ctx, `UPDATE membresias_marca SET activo=true WHERE usuario_id=$1 AND marca_id=$2`, merchant.User.ID, merchant.Merchant.BrandID); err != nil {
 		t.Fatal(err)
 	}
-	if err = repo.CheckSchema(ctx, "0003"); err != nil {
+	if err = repo.CheckSchema(ctx, "0004"); err != nil {
 		t.Fatal(err)
 	}
 	if err = repo.CheckSchema(ctx, "9999"); err == nil {
