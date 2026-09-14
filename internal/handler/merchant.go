@@ -84,6 +84,7 @@ func (h *Handler) Brand(c *gin.Context) {
 		writeErr(c, err)
 		return
 	}
+	c.Header("ETag", accountETag(data.BrandVersion))
 	c.JSON(http.StatusOK, web.Envelope[model.MerchantContext]{Data: data, RequestID: web.RequestID(c)})
 }
 
