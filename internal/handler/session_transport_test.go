@@ -43,3 +43,16 @@ func TestNativeAuthUsesJSONRefreshToken(t *testing.T) {
 		t.Fatalf("native JSON omitted refresh token: %s", response.Body.String())
 	}
 }
+
+func TestClearRefreshCookieUsesSameHardenedScope(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	response := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(response)
+	clearRefreshCookie(c)
+	cookie := response.Header().Get("Set-Cookie")
+	for _, attribute := range []string{"puntazo_refresh=", "Path=/v1/auth", "Max-Age=0", "HttpOnly", "Secure", "SameSite=Strict"} {
+		if !strings.Contains(cookie, attribute) {
+			t.Fatalf("cookie=%q missing=%q", cookie, attribute)
+		}
+	}
+}

@@ -79,6 +79,9 @@ func (h *Handler) Refresh(c *gin.Context) {
 	}
 	data, err := h.Service.Refresh(c.Request.Context(), refreshToken)
 	if err != nil {
+		if platform == "web" {
+			clearRefreshCookie(c)
+		}
 		writeErr(c, err)
 		return
 	}
