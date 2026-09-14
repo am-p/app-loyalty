@@ -11,24 +11,18 @@ import (
 
 const merchantContextSelect = `SELECT m.id,m.nombre,mm.rol,s.id,s.marca_id,s.nombre,s.direccion,s.activo,
 		p.id,p.marca_id,p.tipo,p.sellos_por_acumulacion,p.activo,
-		b.id,b.programa_id,b.nombre,b.requisito_sellos,b.requisito_puntos,b.activo,
 	a.tipo,a.precio_minor,a.moneda,a.cobro_automatico,a.activo,a.started_at
 	FROM membresias_marca mm JOIN marcas m ON m.id=mm.marca_id AND m.activo
 	JOIN membresias_sucursales ms ON ms.membresia_id=mm.id AND ms.marca_id=mm.marca_id AND ms.activo
 	JOIN sucursales s ON s.id=ms.sucursal_id AND s.marca_id=ms.marca_id AND s.activo
 	JOIN programas_fidelidad p ON p.marca_id=m.id AND p.activo
-	LEFT JOIN beneficios b ON b.programa_id=p.id AND b.activo
 	JOIN accesos_demo a ON a.marca_id=m.id AND a.activo
 	WHERE mm.usuario_id=$1 AND mm.activo`
 
 func scanMerchant(row pgx.Row) (model.MerchantContext, error) {
 	var m model.MerchantContext
-	var benefitID, benefitProgramID, requiredStamps, requiredPoints *int64
-	var benefitName *string
-	var benefitActive *bool
 	err := row.Scan(&m.BrandID, &m.BrandName, &m.Role, &m.Branch.ID, &m.Branch.BrandID, &m.Branch.Name, &m.Branch.Address, &m.Branch.Active,
 		&m.Program.ID, &m.Program.BrandID, &m.Program.Type, &m.Program.StampsPerAccumulation, &m.Program.Active,
-		&benefitID, &benefitProgramID, &benefitName, &requiredStamps, &requiredPoints, &benefitActive,
 		&m.DemoAccess.Kind, &m.DemoAccess.PriceMinor, &m.DemoAccess.Currency, &m.DemoAccess.AutomaticCharge, &m.DemoAccess.Active, &m.DemoAccess.StartedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.MerchantContext{}, ErrNotFound
@@ -37,12 +31,18 @@ func scanMerchant(row pgx.Row) (model.MerchantContext, error) {
 		return m, err
 	}
 	m.Benefits = make([]model.Benefit, 0)
-	if benefitID != nil {
-		benefit := model.Benefit{ID: *benefitID, ProgramID: *benefitProgramID, Name: *benefitName, RequiredStamps: requiredStamps, RequiredPoints: requiredPoints, Active: *benefitActive}
-		m.Benefit = &benefit
-		m.Benefits = append(m.Benefits, benefit)
-	}
 	return m, nil
+}
+
+func attachBenefits(m *model.MerchantContext, byProgram map[int64][]model.Benefit) {
+	m.Benefits = byProgram[m.Program.ID]
+	if m.Benefits == nil {
+		m.Benefits = make([]model.Benefit, 0)
+	}
+	if len(m.Benefits) > 0 {
+		first := m.Benefits[0]
+		m.Benefit = &first
+	}
 }
 
 func (r *Repository) ListMerchantContexts(ctx context.Context, actorID int64) ([]model.MerchantContext, error) {
@@ -50,20 +50,46 @@ func (r *Repository) ListMerchantContexts(ctx context.Context, actorID int64) ([
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	items := make([]model.MerchantContext, 0)
+	programIDs := make([]int64, 0)
+	seenPrograms := make(map[int64]bool)
 	for rows.Next() {
 		m, err := scanMerchant(rows)
 		if err != nil {
 			return nil, err
 		}
 		items = append(items, m)
+		if !seenPrograms[m.Program.ID] {
+			seenPrograms[m.Program.ID] = true
+			programIDs = append(programIDs, m.Program.ID)
+		}
 	}
-	return items, rows.Err()
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+	benefits, err := r.listBenefitsByProgramIDs(ctx, programIDs)
+	if err != nil {
+		return nil, err
+	}
+	for i := range items {
+		attachBenefits(&items[i], benefits)
+	}
+	return items, nil
 }
 
 func (r *Repository) GetMerchantContext(ctx context.Context, actorID, brandID int64) (model.MerchantContext, error) {
-	return scanMerchant(r.Pool.QueryRow(ctx, merchantContextSelect+` AND m.id=$2 ORDER BY s.id LIMIT 1`, actorID, brandID))
+	m, err := scanMerchant(r.Pool.QueryRow(ctx, merchantContextSelect+` AND m.id=$2 ORDER BY s.id LIMIT 1`, actorID, brandID))
+	if err != nil {
+		return model.MerchantContext{}, err
+	}
+	benefits, err := r.listBenefitsByProgramIDs(ctx, []int64{m.Program.ID})
+	if err != nil {
+		return model.MerchantContext{}, err
+	}
+	attachBenefits(&m, benefits)
+	return m, nil
 }
 
 func (r *Repository) ListBrandCustomers(ctx context.Context, actorID, brandID int64, page, pageSize int, search string) ([]model.BrandCustomer, int64, error) {

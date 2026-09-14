@@ -229,6 +229,14 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if benefit.RequiredStamps == nil {
 		t.Fatal(err)
 	}
+	secondBenefit, err := svc.CreateBenefit(ctx, merchant.User.ID, merchant.Merchant.BrandID, model.CreateBenefitRequest{Name: "Segundo beneficio", Requirement: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	contexts, err := svc.ListBrands(ctx, merchant.User.ID)
+	if err != nil || len(contexts) != 1 || len(contexts[0].Benefits) != 2 || contexts[0].Benefits[1].ID != secondBenefit.ID {
+		t.Fatalf("multi-benefit contexts=%+v err=%v", contexts, err)
+	}
 	requiredStamps := int64(5)
 	merchant.Merchant.Benefit = &model.Benefit{ID: benefitID, ProgramID: merchant.Merchant.Program.ID, Name: "Beneficio de prueba", RequiredStamps: &requiredStamps, Active: true, Version: 1}
 	currentMerchant, err := svc.CurrentUser(ctx, merchant.User.ID)
@@ -273,6 +281,10 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	confirmed, err := svc.ConfirmAccumulation(ctx, merchant.User.ID, confirmKey, uuid.NewString(), confirmReq)
 	if err != nil {
 		t.Fatal(err)
+	}
+	customerCards, cardPage, err := svc.Cards(ctx, customer.ID, 1, 20)
+	if err != nil || cardPage.TotalItems != 1 || len(customerCards) != 1 || customerCards[0].Benefit.ID != benefit.ID || customerCards[0].Benefit.Version != 1 {
+		t.Fatalf("multi-benefit cards=%+v page=%+v err=%v", customerCards, cardPage, err)
 	}
 	again, err := svc.ConfirmAccumulation(ctx, merchant.User.ID, confirmKey, uuid.NewString(), confirmReq)
 	if err != nil || !again.Replayed || !bytes.Equal(confirmed.Body, again.Body) {

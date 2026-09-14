@@ -35,6 +35,27 @@ func (r *Repository) ListBenefits(ctx context.Context, actorID, brandID int64) (
 	return items, rows.Err()
 }
 
+func (r *Repository) listBenefitsByProgramIDs(ctx context.Context, programIDs []int64) (map[int64][]model.Benefit, error) {
+	result := make(map[int64][]model.Benefit)
+	if len(programIDs) == 0 {
+		return result, nil
+	}
+	rows, err := r.Pool.Query(ctx, `SELECT id,programa_id,nombre,requisito_sellos,requisito_puntos,activo,version
+		FROM beneficios WHERE programa_id=ANY($1) AND activo AND deleted_at IS NULL ORDER BY id`, programIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var item model.Benefit
+		if err = rows.Scan(&item.ID, &item.ProgramID, &item.Name, &item.RequiredStamps, &item.RequiredPoints, &item.Active, &item.Version); err != nil {
+			return nil, err
+		}
+		result[item.ProgramID] = append(result[item.ProgramID], item)
+	}
+	return result, rows.Err()
+}
+
 func (r *Repository) CreateBenefit(ctx context.Context, actorID, brandID int64, name string, requirement int64) (model.Benefit, error) {
 	tx, err := r.Pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {

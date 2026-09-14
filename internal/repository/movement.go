@@ -64,7 +64,7 @@ func (r *Repository) CreatePreview(ctx context.Context, actorID int64, req model
 			return model.Preview{}, ErrPreviewChanged
 		}
 		var b model.Benefit
-		err = tx.QueryRow(ctx, `SELECT id,programa_id,nombre,requisito_sellos,requisito_puntos,activo FROM beneficios WHERE id=$1 AND programa_id=$2 AND activo FOR SHARE`, *req.BenefitID, programID).Scan(&b.ID, &b.ProgramID, &b.Name, &b.RequiredStamps, &b.RequiredPoints, &b.Active)
+		err = tx.QueryRow(ctx, `SELECT id,programa_id,nombre,requisito_sellos,requisito_puntos,activo,version FROM beneficios WHERE id=$1 AND programa_id=$2 AND activo FOR SHARE`, *req.BenefitID, programID).Scan(&b.ID, &b.ProgramID, &b.Name, &b.RequiredStamps, &b.RequiredPoints, &b.Active, &b.Version)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return model.Preview{}, ErrNotFound
 		}
