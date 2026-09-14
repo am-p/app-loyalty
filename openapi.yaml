@@ -200,6 +200,43 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/MerchantContextEnvelope' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /marcas/{brand_id}/beneficios:
+    parameters:
+      - $ref: '#/components/parameters/BrandId'
+    get:
+      tags: [Marcas]
+      operationId: listBenefits
+      summary: Lista los beneficios activos del programa de la marca
+      x-puntazo-implementation: IMPLEMENTED
+      responses:
+        '200':
+          description: Lista vacía durante el onboarding inicial
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BenefitListEnvelope' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Marcas]
+      operationId: createBenefit
+      summary: Crea un beneficio compatible con Sellos o Puntos
+      x-puntazo-implementation: IMPLEMENTED
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateBenefitRequest' }
+      responses:
+        '201':
+          description: Beneficio creado; completa el onboarding si es el primero activo
+          headers:
+            ETag:
+              schema: { type: string, example: '"1"' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BenefitEnvelope' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
   /marcas/{brand_id}/movimientos:
     get:
       tags: [Movimientos]
@@ -642,7 +679,7 @@ components:
     Benefit:
       type: object
       additionalProperties: false
-      required: [id, program_id, name, active]
+      required: [id, program_id, name, active, version]
       properties:
         id: { type: integer, format: int64 }
         program_id: { type: integer, format: int64 }
@@ -650,6 +687,30 @@ components:
         required_stamps: { type: integer, minimum: 1, maximum: 10000000 }
         required_points: { type: integer, minimum: 1, maximum: 10000000 }
         active: { type: boolean }
+        version: { type: integer, minimum: 1 }
+    CreateBenefitRequest:
+      type: object
+      additionalProperties: false
+      required: [name, requirement]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        requirement: { type: integer, format: int64, minimum: 1, maximum: 10000000 }
+    BenefitEnvelope:
+      type: object
+      additionalProperties: false
+      required: [data, request_id]
+      properties:
+        data: { $ref: '#/components/schemas/Benefit' }
+        request_id: { $ref: '#/components/schemas/RequestId' }
+    BenefitListEnvelope:
+      type: object
+      additionalProperties: false
+      required: [data, request_id]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/Benefit' }
+        request_id: { $ref: '#/components/schemas/RequestId' }
     MerchantContext:
       type: object
       additionalProperties: false

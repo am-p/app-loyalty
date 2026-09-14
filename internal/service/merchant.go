@@ -99,6 +99,18 @@ func (s *Service) Brand(ctx context.Context, actorID, brandID int64) (model.Merc
 	return s.Repo.GetMerchantContext(ctx, actorID, brandID)
 }
 
+func (s *Service) Benefits(ctx context.Context, actorID, brandID int64) ([]model.Benefit, error) {
+	return s.Repo.ListBenefits(ctx, actorID, brandID)
+}
+
+func (s *Service) CreateBenefit(ctx context.Context, actorID, brandID int64, req model.CreateBenefitRequest) (model.Benefit, error) {
+	name, err := cleanName(req.Name, 120)
+	if err != nil || req.Requirement < 1 || req.Requirement > 10000000 {
+		return model.Benefit{}, ErrInvalidRequest
+	}
+	return s.Repo.CreateBenefit(ctx, actorID, brandID, name, req.Requirement)
+}
+
 func (s *Service) BrandMovements(ctx context.Context, actorID, brandID int64, page, size int) ([]model.Movement, web.Pagination, error) {
 	items, total, err := s.Repo.ListBrandMovements(ctx, actorID, brandID, page, size)
 	return items, pagination(page, size, total), err

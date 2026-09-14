@@ -93,6 +93,11 @@ type Benefit struct {
 	RequiredStamps *int64 `json:"required_stamps,omitempty"`
 	RequiredPoints *int64 `json:"required_points,omitempty"`
 	Active         bool   `json:"active"`
+	Version        int    `json:"version"`
+}
+type CreateBenefitRequest struct {
+	Name        string `json:"name"`
+	Requirement int64  `json:"requirement"`
 }
 type MerchantContext struct {
 	BrandID    int64      `json:"brand_id"`

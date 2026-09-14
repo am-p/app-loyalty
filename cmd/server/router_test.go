@@ -30,6 +30,8 @@ func TestRouteInventoryAndAuthentication(t *testing.T) {
 		{"GET", "/me", "/me"},
 		{"GET", "/v1/marcas", "/v1/marcas"},
 		{"GET", "/v1/marcas/:brand_id", "/v1/marcas/1"},
+		{"GET", "/v1/marcas/:brand_id/beneficios", "/v1/marcas/1/beneficios"},
+		{"POST", "/v1/marcas/:brand_id/beneficios", "/v1/marcas/1/beneficios"},
 		{"GET", "/v1/marcas/:brand_id/movimientos", "/v1/marcas/1/movimientos"},
 		{"GET", "/v1/marcas/:brand_id/clientes", "/v1/marcas/1/clientes"},
 		{"GET", "/v1/marcas/:brand_id/metricas/resumen", "/v1/marcas/1/metricas/resumen"},

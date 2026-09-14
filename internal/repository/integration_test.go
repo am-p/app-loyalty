@@ -86,11 +86,18 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if _, err = pool.Exec(ctx, string(sessionMigration)); err != nil {
 		t.Fatalf("migration 0004: %v", err)
 	}
-	if _, err = pool.Exec(ctx, `CREATE TABLE schema_migrations(version CHAR(4) PRIMARY KEY,applied_at TIMESTAMPTZ NOT NULL DEFAULT now()); INSERT INTO schema_migrations(version) VALUES('0001'),('0002'),('0003'),('0004')`); err != nil {
+	benefitMigration, err := os.ReadFile(filepath.Join("..", "..", "migrations", "0005_benefit_versions.up.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, string(benefitMigration)); err != nil {
+		t.Fatalf("migration 0005: %v", err)
+	}
+	if _, err = pool.Exec(ctx, `CREATE TABLE schema_migrations(version CHAR(4) PRIMARY KEY,applied_at TIMESTAMPTZ NOT NULL DEFAULT now()); INSERT INTO schema_migrations(version) VALUES('0001'),('0002'),('0003'),('0004'),('0005')`); err != nil {
 		t.Fatal(err)
 	}
 	demoHash, _ := bcrypt.GenerateFromPassword([]byte("demo-access-code"), bcrypt.MinCost)
-	cfg := config.Config{JWTSecret: "jwt-secret-0123456789012345678901", JWTIssuer: "puntazo", QRPepper: "qr-pepper-01234567890123456789012", DemoAccessCodeHash: string(demoHash), DemoSignupEnabled: true, ExpectedSchemaVersion: "0004"}
+	cfg := config.Config{JWTSecret: "jwt-secret-0123456789012345678901", JWTIssuer: "puntazo", QRPepper: "qr-pepper-01234567890123456789012", DemoAccessCodeHash: string(demoHash), DemoSignupEnabled: true, ExpectedSchemaVersion: "0005"}
 	repo := repository.New(pool)
 	tokens := auth.NewTokens(cfg.JWTSecret, cfg.JWTIssuer)
 	svc := service.New(repo, tokens, cfg)
@@ -204,12 +211,26 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if brandsAfter != brandsBefore || pending != 0 {
 		t.Fatalf("rollback leaked brand/idempotency: %d/%d pending=%d", brandsBefore, brandsAfter, pending)
 	}
-	var benefitID int64
-	if err = pool.QueryRow(ctx, `INSERT INTO beneficios(programa_id,nombre,requisito_sellos) VALUES($1,'Beneficio de prueba',5) RETURNING id`, merchant.Merchant.Program.ID).Scan(&benefitID); err != nil {
+	benefit, err := svc.CreateBenefit(ctx, merchant.User.ID, merchant.Merchant.BrandID, model.CreateBenefitRequest{Name: "Beneficio de prueba", Requirement: 5})
+	if err != nil || benefit.RequiredStamps == nil || *benefit.RequiredStamps != 5 || benefit.RequiredPoints != nil || benefit.Version != 1 {
+		t.Fatalf("create Sellos benefit=%+v err=%v", benefit, err)
+	}
+	benefits, err := svc.Benefits(ctx, merchant.User.ID, merchant.Merchant.BrandID)
+	if err != nil || len(benefits) != 1 || benefits[0].ID != benefit.ID {
+		t.Fatalf("list Sellos benefits=%+v err=%v", benefits, err)
+	}
+	if _, err = svc.CreateBenefit(ctx, customer.ID, merchant.Merchant.BrandID, model.CreateBenefitRequest{Name: "Ajeno", Requirement: 1}); !errors.Is(err, repository.ErrNotFound) {
+		t.Fatalf("customer created brand benefit: %v", err)
+	}
+	if _, err = svc.CreateBenefit(ctx, merchant.User.ID, merchant.Merchant.BrandID, model.CreateBenefitRequest{Name: "Excesivo", Requirement: 10000001}); !errors.Is(err, service.ErrInvalidRequest) {
+		t.Fatalf("oversized benefit: %v", err)
+	}
+	benefitID := benefit.ID
+	if benefit.RequiredStamps == nil {
 		t.Fatal(err)
 	}
 	requiredStamps := int64(5)
-	merchant.Merchant.Benefit = &model.Benefit{ID: benefitID, ProgramID: merchant.Merchant.Program.ID, Name: "Beneficio de prueba", RequiredStamps: &requiredStamps, Active: true}
+	merchant.Merchant.Benefit = &model.Benefit{ID: benefitID, ProgramID: merchant.Merchant.Program.ID, Name: "Beneficio de prueba", RequiredStamps: &requiredStamps, Active: true, Version: 1}
 	currentMerchant, err := svc.CurrentUser(ctx, merchant.User.ID)
 	if err != nil || !currentMerchant.OnboardingComplete {
 		t.Fatalf("configured merchant onboarding=%v err=%v", currentMerchant.OnboardingComplete, err)
@@ -387,9 +408,9 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if _, err = pool.Exec(ctx, `INSERT INTO membresias_sucursales(membresia_id,sucursal_id,marca_id) VALUES($1,$2,$3)`, firstMembershipID, second.Data.Merchant.Branch.ID, merchant.Merchant.BrandID); err == nil {
 		t.Fatal("cross-brand branch membership was accepted")
 	}
-	var pointsBenefitID int64
-	if err = pool.QueryRow(ctx, `INSERT INTO beneficios(programa_id,nombre,requisito_puntos) VALUES($1,'Beneficio Puntos',10000000) RETURNING id`, second.Data.Merchant.Program.ID).Scan(&pointsBenefitID); err != nil {
-		t.Fatal(err)
+	pointsBenefit, err := svc.CreateBenefit(ctx, second.Data.User.ID, second.Data.Merchant.BrandID, model.CreateBenefitRequest{Name: "Beneficio Puntos", Requirement: 10000000})
+	if err != nil || pointsBenefit.RequiredPoints == nil || *pointsBenefit.RequiredPoints != 10000000 || pointsBenefit.RequiredStamps != nil {
+		t.Fatalf("create Puntos benefit=%+v err=%v", pointsBenefit, err)
 	}
 	pointsPreview := model.MovementPreviewRequest{Operation: "ACUMULACION", QRToken: customer.QRToken, BranchID: second.Data.Merchant.Branch.ID}
 	if _, err = svc.Preview(ctx, second.Data.User.ID, pointsPreview); !errors.Is(err, repository.ErrInvalidRequest) {
@@ -440,7 +461,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if _, err = pool.Exec(ctx, `UPDATE membresias_marca SET activo=true WHERE usuario_id=$1 AND marca_id=$2`, merchant.User.ID, merchant.Merchant.BrandID); err != nil {
 		t.Fatal(err)
 	}
-	if err = repo.CheckSchema(ctx, "0004"); err != nil {
+	if err = repo.CheckSchema(ctx, "0005"); err != nil {
 		t.Fatal(err)
 	}
 	if err = repo.CheckSchema(ctx, "9999"); err == nil {

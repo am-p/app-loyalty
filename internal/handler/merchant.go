@@ -66,6 +66,56 @@ func (h *Handler) Brand(c *gin.Context) {
 	c.JSON(http.StatusOK, web.Envelope[model.MerchantContext]{Data: data, RequestID: web.RequestID(c)})
 }
 
+func (h *Handler) Benefits(c *gin.Context) {
+	a, ok := actor(c)
+	if !ok {
+		return
+	}
+	if a.AccountType != "PERSONAL_MARCA" {
+		writeErr(c, service.ErrForbidden)
+		return
+	}
+	brandID, err := positiveID(c.Param("brand_id"))
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	data, err := h.Service.Benefits(c.Request.Context(), a.ID, brandID)
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, web.Envelope[[]model.Benefit]{Data: data, RequestID: web.RequestID(c)})
+}
+
+func (h *Handler) CreateBenefit(c *gin.Context) {
+	a, ok := actor(c)
+	if !ok {
+		return
+	}
+	if a.AccountType != "PERSONAL_MARCA" {
+		writeErr(c, service.ErrForbidden)
+		return
+	}
+	brandID, err := positiveID(c.Param("brand_id"))
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	var req model.CreateBenefitRequest
+	if decode(c, &req) != nil {
+		writeErr(c, service.ErrInvalidRequest)
+		return
+	}
+	data, err := h.Service.CreateBenefit(c.Request.Context(), a.ID, brandID, req)
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	c.Header("ETag", `"1"`)
+	c.JSON(http.StatusCreated, web.Envelope[model.Benefit]{Data: data, RequestID: web.RequestID(c)})
+}
+
 func (h *Handler) BrandMovements(c *gin.Context) {
 	a, ok := actor(c)
 	if !ok {

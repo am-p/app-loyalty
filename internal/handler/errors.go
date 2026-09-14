@@ -17,7 +17,7 @@ func writeErr(c *gin.Context, err error) {
 		web.Error(c, http.StatusUnprocessableEntity, "INVALID_REQUEST", "Solicitud inválida", nil)
 	case errors.Is(err, service.ErrInvalidCredentials):
 		web.Error(c, http.StatusUnauthorized, "UNAUTHENTICATED", "Credenciales inválidas", nil)
-	case errors.Is(err, service.ErrForbidden):
+	case errors.Is(err, service.ErrForbidden), errors.Is(err, repository.ErrForbidden):
 		web.Error(c, http.StatusForbidden, "FORBIDDEN", "Acceso denegado", nil)
 	case errors.Is(err, service.ErrDemoDisabled):
 		web.Error(c, http.StatusForbidden, "DEMO_SIGNUP_DISABLED", "Las altas demo están cerradas", nil)
