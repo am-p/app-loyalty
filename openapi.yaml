@@ -514,6 +514,104 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/MovementPageEnvelope' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /marcas/{brand_id}/invitaciones:
+    parameters: [{ $ref: '#/components/parameters/BrandId' }]
+    get:
+      tags: [Marcas]
+      summary: Lista invitaciones de personal de la marca
+      operationId: listBrandInvitations
+      x-puntazo-implementation: IMPLEMENTED
+      responses:
+        '200': { description: Invitaciones, content: { application/json: { schema: { $ref: '#/components/schemas/InvitationListEnvelope' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Marcas]
+      summary: Invita un administrador u operador durante 72 horas
+      operationId: createBrandInvitation
+      x-puntazo-implementation: IMPLEMENTED
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CreateInvitationRequest' } } } }
+      responses:
+        '201': { description: Invitación creada, content: { application/json: { schema: { $ref: '#/components/schemas/InvitationEnvelope' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { description: El usuario ya pertenece a la marca }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /marcas/{brand_id}/invitaciones/{invitation_id}:
+    parameters: [{ $ref: '#/components/parameters/BrandId' }, { name: invitation_id, in: path, required: true, schema: { type: string, format: uuid } }]
+    delete:
+      tags: [Marcas]
+      summary: Revoca una invitación pendiente
+      operationId: revokeBrandInvitation
+      x-puntazo-implementation: IMPLEMENTED
+      responses:
+        '204': { description: Revocada }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { description: INVITATION_INVALID }
+  /marcas/{brand_id}/invitaciones/{invitation_id}/reenviar:
+    parameters: [{ $ref: '#/components/parameters/BrandId' }, { name: invitation_id, in: path, required: true, schema: { type: string, format: uuid } }]
+    post:
+      tags: [Marcas]
+      summary: Rota el token y renueva una invitación pendiente por 72 horas
+      operationId: resendBrandInvitation
+      x-puntazo-implementation: IMPLEMENTED
+      responses:
+        '200': { description: Invitación renovada, content: { application/json: { schema: { $ref: '#/components/schemas/InvitationEnvelope' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { description: INVITATION_INVALID }
+  /invitaciones/{token}:
+    get:
+      security: []
+      tags: [Auth]
+      summary: Consulta una invitación válida con el email enmascarado
+      operationId: getPublicInvitation
+      x-puntazo-implementation: IMPLEMENTED
+      parameters: [{ name: token, in: path, required: true, schema: { type: string, minLength: 40, maxLength: 256 } }]
+      responses:
+        '200': { description: Invitación válida, content: { application/json: { schema: { $ref: '#/components/schemas/PublicInvitationEnvelope' } } } }
+        '422': { description: IDENTITY_TOKEN_INVALID }
+  /invitaciones/{token}/aceptar:
+    post:
+      tags: [Auth]
+      summary: Acepta una invitación para el email exacto de la sesión
+      operationId: acceptBrandInvitation
+      x-puntazo-implementation: IMPLEMENTED
+      parameters: [{ name: token, in: path, required: true, schema: { type: string, minLength: 40, maxLength: 256 } }]
+      responses:
+        '200': { description: Membresía creada, content: { application/json: { schema: { $ref: '#/components/schemas/StaffEnvelope' } } } }
+        '409': { description: INVITATION_EMAIL_MISMATCH o membresía activa existente }
+        '422': { description: IDENTITY_TOKEN_INVALID }
+  /marcas/{brand_id}/personal:
+    parameters: [{ $ref: '#/components/parameters/BrandId' }]
+    get:
+      tags: [Marcas]
+      summary: Lista propietarios, administradores y operadores
+      operationId: listBrandStaff
+      x-puntazo-implementation: IMPLEMENTED
+      responses:
+        '200': { description: Personal, content: { application/json: { schema: { $ref: '#/components/schemas/StaffListEnvelope' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /marcas/{brand_id}/personal/{resource_id}:
+    parameters: [{ $ref: '#/components/parameters/BrandId' }, { $ref: '#/components/parameters/ResourceId' }]
+    get:
+      tags: [Marcas]
+      summary: Consulta un miembro de personal
+      operationId: getBrandStaff
+      x-puntazo-implementation: IMPLEMENTED
+      responses: { '200': { description: Personal, content: { application/json: { schema: { $ref: '#/components/schemas/StaffEnvelope' } } } }, '404': { $ref: '#/components/responses/NotFound' } }
+    patch:
+      tags: [Marcas]
+      summary: Cambia rol o asignaciones de un administrador u operador
+      operationId: updateBrandStaff
+      x-puntazo-implementation: IMPLEMENTED
+      parameters: [{ $ref: '#/components/parameters/IfMatch' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/UpdateStaffRequest' } } } }
+      responses: { '200': { description: Personal actualizado, content: { application/json: { schema: { $ref: '#/components/schemas/StaffEnvelope' } } } }, '403': { $ref: '#/components/responses/Forbidden' }, '412': { description: Versión desactualizada } }
+    delete:
+      tags: [Marcas]
+      summary: Revoca el acceso de un administrador u operador
+      operationId: deleteBrandStaff
+      x-puntazo-implementation: IMPLEMENTED
+      parameters: [{ $ref: '#/components/parameters/IfMatch' }]
+      responses: { '204': { description: Acceso revocado }, '403': { $ref: '#/components/responses/Forbidden' }, '412': { description: Versión desactualizada } }
   /marcas/{brand_id}/clientes:
     get:
       tags: [Clientes]
@@ -801,7 +899,7 @@ components:
           properties:
             code:
               type: string
-              enum: [INVALID_REQUEST, IDENTITY_TOKEN_INVALID, EMAIL_VERIFICATION_REQUIRED, UNAUTHENTICATED, RECENT_AUTH_REQUIRED, FORBIDDEN, NOT_FOUND, EMAIL_EXISTS, IDEMPOTENCY_CONFLICT, IDEMPOTENCY_IN_PROGRESS, PREVIEW_EXPIRED, PREVIEW_CONSUMED, PREVIEW_CHANGED, PRECONDITION_FAILED, OWNERSHIP_TRANSFER_REQUIRED, INSUFFICIENT_BALANCE, DEMO_SIGNUP_DISABLED, DEMO_ACCESS_DENIED, RATE_LIMITED, DEPENDENCY_UNAVAILABLE, INTERNAL_ERROR]
+              enum: [INVALID_REQUEST, IDENTITY_TOKEN_INVALID, INVITATION_INVALID, INVITATION_EMAIL_MISMATCH, EMAIL_VERIFICATION_REQUIRED, UNAUTHENTICATED, RECENT_AUTH_REQUIRED, FORBIDDEN, NOT_FOUND, EMAIL_EXISTS, IDEMPOTENCY_CONFLICT, IDEMPOTENCY_IN_PROGRESS, PREVIEW_EXPIRED, PREVIEW_CONSUMED, PREVIEW_CHANGED, PRECONDITION_FAILED, OWNERSHIP_TRANSFER_REQUIRED, INSUFFICIENT_BALANCE, DEMO_SIGNUP_DISABLED, DEMO_ACCESS_DENIED, RATE_LIMITED, DEPENDENCY_UNAVAILABLE, INTERNAL_ERROR]
             message: { type: string }
             details: { type: object, additionalProperties: true }
         request_id: { $ref: '#/components/schemas/RequestId' }
@@ -1002,6 +1100,82 @@ components:
       required: [id_token]
       properties:
         id_token: { type: string, minLength: 1 }
+    CreateInvitationRequest:
+      type: object
+      additionalProperties: false
+      required: [email, rol, sucursal_ids]
+      properties:
+        email: { type: string, format: email }
+        rol: { type: string, enum: [ADMINISTRADOR, OPERADOR] }
+        sucursal_ids: { type: array, uniqueItems: true, items: { type: integer, format: int64, minimum: 1 } }
+    BrandInvitation:
+      type: object
+      additionalProperties: false
+      required: [id, brand_id, email, role, branch_ids, estado, expires_at, version, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        brand_id: { type: integer, format: int64 }
+        email: { type: string, format: email }
+        role: { type: string, enum: [ADMINISTRADOR, OPERADOR] }
+        branch_ids: { type: array, items: { type: integer, format: int64 } }
+        estado: { type: string, enum: [PENDIENTE, ACEPTADA, REVOCADA, EXPIRADA] }
+        expires_at: { $ref: '#/components/schemas/Timestamp' }
+        version: { type: integer, minimum: 1 }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+    PublicInvitation:
+      type: object
+      additionalProperties: false
+      required: [marca_nombre, email_enmascarado, rol, expires_at]
+      properties:
+        marca_nombre: { type: string }
+        email_enmascarado: { type: string }
+        rol: { type: string, enum: [ADMINISTRADOR, OPERADOR] }
+        expires_at: { $ref: '#/components/schemas/Timestamp' }
+    StaffMember:
+      type: object
+      additionalProperties: false
+      required: [id, user_id, email, nombre, rol, sucursal_ids, activo, version]
+      properties:
+        id: { type: integer, format: int64 }
+        user_id: { type: integer, format: int64 }
+        email: { type: string, format: email }
+        nombre: { type: string }
+        rol: { type: string, enum: [PROPIETARIO, ADMINISTRADOR, OPERADOR] }
+        sucursal_ids: { type: array, items: { type: integer, format: int64 } }
+        activo: { type: boolean }
+        version: { type: integer, minimum: 1 }
+    UpdateStaffRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        rol: { type: string, enum: [ADMINISTRADOR, OPERADOR] }
+        sucursal_ids: { type: array, uniqueItems: true, items: { type: integer, format: int64, minimum: 1 } }
+    InvitationEnvelope:
+      type: object
+      additionalProperties: false
+      required: [data, request_id]
+      properties: { data: { $ref: '#/components/schemas/BrandInvitation' }, request_id: { $ref: '#/components/schemas/RequestId' } }
+    InvitationListEnvelope:
+      type: object
+      additionalProperties: false
+      required: [data, request_id]
+      properties: { data: { type: array, items: { $ref: '#/components/schemas/BrandInvitation' } }, request_id: { $ref: '#/components/schemas/RequestId' } }
+    PublicInvitationEnvelope:
+      type: object
+      additionalProperties: false
+      required: [data, request_id]
+      properties: { data: { $ref: '#/components/schemas/PublicInvitation' }, request_id: { $ref: '#/components/schemas/RequestId' } }
+    StaffEnvelope:
+      type: object
+      additionalProperties: false
+      required: [data, request_id]
+      properties: { data: { $ref: '#/components/schemas/StaffMember' }, request_id: { $ref: '#/components/schemas/RequestId' } }
+    StaffListEnvelope:
+      type: object
+      additionalProperties: false
+      required: [data, request_id]
+      properties: { data: { type: array, items: { $ref: '#/components/schemas/StaffMember' } }, request_id: { $ref: '#/components/schemas/RequestId' } }
     CurrentUser:
       type: object
       additionalProperties: false
