@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"time"
 
 	"clientesFrecuentes/internal/model"
 
@@ -88,4 +89,60 @@ func (r *Repository) ExportAccount(ctx context.Context, id int64) (model.Account
 		return model.AccountExport{}, err
 	}
 	return out, nil
+}
+
+func (r *Repository) AnonymizeAccount(ctx context.Context, id int64, expectedVersion int) (time.Time, error) {
+	tx, err := r.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return time.Time{}, err
+	}
+	defer tx.Rollback(ctx)
+	var currentVersion int
+	if err = tx.QueryRow(ctx, `SELECT version FROM usuarios WHERE id=$1 AND activo AND deleted_at IS NULL FOR UPDATE`, id).Scan(&currentVersion); err != nil {
+		return time.Time{}, err
+	}
+	if currentVersion != expectedVersion {
+		return time.Time{}, ErrPreconditionFailed
+	}
+	var blocksOwnership bool
+	err = tx.QueryRow(ctx, `SELECT EXISTS(
+		SELECT 1 FROM membresias_marca mine
+		WHERE mine.usuario_id=$1 AND mine.activo AND mine.rol='PROPIETARIO'
+		AND NOT EXISTS(SELECT 1 FROM membresias_marca other WHERE other.marca_id=mine.marca_id AND other.usuario_id<>$1 AND other.activo AND other.rol='PROPIETARIO')
+	)`, id).Scan(&blocksOwnership)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if blocksOwnership {
+		return time.Time{}, ErrOwnershipTransfer
+	}
+	var deletedAt time.Time
+	if err = tx.QueryRow(ctx, `SELECT now()`).Scan(&deletedAt); err != nil {
+		return time.Time{}, err
+	}
+	statements := []string{
+		`UPDATE membresias_sucursales SET activo=false WHERE membresia_id IN (SELECT id FROM membresias_marca WHERE usuario_id=$1)`,
+		`UPDATE membresias_marca SET activo=false WHERE usuario_id=$1`,
+		`UPDATE tarjetas SET activo=false,deleted_at=COALESCE(deleted_at,$2),version=version+1 WHERE usuario_id=$1 AND activo`,
+		`UPDATE previews_movimiento SET expires_at=LEAST(expires_at,$2) WHERE (actor_id=$1 OR cliente_id=$1) AND consumed_at IS NULL`,
+		`UPDATE sesiones_auth SET revoked_at=COALESCE(revoked_at,$2) WHERE usuario_id=$1`,
+		`UPDATE tokens_identidad_email SET consumed_at=COALESCE(consumed_at,$2) WHERE usuario_id=$1`,
+		`UPDATE email_outbox SET estado='FAILED',cuerpo_texto='',cuerpo_html='',ultimo_error='account deleted',lease_until=NULL,disponible_at=$2 WHERE usuario_id=$1 AND estado IN ('PENDING','SENDING')`,
+	}
+	for _, statement := range statements {
+		if _, err = tx.Exec(ctx, statement, id, deletedAt); err != nil {
+			return time.Time{}, err
+		}
+	}
+	command, err := tx.Exec(ctx, `UPDATE usuarios SET email=('deleted-' || id || '@anon.invalid')::citext,password_hash=NULL,google_id=NULL,nombre='Cuenta anonimizada',apellido=NULL,alias=NULL,foto_url=NULL,qr_hash=NULL,activo=false,email_verified_at=NULL,auth_version=auth_version+1,version=version+1,deleted_at=$2 WHERE id=$1 AND version=$3`, id, deletedAt, expectedVersion)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if command.RowsAffected() != 1 {
+		return time.Time{}, ErrPreconditionFailed
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return time.Time{}, err
+	}
+	return deletedAt, nil
 }

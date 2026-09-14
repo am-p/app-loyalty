@@ -17,6 +17,7 @@ var (
 	ErrDemoAccess         = errors.New("demo access denied")
 	ErrEmailUnverified    = errors.New("email unverified")
 	ErrIdentityToken      = errors.New("identity token invalid")
+	ErrRecentAuthRequired = errors.New("recent authentication required")
 )
 
 type Service struct {

@@ -48,6 +48,16 @@ type UpdateAccountRequest struct {
 	Alias    *string `json:"alias,omitempty"`
 	PhotoURL *string `json:"foto_url,omitempty"`
 }
+type AnonymizeAccountRequest struct {
+	Confirmation string `json:"confirmacion"`
+}
+type Anonymization struct {
+	RequestID       string    `json:"id_solicitud"`
+	Status          string    `json:"estado"`
+	AccessRevoked   bool      `json:"acceso_revocado"`
+	LedgerPreserved bool      `json:"ledger_preservado"`
+	RequestedAt     time.Time `json:"requested_at"`
+}
 type Session struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token,omitempty"`

@@ -60,6 +60,11 @@ func (t *Tokens) ParseSession(raw string) (int64, string, string, error) {
 }
 
 func (t *Tokens) ParseSessionVersion(raw string) (int64, string, string, int, error) {
+	id, accountType, sessionID, authVersion, _, err := t.ParseSessionContext(raw)
+	return id, accountType, sessionID, authVersion, err
+}
+
+func (t *Tokens) ParseSessionContext(raw string) (int64, string, string, int, time.Time, error) {
 	claims := new(Claims)
 	token, err := jwt.ParseWithClaims(raw, claims, func(token *jwt.Token) (any, error) {
 		if token.Method != jwt.SigningMethodHS256 {
@@ -68,11 +73,11 @@ func (t *Tokens) ParseSessionVersion(raw string) (int64, string, string, int, er
 		return t.Secret, nil
 	}, jwt.WithAudience("puntazo-app"), jwt.WithIssuer(t.Issuer), jwt.WithExpirationRequired(), jwt.WithTimeFunc(t.Now))
 	if err != nil || !token.Valid {
-		return 0, "", "", 0, ErrInvalidToken
+		return 0, "", "", 0, time.Time{}, ErrInvalidToken
 	}
 	id, err := strconv.ParseInt(claims.Subject, 10, 64)
 	if err != nil || id < 1 || claims.AuthVersion < 1 || claims.AuthTime < 1 || claims.AuthTime > t.Now().UTC().Unix()+60 || uuid.Validate(claims.ID) != nil || (claims.AccountType != "CLIENTE_FINAL" && claims.AccountType != "PERSONAL_MARCA") {
-		return 0, "", "", 0, ErrInvalidToken
+		return 0, "", "", 0, time.Time{}, ErrInvalidToken
 	}
-	return id, claims.AccountType, claims.ID, claims.AuthVersion, nil
+	return id, claims.AccountType, claims.ID, claims.AuthVersion, time.Unix(claims.AuthTime, 0).UTC(), nil
 }

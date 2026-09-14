@@ -177,3 +177,26 @@ func (h *Handler) ExportMe(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, web.Envelope[model.AccountExport]{Data: data, RequestID: web.RequestID(c)})
 }
+
+func (h *Handler) DeleteMe(c *gin.Context) {
+	a, ok := actor(c)
+	if !ok {
+		return
+	}
+	version, ok := accountVersion(c)
+	if !ok {
+		return
+	}
+	var req model.AnonymizeAccountRequest
+	if decode(c, &req) != nil {
+		writeErr(c, service.ErrInvalidRequest)
+		return
+	}
+	data, err := h.Service.AnonymizeCurrentUser(c.Request.Context(), a.ID, a.AuthTime, version, req)
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	clearRefreshCookie(c)
+	c.JSON(http.StatusAccepted, web.Envelope[model.Anonymization]{Data: data, RequestID: web.RequestID(c)})
+}

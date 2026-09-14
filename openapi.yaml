@@ -284,6 +284,38 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    delete:
+      tags: [Cuenta]
+      operationId: anonymizeCurrentUser
+      summary: Anonimiza la cuenta y preserva el ledger histórico
+      x-puntazo-implementation: IMPLEMENTED
+      parameters:
+        - name: If-Match
+          in: header
+          required: true
+          schema: { type: string, pattern: '^"[1-9][0-9]*"$' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AnonymizeAccountRequest' }
+      responses:
+        '202':
+          description: Anonimización completada y accesos revocados
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AnonymizationEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '409':
+          description: La cuenta sigue siendo el último propietario activo de una marca
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '412':
+          description: If-Match ausente, inválido o desactualizado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
   /me/export:
     get:
       tags: [Cuenta]
@@ -689,6 +721,29 @@ components:
         apellido: { type: string, maxLength: 120 }
         alias: { type: string, maxLength: 80 }
         foto_url: { type: string, format: uri, maxLength: 2048 }
+    AnonymizeAccountRequest:
+      type: object
+      additionalProperties: false
+      required: [confirmacion]
+      properties:
+        confirmacion: { type: string, const: ANONIMIZAR }
+    Anonymization:
+      type: object
+      additionalProperties: false
+      required: [id_solicitud, estado, acceso_revocado, ledger_preservado, requested_at]
+      properties:
+        id_solicitud: { type: string, format: uuid }
+        estado: { type: string, const: COMPLETADA }
+        acceso_revocado: { type: boolean, const: true }
+        ledger_preservado: { type: boolean, const: true }
+        requested_at: { $ref: '#/components/schemas/Timestamp' }
+    AnonymizationEnvelope:
+      type: object
+      additionalProperties: false
+      required: [data, request_id]
+      properties:
+        data: { $ref: '#/components/schemas/Anonymization' }
+        request_id: { $ref: '#/components/schemas/RequestId' }
     Membership:
       type: object
       additionalProperties: false

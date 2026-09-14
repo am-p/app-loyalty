@@ -4,9 +4,12 @@ import (
 	"context"
 	"net/url"
 	"strings"
+	"time"
 
 	"clientesFrecuentes/internal/model"
 	"clientesFrecuentes/internal/web"
+
+	"github.com/google/uuid"
 )
 
 func (s *Service) CurrentUser(ctx context.Context, actorID int64) (model.CurrentUser, error) {
@@ -32,6 +35,21 @@ func (s *Service) UpdateCurrentUser(ctx context.Context, actorID int64, expected
 
 func (s *Service) ExportCurrentUser(ctx context.Context, actorID int64) (model.AccountExport, error) {
 	return s.Repo.ExportAccount(ctx, actorID)
+}
+
+func (s *Service) AnonymizeCurrentUser(ctx context.Context, actorID int64, authTime time.Time, expectedVersion int, req model.AnonymizeAccountRequest) (model.Anonymization, error) {
+	if req.Confirmation != "ANONIMIZAR" {
+		return model.Anonymization{}, ErrInvalidRequest
+	}
+	now := s.Now().UTC()
+	if authTime.IsZero() || now.Sub(authTime) > 10*time.Minute {
+		return model.Anonymization{}, ErrRecentAuthRequired
+	}
+	deletedAt, err := s.Repo.AnonymizeAccount(ctx, actorID, expectedVersion)
+	if err != nil {
+		return model.Anonymization{}, err
+	}
+	return model.Anonymization{RequestID: uuid.NewString(), Status: "COMPLETADA", AccessRevoked: true, LedgerPreserved: true, RequestedAt: deletedAt}, nil
 }
 
 func normalizeOptional(value **string, limit int) bool {
