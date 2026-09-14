@@ -18,6 +18,8 @@ var (
 	ErrInvalidRequest        = errors.New("invalid request")
 	ErrForbidden             = errors.New("forbidden")
 	ErrSessionReuse          = errors.New("session refresh reuse")
+	ErrPreconditionFailed    = errors.New("precondition failed")
+	ErrOwnershipTransfer     = errors.New("ownership transfer required")
 )
 
 func normalize(err error) error {

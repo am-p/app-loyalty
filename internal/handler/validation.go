@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"clientesFrecuentes/internal/repository"
 	"clientesFrecuentes/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -34,6 +35,22 @@ func positiveID(value string) (int64, error) {
 		return 0, service.ErrInvalidRequest
 	}
 	return v, nil
+}
+
+func accountETag(version int) string { return `"` + strconv.Itoa(version) + `"` }
+
+func accountVersion(c *gin.Context) (int, bool) {
+	raw := strings.TrimSpace(c.GetHeader("If-Match"))
+	if len(raw) < 3 || raw[0] != '"' || raw[len(raw)-1] != '"' {
+		writeErr(c, repository.ErrPreconditionFailed)
+		return 0, false
+	}
+	version, err := strconv.Atoi(raw[1 : len(raw)-1])
+	if err != nil || version < 1 {
+		writeErr(c, repository.ErrPreconditionFailed)
+		return 0, false
+	}
+	return version, true
 }
 
 func pagination(c *gin.Context) (int, int, error) {

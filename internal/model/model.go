@@ -32,11 +32,21 @@ type User struct {
 	ID            int64     `json:"id"`
 	Email         string    `json:"email"`
 	Name          string    `json:"name"`
+	LastName      *string   `json:"apellido,omitempty"`
+	Alias         *string   `json:"alias,omitempty"`
+	PhotoURL      *string   `json:"foto_url,omitempty"`
 	AccountType   string    `json:"account_type"`
 	Active        bool      `json:"active"`
 	EmailVerified bool      `json:"email_verified"`
 	AuthVersion   int       `json:"auth_version"`
+	Version       int       `json:"version"`
 	CreatedAt     time.Time `json:"created_at"`
+}
+type UpdateAccountRequest struct {
+	Name     string  `json:"nombre"`
+	LastName *string `json:"apellido,omitempty"`
+	Alias    *string `json:"alias,omitempty"`
+	PhotoURL *string `json:"foto_url,omitempty"`
 }
 type Session struct {
 	AccessToken  string `json:"access_token"`

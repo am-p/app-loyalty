@@ -24,8 +24,8 @@ func (r *Repository) CreateDemoMerchant(ctx context.Context, key string, fingerp
 		return *claimed, nil
 	}
 	var u model.User
-	err = tx.QueryRow(ctx, `INSERT INTO usuarios(email,password_hash,nombre,tipo_cuenta,email_verified_at) VALUES($1,$2,$3,'PERSONAL_MARCA',$4) RETURNING id,email::text,nombre,tipo_cuenta,activo,(email_verified_at IS NOT NULL),auth_version,created_at`, email, passwordHash, ownerName, verifiedAt).
-		Scan(&u.ID, &u.Email, &u.Name, &u.AccountType, &u.Active, &u.EmailVerified, &u.AuthVersion, &u.CreatedAt)
+	err = tx.QueryRow(ctx, `INSERT INTO usuarios(email,password_hash,nombre,tipo_cuenta,email_verified_at) VALUES($1,$2,$3,'PERSONAL_MARCA',$4) RETURNING id,email::text,nombre,apellido,alias,foto_url,tipo_cuenta,activo,(email_verified_at IS NOT NULL),auth_version,version,created_at`, email, passwordHash, ownerName, verifiedAt).
+		Scan(&u.ID, &u.Email, &u.Name, &u.LastName, &u.Alias, &u.PhotoURL, &u.AccountType, &u.Active, &u.EmailVerified, &u.AuthVersion, &u.Version, &u.CreatedAt)
 	if err != nil {
 		return IdempotentResult{}, normalize(err)
 	}

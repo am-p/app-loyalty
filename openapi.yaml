@@ -247,10 +247,43 @@ paths:
       responses:
         '200':
           description: Identidad y membresías restaurables en otro dispositivo
+          headers:
+            ETag:
+              description: Versión fuerte para mutaciones con If-Match
+              schema: { type: string, pattern: '^"[1-9][0-9]*"$' }
           content:
             application/json:
               schema: { $ref: '#/components/schemas/CurrentUserEnvelope' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
+    patch:
+      tags: [Cuenta]
+      operationId: updateCurrentUser
+      x-puntazo-implementation: IMPLEMENTED
+      parameters:
+        - name: If-Match
+          in: header
+          required: true
+          schema: { type: string, pattern: '^"[1-9][0-9]*"$' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateAccountRequest' }
+      responses:
+        '200':
+          description: Perfil actualizado
+          headers:
+            ETag:
+              schema: { type: string, pattern: '^"[1-9][0-9]*"$' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CurrentUserEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '412':
+          description: If-Match ausente, inválido o desactualizado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
   /marcas:
     get:
       tags: [Marcas]
@@ -610,7 +643,7 @@ components:
           properties:
             code:
               type: string
-              enum: [INVALID_REQUEST, IDENTITY_TOKEN_INVALID, EMAIL_VERIFICATION_REQUIRED, UNAUTHENTICATED, FORBIDDEN, NOT_FOUND, EMAIL_EXISTS, IDEMPOTENCY_CONFLICT, IDEMPOTENCY_IN_PROGRESS, PREVIEW_EXPIRED, PREVIEW_CONSUMED, PREVIEW_CHANGED, INSUFFICIENT_BALANCE, DEMO_SIGNUP_DISABLED, DEMO_ACCESS_DENIED, RATE_LIMITED, DEPENDENCY_UNAVAILABLE, INTERNAL_ERROR]
+              enum: [INVALID_REQUEST, IDENTITY_TOKEN_INVALID, EMAIL_VERIFICATION_REQUIRED, UNAUTHENTICATED, RECENT_AUTH_REQUIRED, FORBIDDEN, NOT_FOUND, EMAIL_EXISTS, IDEMPOTENCY_CONFLICT, IDEMPOTENCY_IN_PROGRESS, PREVIEW_EXPIRED, PREVIEW_CONSUMED, PREVIEW_CHANGED, PRECONDITION_FAILED, OWNERSHIP_TRANSFER_REQUIRED, INSUFFICIENT_BALANCE, DEMO_SIGNUP_DISABLED, DEMO_ACCESS_DENIED, RATE_LIMITED, DEPENDENCY_UNAVAILABLE, INTERNAL_ERROR]
             message: { type: string }
             details: { type: object, additionalProperties: true }
         request_id: { $ref: '#/components/schemas/RequestId' }
@@ -620,16 +653,29 @@ components:
     User:
       type: object
       additionalProperties: false
-      required: [id, email, name, account_type, active, email_verified, auth_version, created_at]
+      required: [id, email, name, account_type, active, email_verified, auth_version, version, created_at]
       properties:
         id: { type: integer, format: int64 }
         email: { type: string, format: email }
         name: { type: string }
+        apellido: { type: string, maxLength: 120 }
+        alias: { type: string, maxLength: 80 }
+        foto_url: { type: string, format: uri, maxLength: 2048 }
         account_type: { $ref: '#/components/schemas/AccountType' }
         active: { type: boolean }
         email_verified: { type: boolean }
         auth_version: { type: integer, minimum: 1 }
+        version: { type: integer, minimum: 1 }
         created_at: { $ref: '#/components/schemas/Timestamp' }
+    UpdateAccountRequest:
+      type: object
+      additionalProperties: false
+      required: [nombre]
+      properties:
+        nombre: { type: string, minLength: 1, maxLength: 120 }
+        apellido: { type: string, maxLength: 120 }
+        alias: { type: string, maxLength: 80 }
+        foto_url: { type: string, format: uri, maxLength: 2048 }
     Membership:
       type: object
       additionalProperties: false

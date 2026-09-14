@@ -28,6 +28,7 @@ func TestRouteInventoryAndAuthentication(t *testing.T) {
 	}
 	protected := []struct{ method, pattern, request string }{
 		{"GET", "/v1/me", "/v1/me"},
+		{"PATCH", "/v1/me", "/v1/me"},
 		{"POST", "/v1/auth/logout", "/v1/auth/logout"},
 		{"GET", "/me", "/me"},
 		{"GET", "/v1/marcas", "/v1/marcas"},

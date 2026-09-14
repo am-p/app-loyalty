@@ -37,6 +37,10 @@ func writeErr(c *gin.Context, err error) {
 		web.Error(c, http.StatusConflict, "PREVIEW_CHANGED", "La preview ya no coincide con el estado actual", nil)
 	case errors.Is(err, repository.ErrInsufficientBalance):
 		web.Error(c, http.StatusConflict, "INSUFFICIENT_BALANCE", "Saldo insuficiente", nil)
+	case errors.Is(err, repository.ErrPreconditionFailed):
+		web.Error(c, http.StatusPreconditionFailed, "PRECONDITION_FAILED", "La versión del recurso cambió", nil)
+	case errors.Is(err, repository.ErrOwnershipTransfer):
+		web.Error(c, http.StatusConflict, "OWNERSHIP_TRANSFER_REQUIRED", "Transferí la propiedad antes de eliminar la cuenta", nil)
 	case errors.Is(err, service.ErrIdentityToken):
 		web.Error(c, http.StatusUnprocessableEntity, "IDENTITY_TOKEN_INVALID", "Token inválido, vencido o utilizado", nil)
 	case errors.Is(err, service.ErrEmailUnverified):

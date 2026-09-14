@@ -138,5 +138,29 @@ func (h *Handler) Me(c *gin.Context) {
 		writeErr(c, err)
 		return
 	}
+	c.Header("ETag", accountETag(data.User.Version))
+	c.JSON(http.StatusOK, web.Envelope[model.CurrentUser]{Data: data, RequestID: web.RequestID(c)})
+}
+
+func (h *Handler) UpdateMe(c *gin.Context) {
+	a, ok := actor(c)
+	if !ok {
+		return
+	}
+	version, ok := accountVersion(c)
+	if !ok {
+		return
+	}
+	var req model.UpdateAccountRequest
+	if decode(c, &req) != nil {
+		writeErr(c, service.ErrInvalidRequest)
+		return
+	}
+	data, err := h.Service.UpdateCurrentUser(c.Request.Context(), a.ID, version, req)
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	c.Header("ETag", accountETag(data.User.Version))
 	c.JSON(http.StatusOK, web.Envelope[model.CurrentUser]{Data: data, RequestID: web.RequestID(c)})
 }
