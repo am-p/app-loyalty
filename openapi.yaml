@@ -840,12 +840,12 @@ components:
     UpdateAccountRequest:
       type: object
       additionalProperties: false
-      required: [nombre]
+      minProperties: 1
       properties:
         nombre: { type: string, minLength: 1, maxLength: 120 }
-        apellido: { type: string, maxLength: 120 }
-        alias: { type: string, maxLength: 80 }
-        foto_url: { type: string, format: uri, maxLength: 2048 }
+        apellido: { type: [string, 'null'], maxLength: 120 }
+        alias: { type: [string, 'null'], maxLength: 80 }
+        foto_url: { type: [string, 'null'], format: uri, maxLength: 2048 }
     AnonymizeAccountRequest:
       type: object
       additionalProperties: false

@@ -1,6 +1,10 @@
 package model
 
-import "time"
+import (
+	"bytes"
+	"encoding/json"
+	"time"
+)
 
 type RegisterCustomerRequest struct {
 	Email    string `json:"email"`
@@ -42,11 +46,41 @@ type User struct {
 	Version       int       `json:"version"`
 	CreatedAt     time.Time `json:"created_at"`
 }
+
+// OptionalString preserves the difference between an omitted JSON property,
+// an explicit null (clear the value), and a string value.
+type OptionalString struct {
+	Set   bool
+	Value *string
+}
+
+func (o *OptionalString) UnmarshalJSON(data []byte) error {
+	o.Set = true
+	if bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
+		o.Value = nil
+		return nil
+	}
+	var value string
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	o.Value = &value
+	return nil
+}
+
+func StringPatch(value string) OptionalString {
+	return OptionalString{Set: true, Value: &value}
+}
+
+func NullStringPatch() OptionalString {
+	return OptionalString{Set: true}
+}
+
 type UpdateAccountRequest struct {
-	Name     string  `json:"nombre"`
-	LastName *string `json:"apellido,omitempty"`
-	Alias    *string `json:"alias,omitempty"`
-	PhotoURL *string `json:"foto_url,omitempty"`
+	Name     OptionalString `json:"nombre"`
+	LastName OptionalString `json:"apellido"`
+	Alias    OptionalString `json:"alias"`
+	PhotoURL OptionalString `json:"foto_url"`
 }
 type AnonymizeAccountRequest struct {
 	Confirmation string `json:"confirmacion"`

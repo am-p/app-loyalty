@@ -17,20 +17,34 @@ func (s *Service) CurrentUser(ctx context.Context, actorID int64) (model.Current
 }
 
 func (s *Service) UpdateCurrentUser(ctx context.Context, actorID int64, expectedVersion int, req model.UpdateAccountRequest) (model.CurrentUser, error) {
-	req.Name = strings.TrimSpace(req.Name)
-	if req.Name == "" || len(req.Name) > 120 || expectedVersion < 1 {
+	if expectedVersion < 1 || (!req.Name.Set && !req.LastName.Set && !req.Alias.Set && !req.PhotoURL.Set) {
 		return model.CurrentUser{}, ErrInvalidRequest
 	}
-	if !normalizeOptional(&req.LastName, 120) || !normalizeOptional(&req.Alias, 80) || !normalizeOptional(&req.PhotoURL, 2048) {
+	if req.Name.Set && (req.Name.Value == nil || !normalizePatch(&req.Name, 120) || *req.Name.Value == "") {
 		return model.CurrentUser{}, ErrInvalidRequest
 	}
-	if req.PhotoURL != nil && *req.PhotoURL != "" {
-		parsed, err := url.ParseRequestURI(*req.PhotoURL)
+	if !normalizePatch(&req.LastName, 120) || !normalizePatch(&req.Alias, 80) || !normalizePatch(&req.PhotoURL, 2048) {
+		return model.CurrentUser{}, ErrInvalidRequest
+	}
+	if req.PhotoURL.Set && req.PhotoURL.Value != nil && *req.PhotoURL.Value != "" {
+		parsed, err := url.ParseRequestURI(*req.PhotoURL.Value)
 		if err != nil || parsed.Host == "" || (parsed.Scheme != "https" && parsed.Scheme != "http") {
 			return model.CurrentUser{}, ErrInvalidRequest
 		}
 	}
 	return s.Repo.UpdateAccount(ctx, actorID, expectedVersion, req)
+}
+
+func normalizePatch(value *model.OptionalString, limit int) bool {
+	if !value.Set || value.Value == nil {
+		return true
+	}
+	normalized := strings.TrimSpace(*value.Value)
+	if len(normalized) > limit {
+		return false
+	}
+	value.Value = &normalized
+	return true
 }
 
 func (s *Service) ExportCurrentUser(ctx context.Context, actorID int64) (model.AccountExport, error) {

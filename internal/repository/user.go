@@ -110,12 +110,14 @@ func (r *Repository) GetUserByID(ctx context.Context, id int64) (model.User, err
 }
 
 func (r *Repository) UpdateAccount(ctx context.Context, id int64, expectedVersion int, req model.UpdateAccountRequest) (model.CurrentUser, error) {
-	command, err := r.Pool.Exec(ctx, `UPDATE usuarios SET nombre=$3,
-		apellido=CASE WHEN $4 THEN NULLIF($5,'') ELSE apellido END,
-		alias=CASE WHEN $6 THEN NULLIF($7,'') ELSE alias END,
-		foto_url=CASE WHEN $8 THEN NULLIF($9,'') ELSE foto_url END,
+	command, err := r.Pool.Exec(ctx, `UPDATE usuarios SET nombre=CASE WHEN $3 THEN $4 ELSE nombre END,
+		apellido=CASE WHEN $5 THEN NULLIF($6,'') ELSE apellido END,
+		alias=CASE WHEN $7 THEN NULLIF($8,'') ELSE alias END,
+		foto_url=CASE WHEN $9 THEN NULLIF($10,'') ELSE foto_url END,
 		version=version+1
-		WHERE id=$1 AND version=$2 AND activo AND deleted_at IS NULL`, id, expectedVersion, req.Name, req.LastName != nil, stringValue(req.LastName), req.Alias != nil, stringValue(req.Alias), req.PhotoURL != nil, stringValue(req.PhotoURL))
+		WHERE id=$1 AND version=$2 AND activo AND deleted_at IS NULL`, id, expectedVersion,
+		req.Name.Set, patchValue(req.Name), req.LastName.Set, patchValue(req.LastName),
+		req.Alias.Set, patchValue(req.Alias), req.PhotoURL.Set, patchValue(req.PhotoURL))
 	if err != nil {
 		return model.CurrentUser{}, err
 	}
@@ -123,6 +125,13 @@ func (r *Repository) UpdateAccount(ctx context.Context, id int64, expectedVersio
 		return model.CurrentUser{}, ErrPreconditionFailed
 	}
 	return r.GetCurrentUser(ctx, id)
+}
+
+func patchValue(value model.OptionalString) any {
+	if value.Value == nil {
+		return nil
+	}
+	return *value.Value
 }
 
 func stringValue(value *string) string {

@@ -39,3 +39,19 @@ func TestAnonymizeRequiresExactConfirmationAndRecentAuthentication(t *testing.T)
 		t.Fatalf("recent auth error=%v", err)
 	}
 }
+
+func TestUpdateCurrentUserRejectsEmptyAndInvalidPartialPatches(t *testing.T) {
+	svc := &Service{}
+	for name, patch := range map[string]model.UpdateAccountRequest{
+		"empty":      {},
+		"null name":  {Name: model.NullStringPatch()},
+		"blank name": {Name: model.StringPatch("   ")},
+		"bad photo":  {PhotoURL: model.StringPatch("javascript:alert(1)")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := svc.UpdateCurrentUser(context.Background(), 1, 1, patch); !errors.Is(err, ErrInvalidRequest) {
+				t.Fatalf("error=%v", err)
+			}
+		})
+	}
+}

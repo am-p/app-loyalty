@@ -714,7 +714,10 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	}
 	lastNameA, lastNameB := "Primero", "Segundo"
 	accountErrs := make(chan error, 2)
-	for _, update := range []model.UpdateAccountRequest{{Name: "Cliente A", LastName: &lastNameA}, {Name: "Cliente B", LastName: &lastNameB}} {
+	for _, update := range []model.UpdateAccountRequest{
+		{Name: model.StringPatch("Cliente A"), LastName: model.StringPatch(lastNameA)},
+		{Name: model.StringPatch("Cliente B"), LastName: model.StringPatch(lastNameB)},
+	} {
 		wg.Add(1)
 		go func(update model.UpdateAccountRequest) {
 			defer wg.Done()
@@ -735,8 +738,21 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if accountUpdates != 1 {
 		t.Fatalf("concurrent account updates accepted=%d", accountUpdates)
 	}
+	current, err = svc.CurrentUser(ctx, customer.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalName := current.User.Name
+	current, err = svc.UpdateCurrentUser(ctx, customer.ID, current.User.Version, model.UpdateAccountRequest{Alias: model.StringPatch("cliente")})
+	if err != nil || current.User.Name != originalName || current.User.Alias == nil || *current.User.Alias != "cliente" {
+		t.Fatalf("partial account update=%+v err=%v", current, err)
+	}
+	current, err = svc.UpdateCurrentUser(ctx, customer.ID, current.User.Version, model.UpdateAccountRequest{Alias: model.NullStringPatch(), LastName: model.NullStringPatch(), PhotoURL: model.NullStringPatch()})
+	if err != nil || current.User.Name != originalName || current.User.Alias != nil || current.User.LastName != nil || current.User.PhotoURL != nil {
+		t.Fatalf("clear account fields=%+v err=%v", current, err)
+	}
 	accountExport, err := svc.ExportCurrentUser(ctx, customer.ID)
-	if err != nil || len(accountExport.Cards) != 2 || len(accountExport.Movements) != 13 || accountExport.User.Version != 2 {
+	if err != nil || len(accountExport.Cards) != 2 || len(accountExport.Movements) != 13 || accountExport.User.Version != 4 {
 		t.Fatalf("account export=%+v err=%v", accountExport, err)
 	}
 	if _, err = repo.AnonymizeAccount(ctx, merchant.User.ID, merchant.User.Version); !errors.Is(err, repository.ErrOwnershipTransfer) {
