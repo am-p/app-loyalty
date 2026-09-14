@@ -22,7 +22,7 @@ func TestCORSPreflightAllowsVersionedMutations(t *testing.T) {
 	request := httptest.NewRequest(http.MethodOptions, "/resource", nil)
 	request.Header.Set("Origin", "https://app.puntazo.test")
 	request.Header.Set("Access-Control-Request-Method", http.MethodPatch)
-	request.Header.Set("Access-Control-Request-Headers", "authorization,content-type,if-match,idempotency-key")
+	request.Header.Set("Access-Control-Request-Headers", "authorization,content-type,if-match,idempotency-key,x-client-platform")
 	response := httptest.NewRecorder()
 	router.ServeHTTP(response, request)
 
@@ -32,15 +32,33 @@ func TestCORSPreflightAllowsVersionedMutations(t *testing.T) {
 	if got := response.Header().Get("Access-Control-Allow-Origin"); got != "https://app.puntazo.test" {
 		t.Fatalf("allow origin=%q", got)
 	}
+	if got := response.Header().Get("Access-Control-Allow-Credentials"); got != "true" {
+		t.Fatalf("allow credentials=%q", got)
+	}
 	allowMethods := response.Header().Get("Access-Control-Allow-Methods")
 	if !strings.Contains(allowMethods, http.MethodPatch) || !strings.Contains(allowMethods, http.MethodDelete) {
 		t.Fatalf("allow methods=%q", allowMethods)
 	}
 	allowHeaders := strings.ToLower(response.Header().Get("Access-Control-Allow-Headers"))
-	for _, required := range []string{"authorization", "content-type", "if-match", "idempotency-key"} {
+	for _, required := range []string{"authorization", "content-type", "if-match", "idempotency-key", "x-client-platform"} {
 		if !strings.Contains(allowHeaders, required) {
 			t.Fatalf("allow headers=%q missing=%q", allowHeaders, required)
 		}
+	}
+}
+
+func TestCORSRequiresExplicitHTTPSAllowlistInProduction(t *testing.T) {
+	for _, origins := range []string{"", "*", "http://app.puntazo.test"} {
+		t.Run(origins, func(t *testing.T) {
+			t.Setenv("APP_ENV", "production")
+			t.Setenv("CORS_ORIGINS", origins)
+			defer func() {
+				if recover() == nil {
+					t.Fatal("production CORS misconfiguration did not fail fast")
+				}
+			}()
+			_ = CORS()
+		})
 	}
 }
 

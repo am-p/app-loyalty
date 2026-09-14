@@ -205,8 +205,15 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 		t.Fatalf("merchant signup invented onboarding data: %+v", merchant)
 	}
 	replayed, err := svc.RegisterDemoMerchant(ctx, merchantKey, uuid.NewString(), merchantReq)
-	if err != nil || !replayed.Replayed || !bytes.Equal(created.Body, replayed.Body) {
+	if err != nil || !replayed.Replayed || bytes.Equal(created.Body, replayed.Body) {
 		t.Fatalf("merchant replay: replay=%v err=%v", replayed.Replayed, err)
+	}
+	var persistedMerchantResponse []byte
+	if err = pool.QueryRow(ctx, `SELECT response_body FROM solicitudes_idempotentes WHERE idempotency_key=$1`, merchantKey).Scan(&persistedMerchantResponse); err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(persistedMerchantResponse, []byte("refresh_token")) || bytes.Contains(persistedMerchantResponse, []byte(merchant.Session.RefreshToken)) {
+		t.Fatal("merchant refresh secret persisted in idempotency response")
 	}
 	changed := merchantReq
 	changed.BrandName = "Other"

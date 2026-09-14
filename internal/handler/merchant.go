@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -12,6 +13,10 @@ import (
 )
 
 func (h *Handler) RegisterDemoMerchant(c *gin.Context) {
+	platform, ok := clientPlatform(c)
+	if !ok {
+		return
+	}
 	var req model.RegisterDemoMerchantRequest
 	if decode(c, &req) != nil {
 		writeErr(c, service.ErrInvalidRequest)
@@ -27,6 +32,20 @@ func (h *Handler) RegisterDemoMerchant(c *gin.Context) {
 	}
 	if result.Replayed {
 		c.Header("Idempotent-Replayed", "true")
+	}
+	var envelope web.Envelope[model.DemoMerchantData]
+	if err = json.Unmarshal(result.Body, &envelope); err != nil {
+		writeErr(c, err)
+		return
+	}
+	if platform == "web" {
+		setRefreshCookie(c, envelope.Data.Session.RefreshToken)
+		envelope.Data.Session.RefreshToken = ""
+	}
+	result.Body, err = json.Marshal(envelope)
+	if err != nil {
+		writeErr(c, err)
+		return
 	}
 	c.Data(result.Status, "application/json", result.Body)
 }

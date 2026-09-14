@@ -76,11 +76,33 @@ func (s *Service) RegisterDemoMerchant(ctx context.Context, key, requestID strin
 			if e != nil {
 				return nil, e
 			}
+			// Idempotency persistence must never retain the bearer-equivalent
+			// refresh secret. It is injected only into the in-memory response.
+			merchantSession.RefreshToken = ""
 			return json.Marshal(web.Envelope[model.DemoMerchantData]{Data: model.DemoMerchantData{Session: merchantSession, User: u, Merchant: m}, RequestID: requestID})
 		})
 		return e
 	})
-	return result, err
+	if err != nil {
+		return repository.IdempotentResult{}, err
+	}
+	var envelope web.Envelope[model.DemoMerchantData]
+	if err = json.Unmarshal(result.Body, &envelope); err != nil {
+		return repository.IdempotentResult{}, err
+	}
+	if result.Replayed {
+		envelope.Data.Session, err = s.issueSession(ctx, envelope.Data.User)
+		if err != nil {
+			return repository.IdempotentResult{}, err
+		}
+	} else {
+		envelope.Data.Session.RefreshToken = credentials.raw
+	}
+	result.Body, err = json.Marshal(envelope)
+	if err != nil {
+		return repository.IdempotentResult{}, err
+	}
+	return result, nil
 }
 
 func normalizeProgramType(value string) (string, error) {

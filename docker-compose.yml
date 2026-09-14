@@ -44,6 +44,7 @@ services:
     environment:
       PORT: "8080"
       GIN_MODE: release
+      APP_ENV: ${APP_ENV:-development}
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       JWT_ISSUER: ${JWT_ISSUER:-puntazo}

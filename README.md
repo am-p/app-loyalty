@@ -67,13 +67,14 @@ ALLOW_MIGRATION_DOWN=true go run ./cmd/migrate down
 
 | Variable | Uso |
 |---|---|
+| `APP_ENV` | Usar `production` en producción; exige una allowlist CORS HTTPS explícita. |
 | `DATABASE_URL` | PostgreSQL nuevo y exclusivo para esta API. |
 | `JWT_SECRET` | Secreto aleatorio de al menos 32 bytes. |
 | `JWT_ISSUER` | Issuer firmado y validado en JWT; por defecto `puntazo`. Cambiarlo invalida sesiones previas. |
 | `QR_PEPPER` | Secreto distinto de `JWT_SECRET`, de al menos 32 bytes. |
 | `DEMO_ACCESS_CODE_HASH` | Hash bcrypt del código de alta; obligatorio si `DEMO_SIGNUP_ENABLED=true`. |
 | `DEMO_SIGNUP_ENABLED` | Habilita o cierra nuevas altas gratuitas sin bloquear cuentas existentes. |
-| `CORS_ORIGINS` | Orígenes web exactos permitidos, separados por comas. |
+| `CORS_ORIGINS` | Orígenes web exactos permitidos, separados por comas; habilita credenciales para la cookie HttpOnly de refresh. |
 | `GOOGLE_CLIENT_ID` | Audiencia web de Google; opcional para el alias legado. |
 | `EXPECTED_SCHEMA_VERSION` | Versión de esquema requerida por readiness; por defecto `0006`. |
 | `APP_VERSION` | Etiqueta de versión informada por `/v1/version`; por defecto `dev`. |

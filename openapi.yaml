@@ -71,6 +71,8 @@ paths:
       operationId: registerCustomer
       summary: Registra exclusivamente una cuenta cliente final gratuita
       security: []
+      parameters:
+        - $ref: '#/components/parameters/ClientPlatform'
       x-puntazo-implementation: IMPLEMENTED
       requestBody:
         required: true
@@ -94,6 +96,7 @@ paths:
       security: []
       x-puntazo-implementation: IMPLEMENTED
       parameters:
+        - $ref: '#/components/parameters/ClientPlatform'
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
@@ -117,6 +120,8 @@ paths:
       tags: [Auth]
       operationId: login
       security: []
+      parameters:
+        - $ref: '#/components/parameters/ClientPlatform'
       x-puntazo-implementation: IMPLEMENTED
       requestBody:
         required: true
@@ -131,18 +136,42 @@ paths:
               schema: { $ref: '#/components/schemas/AuthEnvelope' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '429': { $ref: '#/components/responses/RateLimited' }
+  /auth/google:
+    post:
+      tags: [Auth]
+      operationId: loginGoogle
+      summary: Inicia sesión con un ID token de Google verificado
+      security: []
+      x-puntazo-implementation: IMPLEMENTED
+      parameters:
+        - $ref: '#/components/parameters/ClientPlatform'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/GoogleAuthRequest' }
+      responses:
+        '200':
+          description: Sesión iniciada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '429': { $ref: '#/components/responses/RateLimited' }
   /auth/refresh:
     post:
       tags: [Auth]
       operationId: refreshSession
       summary: Rota el refresh token y emite una sesión nueva
       security: []
+      parameters:
+        - $ref: '#/components/parameters/ClientPlatform'
       x-puntazo-implementation: IMPLEMENTED
       requestBody:
-        required: true
+        required: false
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/RefreshRequest' }
+            schema: { $ref: '#/components/schemas/RefreshTransportRequest' }
       responses:
         '200':
           description: Sesión rotada; el refresh token anterior queda invalidado
@@ -157,6 +186,8 @@ paths:
       operationId: logout
       summary: Revoca la sesión autenticada
       x-puntazo-implementation: IMPLEMENTED
+      parameters:
+        - $ref: '#/components/parameters/ClientPlatform'
       responses:
         '204': { description: Sesión revocada }
         '401': { $ref: '#/components/responses/Unauthenticated' }
@@ -432,6 +463,12 @@ components:
       description: "true cuando la respuesta se reprodujo desde el registro idempotente"
       schema: { type: boolean }
   parameters:
+    ClientPlatform:
+      name: X-Client-Platform
+      in: header
+      required: true
+      description: web usa cookie HttpOnly; native transporta refresh_token en JSON y debe guardarlo en SecureStore
+      schema: { type: string, enum: [web, native] }
     IdempotencyKey:
       name: Idempotency-Key
       in: header
@@ -557,10 +594,12 @@ components:
     Session:
       type: object
       additionalProperties: false
-      required: [access_token, refresh_token, token_type, expires_in]
+      required: [access_token, token_type, expires_in]
       properties:
         access_token: { type: string }
-        refresh_token: { type: string }
+        refresh_token:
+          type: string
+          description: Presente sólo para native; web recibe la cookie puntazo_refresh HttpOnly, Secure y SameSite=Strict
         token_type: { type: string, const: Bearer }
         expires_in:
           type: integer
@@ -628,6 +667,19 @@ components:
       required: [refresh_token]
       properties:
         refresh_token: { type: string, minLength: 40, maxLength: 256 }
+      description: Requerido sólo por native; web envía body vacío y la cookie con credentials include
+    RefreshTransportRequest:
+      oneOf:
+        - $ref: '#/components/schemas/RefreshRequest'
+        - type: object
+          additionalProperties: false
+          description: Body vacío para web; el refresh llega exclusivamente por cookie HttpOnly
+    GoogleAuthRequest:
+      type: object
+      additionalProperties: false
+      required: [id_token]
+      properties:
+        id_token: { type: string, minLength: 1 }
     CurrentUser:
       type: object
       additionalProperties: false
