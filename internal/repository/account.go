@@ -2,6 +2,8 @@ package repository
 
 import (
 	"context"
+	"fmt"
+	"strconv"
 	"time"
 
 	"clientesFrecuentes/internal/model"
@@ -98,12 +100,14 @@ func (r *Repository) AnonymizeAccount(ctx context.Context, id int64, expectedVer
 	}
 	defer tx.Rollback(ctx)
 	var currentVersion int
-	if err = tx.QueryRow(ctx, `SELECT version FROM usuarios WHERE id=$1 AND activo AND deleted_at IS NULL FOR UPDATE`, id).Scan(&currentVersion); err != nil {
+	var currentEmail, currentName string
+	if err = tx.QueryRow(ctx, `SELECT version,email::text,nombre FROM usuarios WHERE id=$1 AND activo AND deleted_at IS NULL FOR UPDATE`, id).Scan(&currentVersion, &currentEmail, &currentName); err != nil {
 		return time.Time{}, err
 	}
 	if currentVersion != expectedVersion {
 		return time.Time{}, ErrPreconditionFailed
 	}
+	_ = currentName
 	var blocksOwnership bool
 	err = tx.QueryRow(ctx, `SELECT EXISTS(
 		SELECT 1 FROM membresias_marca mine
@@ -131,12 +135,18 @@ func (r *Repository) AnonymizeAccount(ctx context.Context, id int64, expectedVer
 		`UPDATE previews_movimiento SET expires_at=LEAST(expires_at,$2) WHERE (actor_id=$1 OR cliente_id=$1) AND consumed_at IS NULL`,
 		`UPDATE sesiones_auth SET revoked_at=COALESCE(revoked_at,$2) WHERE usuario_id=$1`,
 		`UPDATE tokens_identidad_email SET consumed_at=COALESCE(consumed_at,$2) WHERE usuario_id=$1`,
-		`UPDATE email_outbox SET estado='FAILED',cuerpo_texto=NULL,cuerpo_html=NULL,ultimo_error='account deleted',lease_until=NULL,lease_owner=NULL,token_ciphertext=NULL,token_nonce=NULL,token_expires_at=NULL,disponible_at=$2 WHERE usuario_id=$1 AND estado IN ('PENDING','SENDING')`,
 	}
 	for _, statement := range statements {
 		if _, err = tx.Exec(ctx, statement, id, deletedAt); err != nil {
 			return time.Time{}, err
 		}
+	}
+	tombstone := fmt.Sprintf("deleted-%d@anon.invalid", id)
+	if _, err = tx.Exec(ctx, `UPDATE email_outbox SET destinatario=$2,estado=CASE WHEN estado IN ('PENDING','SENDING') THEN 'FAILED' ELSE estado END,cuerpo_texto=NULL,cuerpo_html=NULL,ultimo_error=NULL,lease_until=NULL,lease_owner=NULL,token_ciphertext=NULL,token_nonce=NULL,token_expires_at=NULL,disponible_at=$3 WHERE usuario_id=$1`, id, tombstone, deletedAt); err != nil {
+		return time.Time{}, err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE solicitudes_idempotentes SET actor_scope=$1,fingerprint=decode(repeat('00',32),'hex'),response_body=CASE WHEN estado='COMPLETED' THEN '{}'::bytea ELSE NULL END WHERE actor_scope=$2 OR actor_scope=$3`, "deleted-user:"+strconv.FormatInt(id, 10), "demo-email:"+currentEmail, "user:"+strconv.FormatInt(id, 10)); err != nil {
+		return time.Time{}, err
 	}
 	command, err := tx.Exec(ctx, `UPDATE usuarios SET email=('deleted-' || id || '@anon.invalid')::citext,password_hash=NULL,google_id=NULL,nombre='Cuenta anonimizada',apellido=NULL,alias=NULL,foto_url=NULL,qr_hash=NULL,activo=false,email_verified_at=NULL,auth_version=auth_version+1,version=version+1,deleted_at=$2 WHERE id=$1 AND version=$3`, id, deletedAt, expectedVersion)
 	if err != nil {

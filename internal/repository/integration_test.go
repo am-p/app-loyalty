@@ -746,6 +746,12 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err = identitySvc.RequestPasswordReset(ctx, model.EmailRequest{Email: "client@example.com"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO solicitudes_idempotentes(idempotency_key,actor_scope,operacion,fingerprint,estado,response_status,response_body) VALUES($1,$2,'ACCOUNT_TEST',decode(repeat('03',32),'hex'),'COMPLETED',200,$3)`, uuid.NewString(), fmt.Sprintf("user:%d", customer.ID), []byte(`{"email":"client@example.com","name":"Client"}`)); err != nil {
+		t.Fatal(err)
+	}
 	var ledgerBefore int
 	if err = pool.QueryRow(ctx, `SELECT count(*) FROM historial_movimientos h JOIN tarjetas t ON t.id=h.tarjeta_id WHERE t.usuario_id=$1`, customer.ID).Scan(&ledgerBefore); err != nil {
 		t.Fatal(err)
@@ -768,6 +774,10 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	}
 	if tombstone != fmt.Sprintf("deleted-%d@anon.invalid", customer.ID) || anonymizedName != "Cuenta anonimizada" || !inactive || !credentialsCleared || !qrCleared || !profileCleared || ledgerAfter != ledgerBefore {
 		t.Fatalf("anonymized state email=%s name=%s inactive=%t credentials=%t qr=%t profile=%t ledger=%d/%d", tombstone, anonymizedName, inactive, credentialsCleared, qrCleared, profileCleared, ledgerAfter, ledgerBefore)
+	}
+	var piiLeaks int
+	if err = pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM email_outbox WHERE usuario_id=$1 AND (destinatario::text ILIKE '%client@example.com%' OR COALESCE(cuerpo_texto,'') ILIKE '%Client%' OR COALESCE(cuerpo_html,'') ILIKE '%client@example.com%'))+(SELECT count(*) FROM solicitudes_idempotentes WHERE actor_scope=$2 OR convert_from(COALESCE(response_body,''::bytea),'UTF8') ILIKE '%client@example.com%')`, customer.ID, fmt.Sprintf("user:%d", customer.ID)).Scan(&piiLeaks); err != nil || piiLeaks != 0 {
+		t.Fatalf("PII leaks after anonymization=%d err=%v", piiLeaks, err)
 	}
 	pendingMerchantRaw, err := identitySvc.RegisterDemoMerchant(ctx, uuid.NewString(), uuid.NewString(), model.RegisterDemoMerchantRequest{Email: "pendingmerchant@example.com", Password: "pending-merchant-pass", OwnerName: "Pending Owner", BrandName: "Pending Brand", BranchName: "Principal", ProgramType: "SELLOS", AccessCode: "demo-access-code"})
 	if err != nil {
