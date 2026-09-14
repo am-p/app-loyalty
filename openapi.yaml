@@ -112,6 +112,30 @@ paths:
         '200': { description: Correo verificado; el usuario debe iniciar sesión }
         '422': { $ref: '#/components/responses/ValidationError' }
         '429': { $ref: '#/components/responses/RateLimited' }
+  /auth/password-reset/request:
+    post:
+      tags: [Auth]
+      operationId: requestPasswordReset
+      summary: Solicita recuperación sin revelar si la cuenta existe
+      security: []
+      x-puntazo-implementation: IMPLEMENTED
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/EmailRequest' } } } }
+      responses:
+        '202': { description: Solicitud aceptada de forma genérica }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /auth/password-reset/confirm:
+    post:
+      tags: [Auth]
+      operationId: confirmPasswordReset
+      summary: Cambia la contraseña y revoca todas las sesiones
+      security: []
+      x-puntazo-implementation: IMPLEMENTED
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/PasswordResetConfirmRequest' } } } }
+      responses:
+        '200': { description: Contraseña actualizada; requiere iniciar sesión }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/RateLimited' }
   /demo/comercios:
     post:
       tags: [Demo]
@@ -670,6 +694,13 @@ components:
       additionalProperties: false
       required: [token]
       properties: { token: { type: string, minLength: 40, maxLength: 256 } }
+    PasswordResetConfirmRequest:
+      type: object
+      additionalProperties: false
+      required: [token, new_password]
+      properties:
+        token: { type: string, minLength: 40, maxLength: 256 }
+        new_password: { type: string, format: password, minLength: 10, maxLength: 72 }
     RegisterCustomerRequest:
       type: object
       additionalProperties: false

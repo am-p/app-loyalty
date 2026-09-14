@@ -147,8 +147,36 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if err = identitySvc.ConfirmEmailVerification(ctx, model.TokenRequest{Token: verificationToken}); !errors.Is(err, service.ErrIdentityToken) {
 		t.Fatalf("verification token reused: %v", err)
 	}
-	if _, err = identitySvc.Login(ctx, model.LoginRequest{Email: "pending@example.com", Password: "pending-pass"}); err != nil {
+	pendingLogin, err := identitySvc.Login(ctx, model.LoginRequest{Email: "pending@example.com", Password: "pending-pass"})
+	if err != nil {
 		t.Fatalf("verified login: %v", err)
+	}
+	if err = identitySvc.RequestPasswordReset(ctx, model.EmailRequest{Email: "pending@example.com"}); err != nil {
+		t.Fatal(err)
+	}
+	var resetBody string
+	if err = pool.QueryRow(ctx, `SELECT cuerpo_texto FROM email_outbox WHERE destinatario='pending@example.com' AND tipo='RESET_PASSWORD' ORDER BY created_at DESC LIMIT 1`).Scan(&resetBody); err != nil {
+		t.Fatal(err)
+	}
+	parts = strings.Split(resetBody, "?token=")
+	if len(parts) != 2 {
+		t.Fatal("reset token missing")
+	}
+	resetToken := strings.Fields(parts[1])[0]
+	if err = identitySvc.ConfirmPasswordReset(ctx, model.PasswordResetConfirmRequest{Token: resetToken, NewPassword: "new-pending-pass"}); err != nil {
+		t.Fatal(err)
+	}
+	if w := authorizedRequestFor(tokens, repo, pendingLogin.Session.AccessToken); w.Code != http.StatusUnauthorized {
+		t.Fatalf("reset did not revoke access: %d", w.Code)
+	}
+	if err = identitySvc.ConfirmPasswordReset(ctx, model.PasswordResetConfirmRequest{Token: resetToken, NewPassword: "another-password"}); !errors.Is(err, service.ErrIdentityToken) {
+		t.Fatalf("reset reused: %v", err)
+	}
+	if _, err = identitySvc.Login(ctx, model.LoginRequest{Email: "pending@example.com", Password: "pending-pass"}); !errors.Is(err, service.ErrInvalidCredentials) {
+		t.Fatalf("old password login: %v", err)
+	}
+	if _, err = identitySvc.Login(ctx, model.LoginRequest{Email: "pending@example.com", Password: "new-pending-pass"}); err != nil {
+		t.Fatalf("new password login: %v", err)
 	}
 
 	customerAuth, err := svc.RegisterCustomer(ctx, model.RegisterCustomerRequest{Email: "client@example.com", Password: "customer-pass", Name: "Client"})
@@ -569,4 +597,14 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 		t.Fatal("readiness accepted wrong schema")
 	}
 	t.Logf("verified brand=%d customer=%d movements persisted", merchant.Merchant.BrandID, customer.ID)
+}
+
+func authorizedRequestFor(tokens *auth.Tokens, repo *repository.Repository, accessToken string) *httptest.ResponseRecorder {
+	router := gin.New()
+	router.GET("/protected", middleware.RequireAuth(tokens, repo), func(c *gin.Context) { c.Status(http.StatusNoContent) })
+	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, req)
+	return response
 }

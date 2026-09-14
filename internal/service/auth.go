@@ -222,6 +222,36 @@ func (s *Service) ConfirmEmailVerification(ctx context.Context, req model.TokenR
 	return err
 }
 
+func (s *Service) RequestPasswordReset(ctx context.Context, req model.EmailRequest) error {
+	email, err := normalizeEmail(req.Email)
+	if err != nil {
+		return ErrInvalidRequest
+	}
+	token, hash, err := identityToken()
+	if err != nil {
+		return err
+	}
+	message := mailer.PasswordResetMessage(s.Config.PublicAppURL, email, token)
+	return s.Repo.EnqueuePasswordReset(ctx, email, hash, s.Now().Add(time.Hour), message)
+}
+func (s *Service) ConfirmPasswordReset(ctx context.Context, req model.PasswordResetConfirmRequest) error {
+	if !validPassword(req.NewPassword) {
+		return ErrInvalidRequest
+	}
+	hash, err := parseIdentityToken(req.Token)
+	if err != nil {
+		return ErrIdentityToken
+	}
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	if err = s.Repo.ResetPassword(ctx, hash, string(passwordHash), s.Now()); err == repository.ErrIdentityTokenInvalid {
+		return ErrIdentityToken
+	}
+	return err
+}
+
 func newSessionCredentials() (sessionCredentials, error) {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
