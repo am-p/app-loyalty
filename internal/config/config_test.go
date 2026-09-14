@@ -44,4 +44,26 @@ func setRequiredEnv(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgresql://puntazo:puntazo@localhost:5432/puntazo")
 	t.Setenv("JWT_SECRET", "01234567890123456789012345678901")
 	t.Setenv("QR_PEPPER", "abcdefghijklmnopqrstuvwxyzABCDEF")
+	t.Setenv("APP_ENV", "development")
+	t.Setenv("EMAIL_VERIFICATION_REQUIRED", "false")
+	t.Setenv("MAIL_PROVIDER", "disabled")
+}
+
+func TestProductionRequiresVerifiedSMTPIdentity(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("APP_ENV", "production")
+	if _, err := Load(); err == nil {
+		t.Fatal("production accepted verification disabled")
+	}
+	t.Setenv("EMAIL_VERIFICATION_REQUIRED", "true")
+	if _, err := Load(); err == nil {
+		t.Fatal("verification accepted disabled mail")
+	}
+	t.Setenv("MAIL_PROVIDER", "smtp")
+	t.Setenv("MAIL_FROM_ADDRESS", "no-reply@puntazo.test")
+	t.Setenv("SMTP_HOST", "smtp.puntazo.test")
+	t.Setenv("SMTP_TLS_MODE", "starttls")
+	if _, err := Load(); err != nil {
+		t.Fatal(err)
+	}
 }

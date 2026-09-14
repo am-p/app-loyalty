@@ -13,6 +13,7 @@ import (
 	"clientesFrecuentes/internal/auth"
 	"clientesFrecuentes/internal/config"
 	"clientesFrecuentes/internal/handler"
+	"clientesFrecuentes/internal/mailer"
 	"clientesFrecuentes/internal/middleware"
 	"clientesFrecuentes/internal/repository"
 	"clientesFrecuentes/internal/service"
@@ -43,6 +44,11 @@ func main() {
 	}
 	defer pool.Close()
 	repo := repository.New(pool)
+	workerCtx, stopWorker := context.WithCancel(context.Background())
+	defer stopWorker()
+	if cfg.MailProvider == "smtp" {
+		go (mailer.Worker{Repo: repo, Sender: mailer.NewSMTP(cfg), Logger: logger, Interval: cfg.MailPollInterval}).Run(workerCtx)
+	}
 	tokens := auth.NewTokens(cfg.JWTSecret, cfg.JWTIssuer)
 	svc := service.New(repo, tokens, cfg)
 	h := &handler.Handler{Service: svc, Repo: repo, Limiter: middleware.NewRateLimiter(), Logger: logger, TrustedProxyCount: cfg.TrustedProxyCount}

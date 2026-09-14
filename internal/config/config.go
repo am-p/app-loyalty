@@ -2,8 +2,11 @@ package config
 
 import (
 	"errors"
+	"net/mail"
+	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -18,6 +21,15 @@ type Config struct {
 	DemoSignupEnabled         bool
 	EmailVerificationRequired bool
 	PublicAppURL              string
+	MailProvider              string
+	MailFromAddress           string
+	MailFromName              string
+	SMTPHost                  string
+	SMTPPort                  int
+	SMTPUsername              string
+	SMTPPassword              string
+	SMTPTLSMode               string
+	MailPollInterval          time.Duration
 	AppVersion                string
 	GitCommit                 string
 	ExpectedSchemaVersion     string
@@ -34,6 +46,8 @@ func Load() (Config, error) {
 		QRPepper: os.Getenv("QR_PEPPER"), DemoAccessCodeHash: os.Getenv("DEMO_ACCESS_CODE_HASH"),
 		DemoSignupEnabled: envBool("DEMO_SIGNUP_ENABLED", false), AppVersion: envDefault("APP_VERSION", "dev"),
 		EmailVerificationRequired: envBool("EMAIL_VERIFICATION_REQUIRED", false), PublicAppURL: envDefault("PUBLIC_APP_URL", "http://localhost:8081"),
+		MailProvider: strings.ToLower(envDefault("MAIL_PROVIDER", "disabled")), MailFromAddress: strings.TrimSpace(os.Getenv("MAIL_FROM_ADDRESS")), MailFromName: envDefault("MAIL_FROM_NAME", "Puntazo"),
+		SMTPHost: strings.TrimSpace(os.Getenv("SMTP_HOST")), SMTPPort: envInt("SMTP_PORT", 587), SMTPUsername: os.Getenv("SMTP_USERNAME"), SMTPPassword: os.Getenv("SMTP_PASSWORD"), SMTPTLSMode: strings.ToLower(envDefault("SMTP_TLS_MODE", "starttls")), MailPollInterval: time.Duration(envInt("MAIL_POLL_INTERVAL_SECONDS", 5)) * time.Second,
 		GitCommit: envDefault("GIT_COMMIT", "0000000"), ExpectedSchemaVersion: envDefault("EXPECTED_SCHEMA_VERSION", "0008"),
 		Port: envDefault("PORT", "8080"), TrustedProxyCount: envInt("TRUSTED_PROXY_COUNT", 0),
 		ReadTimeout: 10 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second,
@@ -58,6 +72,35 @@ func Load() (Config, error) {
 	}
 	if !fourDigits(c.ExpectedSchemaVersion) {
 		return Config{}, errors.New("EXPECTED_SCHEMA_VERSION must have four digits")
+	}
+	appURL, err := url.Parse(c.PublicAppURL)
+	if err != nil || appURL.Host == "" || (appURL.Scheme != "http" && appURL.Scheme != "https") {
+		return Config{}, errors.New("PUBLIC_APP_URL must be an absolute http(s) URL")
+	}
+	production := strings.EqualFold(os.Getenv("APP_ENV"), "production")
+	if production && !c.EmailVerificationRequired {
+		return Config{}, errors.New("EMAIL_VERIFICATION_REQUIRED=true is required in production")
+	}
+	if c.MailProvider != "disabled" && c.MailProvider != "smtp" {
+		return Config{}, errors.New("MAIL_PROVIDER must be disabled or smtp")
+	}
+	if c.EmailVerificationRequired && c.MailProvider != "smtp" {
+		return Config{}, errors.New("MAIL_PROVIDER=smtp is required while email verification is required")
+	}
+	if c.MailProvider == "smtp" {
+		if c.MailFromAddress == "" || c.SMTPHost == "" || c.SMTPPort < 1 || c.SMTPPort > 65535 {
+			return Config{}, errors.New("MAIL_FROM_ADDRESS, SMTP_HOST and valid SMTP_PORT are required")
+		}
+		if c.SMTPTLSMode != "starttls" && c.SMTPTLSMode != "tls" {
+			return Config{}, errors.New("SMTP_TLS_MODE must be starttls or tls")
+		}
+		if (c.SMTPUsername == "") != (c.SMTPPassword == "") {
+			return Config{}, errors.New("SMTP_USERNAME and SMTP_PASSWORD must be configured together")
+		}
+		from, mailErr := mail.ParseAddress(c.MailFromAddress)
+		if mailErr != nil || from.Address != c.MailFromAddress || strings.ContainsAny(c.MailFromName, "\r\n") {
+			return Config{}, errors.New("mail sender identity is invalid")
+		}
 	}
 	return c, nil
 }
