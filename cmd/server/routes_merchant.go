@@ -33,7 +33,7 @@ func registerMerchantRoutes(r *gin.RouterGroup, h *handler.Handler) {
 	r.DELETE("/marcas/:brand_id/invitaciones/:invitation_id", h.RevokeInvitation)
 	r.POST("/invitaciones/:token/aceptar", h.AcceptInvitation)
 	r.GET("/marcas/:brand_id/personal", h.Staff)
-	r.GET("/marcas/:brand_id/personal/:resource_id", h.StaffMember)
-	r.PATCH("/marcas/:brand_id/personal/:resource_id", h.UpdateStaff)
-	r.DELETE("/marcas/:brand_id/personal/:resource_id", h.DeleteStaff)
+	r.GET("/marcas/:brand_id/personal/:membership_id", h.StaffMember)
+	r.PATCH("/marcas/:brand_id/personal/:membership_id", h.UpdateStaff)
+	r.DELETE("/marcas/:brand_id/personal/:membership_id", h.DeleteStaff)
 }

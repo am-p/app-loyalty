@@ -17,6 +17,15 @@ func invitationID(c *gin.Context) (string, error) {
 	return id.String(), err
 }
 
+func staffIDs(c *gin.Context) (int64, int64, error) {
+	brandID, err := positiveID(c.Param("brand_id"))
+	if err != nil {
+		return 0, 0, err
+	}
+	membershipID, err := positiveID(c.Param("membership_id"))
+	return brandID, membershipID, err
+}
+
 func (h *Handler) Invitations(c *gin.Context) {
 	a, ok := actor(c)
 	if !ok {
@@ -151,7 +160,7 @@ func (h *Handler) StaffMember(c *gin.Context) {
 	if !ok {
 		return
 	}
-	brandID, id, err := ids(c)
+	brandID, id, err := staffIDs(c)
 	if err != nil {
 		writeErr(c, err)
 		return
@@ -169,7 +178,7 @@ func (h *Handler) UpdateStaff(c *gin.Context) {
 	if !ok {
 		return
 	}
-	brandID, id, err := ids(c)
+	brandID, id, err := staffIDs(c)
 	if err != nil {
 		writeErr(c, err)
 		return
@@ -196,7 +205,7 @@ func (h *Handler) DeleteStaff(c *gin.Context) {
 	if !ok {
 		return
 	}
-	brandID, id, err := ids(c)
+	brandID, id, err := staffIDs(c)
 	if err != nil {
 		writeErr(c, err)
 		return

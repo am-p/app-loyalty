@@ -617,8 +617,8 @@ paths:
       responses:
         '200': { description: Personal, content: { application/json: { schema: { $ref: '#/components/schemas/StaffListEnvelope' } } } }
         '403': { $ref: '#/components/responses/Forbidden' }
-  /marcas/{brand_id}/personal/{resource_id}:
-    parameters: [{ $ref: '#/components/parameters/BrandId' }, { $ref: '#/components/parameters/ResourceId' }]
+  /marcas/{brand_id}/personal/{id_membresia}:
+    parameters: [{ $ref: '#/components/parameters/BrandId' }, { name: id_membresia, in: path, required: true, description: 'Identificador de membresía, no de usuario', schema: { type: integer, format: int64, minimum: 1 } }]
     get:
       tags: [Marcas]
       summary: Consulta un miembro de personal
@@ -929,7 +929,7 @@ components:
           properties:
             code:
               type: string
-              enum: [INVALID_REQUEST, IDENTITY_TOKEN_INVALID, INVITATION_INVALID, INVITATION_EMAIL_MISMATCH, EMAIL_VERIFICATION_REQUIRED, UNAUTHENTICATED, RECENT_AUTH_REQUIRED, FORBIDDEN, NOT_FOUND, EMAIL_EXISTS, RESOURCE_CONFLICT, PROGRAM_TYPE_HAS_BENEFITS, PROGRAM_TYPE_IMMUTABLE, IDEMPOTENCY_CONFLICT, IDEMPOTENCY_IN_PROGRESS, PREVIEW_EXPIRED, PREVIEW_CONSUMED, PREVIEW_CHANGED, PRECONDITION_FAILED, OWNERSHIP_TRANSFER_REQUIRED, INSUFFICIENT_BALANCE, DEMO_SIGNUP_DISABLED, DEMO_ACCESS_DENIED, RATE_LIMITED, DEPENDENCY_UNAVAILABLE, INTERNAL_ERROR]
+              enum: [INVALID_REQUEST, IDENTITY_TOKEN_INVALID, INVITATION_INVALID, INVITATION_EMAIL_MISMATCH, SELF_ROLE_CHANGE_FORBIDDEN, EMAIL_VERIFICATION_REQUIRED, UNAUTHENTICATED, RECENT_AUTH_REQUIRED, FORBIDDEN, NOT_FOUND, EMAIL_EXISTS, RESOURCE_CONFLICT, PROGRAM_TYPE_HAS_BENEFITS, PROGRAM_TYPE_IMMUTABLE, IDEMPOTENCY_CONFLICT, IDEMPOTENCY_IN_PROGRESS, PREVIEW_EXPIRED, PREVIEW_CONSUMED, PREVIEW_CHANGED, PRECONDITION_FAILED, OWNERSHIP_TRANSFER_REQUIRED, INSUFFICIENT_BALANCE, DEMO_SIGNUP_DISABLED, DEMO_ACCESS_DENIED, RATE_LIMITED, DEPENDENCY_UNAVAILABLE, INTERNAL_ERROR]
             message: { type: string }
             details: { type: object, additionalProperties: true }
         request_id: { $ref: '#/components/schemas/RequestId' }
@@ -1166,7 +1166,7 @@ components:
       additionalProperties: false
       required: [id, user_id, email, nombre, rol, sucursal_ids, activo, version]
       properties:
-        id: { type: integer, format: int64 }
+        id: { type: integer, format: int64, description: Identificador de membresía de marca }
         user_id: { type: integer, format: int64 }
         email: { type: string, format: email }
         nombre: { type: string }
