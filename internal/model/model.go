@@ -133,6 +133,42 @@ type Membership struct {
 	BranchIDs []int64 `json:"branch_ids"`
 	Active    bool    `json:"active"`
 }
+type BrandInvitation struct {
+	ID        string    `json:"id"`
+	BrandID   int64     `json:"brand_id"`
+	Email     string    `json:"email"`
+	Role      string    `json:"role"`
+	BranchIDs []int64   `json:"branch_ids"`
+	Status    string    `json:"estado"`
+	ExpiresAt time.Time `json:"expires_at"`
+	Version   int       `json:"version"`
+	CreatedAt time.Time `json:"created_at"`
+}
+type CreateInvitationRequest struct {
+	Email     string  `json:"email"`
+	Role      string  `json:"rol"`
+	BranchIDs []int64 `json:"sucursal_ids"`
+}
+type PublicInvitation struct {
+	BrandName   string    `json:"marca_nombre"`
+	MaskedEmail string    `json:"email_enmascarado"`
+	Role        string    `json:"rol"`
+	ExpiresAt   time.Time `json:"expires_at"`
+}
+type StaffMember struct {
+	MembershipID int64   `json:"id"`
+	UserID       int64   `json:"user_id"`
+	Email        string  `json:"email"`
+	Name         string  `json:"nombre"`
+	Role         string  `json:"rol"`
+	BranchIDs    []int64 `json:"sucursal_ids"`
+	Active       bool    `json:"activo"`
+	Version      int     `json:"version"`
+}
+type UpdateStaffRequest struct {
+	Role      *string  `json:"rol,omitempty"`
+	BranchIDs *[]int64 `json:"sucursal_ids,omitempty"`
+}
 type CurrentUser struct {
 	User               User         `json:"user"`
 	Memberships        []Membership `json:"memberships"`

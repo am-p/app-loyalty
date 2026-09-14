@@ -1,0 +1,341 @@
+package repository
+
+import (
+	"context"
+	"errors"
+	"time"
+
+	"clientesFrecuentes/internal/model"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+)
+
+var (
+	ErrInvitationInvalid       = errors.New("invitation invalid")
+	ErrInvitationEmailMismatch = errors.New("invitation email mismatch")
+)
+
+func requireStaffManager(ctx context.Context, tx pgx.Tx, actorID, brandID int64) error {
+	var ok bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM membresias_marca WHERE usuario_id=$1 AND marca_id=$2 AND activo AND rol IN ('PROPIETARIO','ADMINISTRADOR'))`, actorID, brandID).Scan(&ok); err != nil {
+		return err
+	}
+	if !ok {
+		return ErrForbidden
+	}
+	return nil
+}
+
+func scanInvitation(row pgx.Row) (model.BrandInvitation, error) {
+	var invitation model.BrandInvitation
+	err := row.Scan(&invitation.ID, &invitation.BrandID, &invitation.Email, &invitation.Role, &invitation.BranchIDs, &invitation.Status, &invitation.ExpiresAt, &invitation.Version, &invitation.CreatedAt)
+	return invitation, err
+}
+
+const invitationSelect = `SELECT i.id::text,i.marca_id,i.email::text,i.rol,COALESCE(array_agg(s.sucursal_id ORDER BY s.sucursal_id) FILTER(WHERE s.sucursal_id IS NOT NULL),'{}'),i.estado,i.expires_at,i.version,i.created_at FROM invitaciones_marca i LEFT JOIN invitaciones_sucursales s ON s.invitacion_id=i.id`
+
+func (r *Repository) ListInvitations(ctx context.Context, actorID, brandID int64) ([]model.BrandInvitation, error) {
+	tx, err := r.Pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+	if err = requireStaffManager(ctx, tx, actorID, brandID); err != nil {
+		return nil, err
+	}
+	rows, err := tx.Query(ctx, invitationSelect+` WHERE i.marca_id=$1 GROUP BY i.id ORDER BY i.created_at DESC`, brandID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]model.BrandInvitation, 0)
+	for rows.Next() {
+		item, scanErr := scanInvitation(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func enqueueInvitationEmail(ctx context.Context, tx pgx.Tx, key []byte, inviterID int64, invitationID uuid.UUID, email, token string, expires time.Time) error {
+	outboxID := uuid.New()
+	ciphertext, nonce, err := encryptOutboxToken(token, outboxID.String(), key)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO email_outbox(id,usuario_id,tipo,destinatario,asunto,token_ciphertext,token_nonce,token_expires_at) VALUES($1,$2,'BRAND_INVITATION',$3,$4,$5,$6,$7)`, outboxID, inviterID, email, "Te invitaron a una marca en Puntazo", ciphertext, nonce, expires)
+	return err
+}
+
+func validateInvitationBranches(ctx context.Context, tx pgx.Tx, brandID int64, branchIDs []int64) error {
+	var count int
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM sucursales WHERE marca_id=$1 AND activo AND deleted_at IS NULL AND id=ANY($2)`, brandID, branchIDs).Scan(&count); err != nil {
+		return err
+	}
+	if count != len(branchIDs) {
+		return ErrInvalidRequest
+	}
+	return nil
+}
+
+func (r *Repository) CreateInvitation(ctx context.Context, actorID, brandID int64, req model.CreateInvitationRequest, token string, hash []byte, expires time.Time) (model.BrandInvitation, error) {
+	tx, err := r.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return model.BrandInvitation{}, err
+	}
+	defer tx.Rollback(ctx)
+	if err = requireStaffManager(ctx, tx, actorID, brandID); err != nil {
+		return model.BrandInvitation{}, err
+	}
+	if err = validateInvitationBranches(ctx, tx, brandID, req.BranchIDs); err != nil {
+		return model.BrandInvitation{}, err
+	}
+	var exists bool
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM usuarios u JOIN membresias_marca mm ON mm.usuario_id=u.id WHERE u.email=$1 AND mm.marca_id=$2 AND mm.activo)`, req.Email, brandID).Scan(&exists); err != nil {
+		return model.BrandInvitation{}, err
+	}
+	if exists {
+		return model.BrandInvitation{}, ErrConflict
+	}
+	id := uuid.New()
+	if _, err = tx.Exec(ctx, `INSERT INTO invitaciones_marca(id,marca_id,invitado_por,email,rol,token_hash,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7)`, id, brandID, actorID, req.Email, req.Role, hash, expires); err != nil {
+		return model.BrandInvitation{}, normalize(err)
+	}
+	for _, branchID := range req.BranchIDs {
+		if _, err = tx.Exec(ctx, `INSERT INTO invitaciones_sucursales(invitacion_id,sucursal_id,marca_id) VALUES($1,$2,$3)`, id, branchID, brandID); err != nil {
+			return model.BrandInvitation{}, err
+		}
+	}
+	if err = enqueueInvitationEmail(ctx, tx, r.OutboxCipherKey, actorID, id, req.Email, token, expires); err != nil {
+		return model.BrandInvitation{}, err
+	}
+	item, err := scanInvitation(tx.QueryRow(ctx, invitationSelect+` WHERE i.id=$1 GROUP BY i.id`, id))
+	if err != nil {
+		return item, err
+	}
+	return item, tx.Commit(ctx)
+}
+
+func (r *Repository) RevokeInvitation(ctx context.Context, actorID, brandID int64, id string) error {
+	tx, err := r.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if err = requireStaffManager(ctx, tx, actorID, brandID); err != nil {
+		return err
+	}
+	tag, err := tx.Exec(ctx, `UPDATE invitaciones_marca SET estado='REVOCADA',version=version+1,updated_at=now() WHERE id=$1 AND marca_id=$2 AND estado='PENDIENTE'`, id, brandID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return ErrInvitationInvalid
+	}
+	if _, err = tx.Exec(ctx, `UPDATE email_outbox SET estado='FAILED',ultimo_error='invitation revoked',token_ciphertext=NULL,token_nonce=NULL,token_expires_at=NULL WHERE tipo='BRAND_INVITATION' AND destinatario=(SELECT email FROM invitaciones_marca WHERE id=$1) AND estado='PENDING'`, id); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (r *Repository) ResendInvitation(ctx context.Context, actorID, brandID int64, id, token string, hash []byte, expires time.Time) (model.BrandInvitation, error) {
+	tx, err := r.Pool.Begin(ctx)
+	if err != nil {
+		return model.BrandInvitation{}, err
+	}
+	defer tx.Rollback(ctx)
+	if err = requireStaffManager(ctx, tx, actorID, brandID); err != nil {
+		return model.BrandInvitation{}, err
+	}
+	var email string
+	if err = tx.QueryRow(ctx, `UPDATE invitaciones_marca SET token_hash=$3,expires_at=$4,version=version+1,updated_at=now() WHERE id=$1 AND marca_id=$2 AND estado='PENDIENTE' RETURNING email::text`, id, brandID, hash, expires).Scan(&email); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return model.BrandInvitation{}, ErrInvitationInvalid
+		}
+		return model.BrandInvitation{}, err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE email_outbox SET estado='FAILED',ultimo_error='superseded',token_ciphertext=NULL,token_nonce=NULL,token_expires_at=NULL WHERE tipo='BRAND_INVITATION' AND destinatario=$1 AND estado='PENDING'`, email); err != nil {
+		return model.BrandInvitation{}, err
+	}
+	if err = enqueueInvitationEmail(ctx, tx, r.OutboxCipherKey, actorID, uuid.MustParse(id), email, token, expires); err != nil {
+		return model.BrandInvitation{}, err
+	}
+	item, err := scanInvitation(tx.QueryRow(ctx, invitationSelect+` WHERE i.id=$1 GROUP BY i.id`, id))
+	if err != nil {
+		return item, err
+	}
+	return item, tx.Commit(ctx)
+}
+
+func (r *Repository) PublicInvitation(ctx context.Context, hash []byte, now time.Time) (model.PublicInvitation, error) {
+	var item model.PublicInvitation
+	var email string
+	err := r.Pool.QueryRow(ctx, `SELECT m.nombre,i.email::text,i.rol,i.expires_at FROM invitaciones_marca i JOIN marcas m ON m.id=i.marca_id AND m.activo WHERE i.token_hash=$1 AND i.estado='PENDIENTE' AND i.expires_at>$2`, hash, now).Scan(&item.BrandName, &email, &item.Role, &item.ExpiresAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return item, ErrInvitationInvalid
+	}
+	item.MaskedEmail = maskEmail(email)
+	return item, err
+}
+
+func maskEmail(email string) string {
+	for i, char := range email {
+		if char == '@' {
+			if i <= 1 {
+				return "*" + email[i:]
+			}
+			return email[:1] + "***" + email[i:]
+		}
+	}
+	return "***"
+}
+
+func (r *Repository) AcceptInvitation(ctx context.Context, actorID int64, hash []byte, now time.Time) (model.StaffMember, error) {
+	tx, err := r.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return model.StaffMember{}, err
+	}
+	defer tx.Rollback(ctx)
+	var id uuid.UUID
+	var brandID int64
+	var invitedEmail, actorEmail, role string
+	err = tx.QueryRow(ctx, `SELECT id,marca_id,email::text,rol FROM invitaciones_marca WHERE token_hash=$1 AND estado='PENDIENTE' AND expires_at>$2 FOR UPDATE`, hash, now).Scan(&id, &brandID, &invitedEmail, &role)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.StaffMember{}, ErrInvitationInvalid
+	}
+	if err != nil {
+		return model.StaffMember{}, err
+	}
+	if err = tx.QueryRow(ctx, `SELECT email::text FROM usuarios WHERE id=$1 AND activo AND deleted_at IS NULL`, actorID).Scan(&actorEmail); err != nil {
+		return model.StaffMember{}, err
+	}
+	if actorEmail != invitedEmail {
+		return model.StaffMember{}, ErrInvitationEmailMismatch
+	}
+	var membershipID int64
+	err = tx.QueryRow(ctx, `INSERT INTO membresias_marca(usuario_id,marca_id,rol) VALUES($1,$2,$3) ON CONFLICT(usuario_id,marca_id) DO UPDATE SET rol=EXCLUDED.rol,activo=true,version=membresias_marca.version+1,updated_at=$4 WHERE NOT membresias_marca.activo RETURNING id`, actorID, brandID, role, now).Scan(&membershipID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.StaffMember{}, ErrConflict
+	}
+	if err != nil {
+		return model.StaffMember{}, err
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO membresias_sucursales(membresia_id,sucursal_id,marca_id) SELECT $1,sucursal_id,marca_id FROM invitaciones_sucursales WHERE invitacion_id=$2 ON CONFLICT(membresia_id,sucursal_id) DO UPDATE SET activo=true`, membershipID, id); err != nil {
+		return model.StaffMember{}, err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE invitaciones_marca SET estado='ACEPTADA',accepted_by=$2,accepted_at=$3,version=version+1,updated_at=$3 WHERE id=$1`, id, actorID, now); err != nil {
+		return model.StaffMember{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return model.StaffMember{}, err
+	}
+	return r.staffMemberByID(ctx, brandID, membershipID)
+}
+
+func (r *Repository) staffMemberByID(ctx context.Context, brandID, membershipID int64) (model.StaffMember, error) {
+	var item model.StaffMember
+	err := r.Pool.QueryRow(ctx, `SELECT target.id,u.id,u.email::text,u.nombre,target.rol,COALESCE(array_agg(ms.sucursal_id ORDER BY ms.sucursal_id) FILTER(WHERE ms.activo),'{}'),target.activo,target.version FROM membresias_marca target JOIN usuarios u ON u.id=target.usuario_id LEFT JOIN membresias_sucursales ms ON ms.membresia_id=target.id WHERE target.marca_id=$1 AND target.id=$2 GROUP BY target.id,u.id`, brandID, membershipID).Scan(&item.MembershipID, &item.UserID, &item.Email, &item.Name, &item.Role, &item.BranchIDs, &item.Active, &item.Version)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return item, ErrNotFound
+	}
+	return item, err
+}
+
+func (r *Repository) GetStaffMember(ctx context.Context, actorID, brandID, membershipID int64) (model.StaffMember, error) {
+	var item model.StaffMember
+	err := r.Pool.QueryRow(ctx, `SELECT target.id,u.id,u.email::text,u.nombre,target.rol,COALESCE(array_agg(ms.sucursal_id ORDER BY ms.sucursal_id) FILTER(WHERE ms.activo),'{}'),target.activo,target.version FROM membresias_marca actor JOIN membresias_marca target ON target.marca_id=actor.marca_id JOIN usuarios u ON u.id=target.usuario_id LEFT JOIN membresias_sucursales ms ON ms.membresia_id=target.id WHERE actor.usuario_id=$1 AND actor.marca_id=$2 AND actor.activo AND actor.rol IN ('PROPIETARIO','ADMINISTRADOR') AND target.id=$3 GROUP BY target.id,u.id`, actorID, brandID, membershipID).Scan(&item.MembershipID, &item.UserID, &item.Email, &item.Name, &item.Role, &item.BranchIDs, &item.Active, &item.Version)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return item, ErrNotFound
+	}
+	return item, err
+}
+
+func (r *Repository) ListStaff(ctx context.Context, actorID, brandID int64) ([]model.StaffMember, error) {
+	rows, err := r.Pool.Query(ctx, `SELECT target.id,u.id,u.email::text,u.nombre,target.rol,COALESCE(array_agg(ms.sucursal_id ORDER BY ms.sucursal_id) FILTER(WHERE ms.activo),'{}'),target.activo,target.version FROM membresias_marca actor JOIN membresias_marca target ON target.marca_id=actor.marca_id JOIN usuarios u ON u.id=target.usuario_id LEFT JOIN membresias_sucursales ms ON ms.membresia_id=target.id WHERE actor.usuario_id=$1 AND actor.marca_id=$2 AND actor.activo AND actor.rol IN ('PROPIETARIO','ADMINISTRADOR') GROUP BY target.id,u.id ORDER BY u.nombre`, actorID, brandID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]model.StaffMember, 0)
+	for rows.Next() {
+		var x model.StaffMember
+		if err = rows.Scan(&x.MembershipID, &x.UserID, &x.Email, &x.Name, &x.Role, &x.BranchIDs, &x.Active, &x.Version); err != nil {
+			return nil, err
+		}
+		items = append(items, x)
+	}
+	return items, rows.Err()
+}
+
+func (r *Repository) UpdateStaff(ctx context.Context, actorID, brandID, membershipID int64, version int, req model.UpdateStaffRequest) (model.StaffMember, error) {
+	tx, err := r.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return model.StaffMember{}, err
+	}
+	defer tx.Rollback(ctx)
+	if err = requireStaffManager(ctx, tx, actorID, brandID); err != nil {
+		return model.StaffMember{}, err
+	}
+	var currentRole string
+	if err = tx.QueryRow(ctx, `SELECT rol FROM membresias_marca WHERE id=$1 AND marca_id=$2 AND activo FOR UPDATE`, membershipID, brandID).Scan(&currentRole); errors.Is(err, pgx.ErrNoRows) {
+		return model.StaffMember{}, ErrNotFound
+	} else if err != nil {
+		return model.StaffMember{}, err
+	}
+	if currentRole == "PROPIETARIO" {
+		return model.StaffMember{}, ErrForbidden
+	}
+	role := currentRole
+	if req.Role != nil {
+		role = *req.Role
+	}
+	tag, err := tx.Exec(ctx, `UPDATE membresias_marca SET rol=$4,version=version+1,updated_at=now() WHERE id=$1 AND marca_id=$2 AND version=$3 AND activo`, membershipID, brandID, version, role)
+	if err != nil {
+		return model.StaffMember{}, err
+	}
+	if tag.RowsAffected() != 1 {
+		return model.StaffMember{}, ErrPreconditionFailed
+	}
+	if req.BranchIDs != nil {
+		if err = validateInvitationBranches(ctx, tx, brandID, *req.BranchIDs); err != nil {
+			return model.StaffMember{}, err
+		}
+		if _, err = tx.Exec(ctx, `UPDATE membresias_sucursales SET activo=false WHERE membresia_id=$1`, membershipID); err != nil {
+			return model.StaffMember{}, err
+		}
+		for _, branchID := range *req.BranchIDs {
+			if _, err = tx.Exec(ctx, `INSERT INTO membresias_sucursales(membresia_id,sucursal_id,marca_id,activo) VALUES($1,$2,$3,true) ON CONFLICT(membresia_id,sucursal_id) DO UPDATE SET activo=true,marca_id=EXCLUDED.marca_id`, membershipID, branchID, brandID); err != nil {
+				return model.StaffMember{}, err
+			}
+		}
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return model.StaffMember{}, err
+	}
+	return r.GetStaffMember(ctx, actorID, brandID, membershipID)
+}
+
+func (r *Repository) DeleteStaff(ctx context.Context, actorID, brandID, membershipID int64, version int) error {
+	tx, err := r.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if err = requireStaffManager(ctx, tx, actorID, brandID); err != nil {
+		return err
+	}
+	tag, err := tx.Exec(ctx, `UPDATE membresias_marca SET activo=false,version=version+1,updated_at=now() WHERE id=$1 AND marca_id=$2 AND version=$3 AND activo AND rol<>'PROPIETARIO'`, membershipID, brandID, version)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return ErrPreconditionFailed
+	}
+	if _, err = tx.Exec(ctx, `UPDATE membresias_sucursales SET activo=false WHERE membresia_id=$1`, membershipID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}

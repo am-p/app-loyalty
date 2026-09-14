@@ -49,6 +49,10 @@ func writeErr(c *gin.Context, err error) {
 		web.Error(c, http.StatusConflict, "RESOURCE_CONFLICT", "La operación viola una invariante activa", nil)
 	case errors.Is(err, service.ErrIdentityToken):
 		web.Error(c, http.StatusUnprocessableEntity, "IDENTITY_TOKEN_INVALID", "Token inválido, vencido o utilizado", nil)
+	case errors.Is(err, repository.ErrInvitationEmailMismatch):
+		web.Error(c, http.StatusConflict, "INVITATION_EMAIL_MISMATCH", "La invitación pertenece a otro correo", nil)
+	case errors.Is(err, repository.ErrInvitationInvalid):
+		web.Error(c, http.StatusUnprocessableEntity, "INVITATION_INVALID", "Invitación inválida, vencida o utilizada", nil)
 	case errors.Is(err, service.ErrEmailUnverified):
 		web.Error(c, http.StatusForbidden, "EMAIL_VERIFICATION_REQUIRED", "Verificá tu correo antes de iniciar sesión", nil)
 	case errors.Is(err, repository.ErrNotFound):

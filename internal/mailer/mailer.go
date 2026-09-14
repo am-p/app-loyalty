@@ -48,6 +48,12 @@ func PasswordResetMessage(appURL, to, token string) model.EmailMessage {
 	message.Token = token
 	return message
 }
+func BrandInvitationMessage(appURL, to, token string) model.EmailMessage {
+	link := actionURL(appURL, "/invitaciones/aceptar", token)
+	message := transactional("BRAND_INVITATION", to, "Te invitaron a una marca en Puntazo", "Aceptá la invitación desde: "+link+"\n\nEl enlace vence en 72 horas.", "Te invitaron a Puntazo", "Ver invitación", link, "Este enlace vence en 72 horas.")
+	message.Token = token
+	return message
+}
 func actionURL(base, path, token string) string {
 	return strings.TrimRight(base, "/") + path + "?token=" + url.QueryEscape(token)
 }

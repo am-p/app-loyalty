@@ -718,6 +718,36 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if err != nil || !benefitCurrent.Active || benefitCurrent.DeletedAt != nil {
 		t.Fatalf("reactivate benefit=%+v err=%v", benefitCurrent, err)
 	}
+	invitation, err := svc.CreateInvitation(ctx, merchant.User.ID, merchant.Merchant.BrandID, model.CreateInvitationRequest{Email: "client@example.com", Role: "OPERADOR", BranchIDs: []int64{newBranch.ID}})
+	if err != nil || invitation.Status != "PENDIENTE" || len(invitation.BranchIDs) != 1 {
+		t.Fatalf("create invitation=%+v err=%v", invitation, err)
+	}
+	var inviteOutbox model.OutboxEmail
+	if err = pool.QueryRow(ctx, `SELECT id::text,token_ciphertext,token_nonce,token_expires_at FROM email_outbox WHERE tipo='BRAND_INVITATION' AND destinatario='client@example.com' ORDER BY created_at DESC LIMIT 1`).Scan(&inviteOutbox.ID, &inviteOutbox.Ciphertext, &inviteOutbox.Nonce, &inviteOutbox.ExpiresAt); err != nil {
+		t.Fatal(err)
+	}
+	inviteToken, err := repository.DecryptOutboxToken(inviteOutbox, outboxKey)
+	if err != nil || strings.Contains(string(inviteOutbox.Ciphertext), inviteToken) {
+		t.Fatalf("invitation outbox token protection err=%v", err)
+	}
+	publicInvite, err := svc.PublicInvitation(ctx, inviteToken)
+	if err != nil || publicInvite.MaskedEmail == "client@example.com" || publicInvite.Role != "OPERADOR" {
+		t.Fatalf("public invitation=%+v err=%v", publicInvite, err)
+	}
+	if _, err = svc.AcceptInvitation(ctx, merchant.User.ID, inviteToken); !errors.Is(err, repository.ErrInvitationEmailMismatch) {
+		t.Fatalf("invitation accepted by wrong email: %v", err)
+	}
+	staff, err := svc.AcceptInvitation(ctx, customer.ID, inviteToken)
+	if err != nil || staff.Role != "OPERADOR" || len(staff.BranchIDs) != 1 {
+		t.Fatalf("accept invitation=%+v err=%v", staff, err)
+	}
+	if _, err = svc.AcceptInvitation(ctx, customer.ID, inviteToken); !errors.Is(err, service.ErrIdentityToken) {
+		t.Fatalf("reused invitation token: %v", err)
+	}
+	adminRole := "ADMINISTRADOR"
+	if _, err = svc.UpdateStaff(ctx, merchant.User.ID, merchant.Merchant.BrandID, staff.MembershipID, staff.Version, model.UpdateStaffRequest{Role: &adminRole}); err != nil {
+		t.Fatalf("promote staff: %v", err)
+	}
 	current, err := svc.CurrentUser(ctx, customer.ID)
 	if err != nil || current.User.Version != 1 {
 		t.Fatalf("current account=%+v err=%v", current, err)

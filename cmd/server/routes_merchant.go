@@ -27,4 +27,13 @@ func registerMerchantRoutes(r *gin.RouterGroup, h *handler.Handler) {
 	r.GET("/marcas/:brand_id/movimientos", h.BrandMovements)
 	r.GET("/marcas/:brand_id/clientes", h.BrandCustomers)
 	r.GET("/marcas/:brand_id/metricas/resumen", h.BrandMetrics)
+	r.GET("/marcas/:brand_id/invitaciones", h.Invitations)
+	r.POST("/marcas/:brand_id/invitaciones", h.CreateInvitation)
+	r.POST("/marcas/:brand_id/invitaciones/:invitation_id/reenviar", h.ResendInvitation)
+	r.DELETE("/marcas/:brand_id/invitaciones/:invitation_id", h.RevokeInvitation)
+	r.POST("/invitaciones/:token/aceptar", h.AcceptInvitation)
+	r.GET("/marcas/:brand_id/personal", h.Staff)
+	r.GET("/marcas/:brand_id/personal/:resource_id", h.StaffMember)
+	r.PATCH("/marcas/:brand_id/personal/:resource_id", h.UpdateStaff)
+	r.DELETE("/marcas/:brand_id/personal/:resource_id", h.DeleteStaff)
 }

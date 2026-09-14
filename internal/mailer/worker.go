@@ -55,6 +55,8 @@ func (w Worker) flush(ctx context.Context) {
 			message = VerificationMessage(w.PublicAppURL, item.To, token)
 		case "RESET_PASSWORD":
 			message = PasswordResetMessage(w.PublicAppURL, item.To, token)
+		case "BRAND_INVITATION":
+			message = BrandInvitationMessage(w.PublicAppURL, item.To, token)
 		default:
 			_ = w.Repo.MarkEmailFailed(ctx, item.ID, item.LeaseOwner, 5, errors.New("unknown email template"))
 			continue

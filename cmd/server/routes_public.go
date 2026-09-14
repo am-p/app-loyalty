@@ -19,4 +19,5 @@ func registerPublicRoutes(r *gin.RouterGroup, h *handler.Handler) {
 	r.POST("/auth/password-reset/request", h.RequestPasswordReset)
 	r.POST("/auth/password-reset/confirm", h.ConfirmPasswordReset)
 	r.POST("/demo/comercios", h.RegisterDemoMerchant)
+	r.GET("/invitaciones/:token", h.PublicInvitation)
 }
