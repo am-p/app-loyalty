@@ -166,7 +166,7 @@ func (r *Repository) ConfirmMovement(ctx context.Context, in ConfirmInput, build
 		return IdempotentResult{}, ErrPreviewChanged
 	}
 	var customerID int64
-	if err = tx.QueryRow(ctx, `SELECT id FROM usuarios WHERE qr_hash=$1 AND activo AND deleted_at IS NULL AND tipo_cuenta='CLIENTE_FINAL'`, in.QRHash).Scan(&customerID); errors.Is(err, pgx.ErrNoRows) {
+	if err = tx.QueryRow(ctx, `SELECT id FROM usuarios WHERE qr_hash=$1 AND activo AND deleted_at IS NULL AND tipo_cuenta='CLIENTE_FINAL' FOR SHARE`, in.QRHash).Scan(&customerID); errors.Is(err, pgx.ErrNoRows) {
 		return IdempotentResult{}, ErrNotFound
 	}
 	if err != nil {

@@ -246,7 +246,7 @@ func (r *Repository) AcceptInvitation(ctx context.Context, actorID int64, hash [
 	defer tx.Rollback(ctx)
 	var id uuid.UUID
 	var brandID int64
-	var invitedEmail, actorEmail, role string
+	var invitedEmail, actorEmail, role, accountType string
 	err = tx.QueryRow(ctx, `SELECT id,marca_id,email::text,rol FROM invitaciones_marca WHERE token_hash=$1 AND estado='PENDIENTE' AND expires_at>$2 FOR UPDATE`, hash, now).Scan(&id, &brandID, &invitedEmail, &role)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.StaffMember{}, ErrInvitationInvalid
@@ -254,11 +254,20 @@ func (r *Repository) AcceptInvitation(ctx context.Context, actorID int64, hash [
 	if err != nil {
 		return model.StaffMember{}, err
 	}
-	if err = tx.QueryRow(ctx, `SELECT email::text FROM usuarios WHERE id=$1 AND activo AND deleted_at IS NULL`, actorID).Scan(&actorEmail); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT email::text,tipo_cuenta FROM usuarios WHERE id=$1 AND activo AND deleted_at IS NULL FOR UPDATE`, actorID).Scan(&actorEmail, &accountType); err != nil {
 		return model.StaffMember{}, err
 	}
 	if actorEmail != invitedEmail {
 		return model.StaffMember{}, ErrInvitationEmailMismatch
+	}
+	if accountType == "CLIENTE_FINAL" {
+		var hasLoyalty bool
+		if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM tarjetas WHERE usuario_id=$1)`, actorID).Scan(&hasLoyalty); err != nil {
+			return model.StaffMember{}, err
+		}
+		if hasLoyalty {
+			return model.StaffMember{}, ErrAccountModeConflict
+		}
 	}
 	if _, err = tx.Exec(ctx, `UPDATE usuarios SET tipo_cuenta='PERSONAL_MARCA',qr_hash=NULL,version=version+1 WHERE id=$1`, actorID); err != nil {
 		return model.StaffMember{}, err
