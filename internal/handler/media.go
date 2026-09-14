@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"clientesFrecuentes/internal/model"
 	"clientesFrecuentes/internal/service"
@@ -44,9 +43,24 @@ func (h *Handler) UploadBrandImage(c *gin.Context) {
 		writeErr(c, err)
 		return
 	}
-	if !h.limit(c, fmt.Sprintf("media-upload:%d:%d", a.ID, brandID), 20, time.Minute) {
+	if err = h.Service.AuthorizeBrandMedia(c.Request.Context(), a.ID, brandID); err != nil {
+		writeErr(c, err)
 		return
 	}
+	if !h.limit(c, fmt.Sprintf("media-upload:actor:%d", a.ID), mediaActorAttempts, mediaUploadWindow) ||
+		!h.limit(c, "media-upload:ip:"+h.clientIP(c), mediaIPAttempts, mediaUploadWindow) {
+		return
+	}
+	if h.Uploads == nil {
+		writeErr(c, service.ErrMediaUnavailable)
+		return
+	}
+	release, acquired := h.Uploads.Acquire(c.Request.Context(), a.ID)
+	if !acquired {
+		writeErr(c, service.ErrMediaUnavailable)
+		return
+	}
+	defer release()
 	if !strings.HasPrefix(c.GetHeader("Content-Type"), "multipart/form-data") {
 		writeErr(c, service.ErrMediaType)
 		return
@@ -102,6 +116,9 @@ func (h *Handler) UploadBrandImage(c *gin.Context) {
 	if err != nil {
 		writeErr(c, err)
 		return
+	}
+	if item.URL == "" && h.Logger != nil {
+		h.Logger.WarnContext(c.Request.Context(), "media activated without signed URL", "brand_id", brandID, "image_id", item.ID)
 	}
 	c.Header("ETag", accountETag(item.Version))
 	c.JSON(http.StatusCreated, web.Envelope[model.BrandImage]{Data: item, RequestID: web.RequestID(c)})

@@ -68,10 +68,17 @@ func main() {
 			logger.Error("media storage failed", "error", err)
 			os.Exit(1)
 		}
+		storageCtx, storageCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		err = mediaStore.Ready(storageCtx)
+		storageCancel()
+		if err != nil {
+			logger.Error("media storage readiness failed", "error", err)
+			os.Exit(1)
+		}
 	}
 	go (maintenance.Worker{Repo: repo, Store: mediaStore, Logger: logger, Config: cfg}).Run(workerCtx)
 	svc := service.New(repo, tokens, cfg, mediaStore)
-	h := &handler.Handler{Service: svc, Repo: repo, Limiter: limiter, Logger: logger, TrustedProxyCount: cfg.TrustedProxyCount}
+	h := &handler.Handler{Service: svc, Repo: repo, Limiter: limiter, Uploads: middleware.NewUploadSemaphore(cfg.MediaUploadGlobalLimit, cfg.MediaUploadActorLimit), Logger: logger, TrustedProxyCount: cfg.TrustedProxyCount}
 	router := newRouter(h, tokens, logger)
 	server := &http.Server{Addr: ":" + cfg.Port, Handler: router, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: cfg.ReadTimeout, WriteTimeout: cfg.WriteTimeout, IdleTimeout: cfg.IdleTimeout, MaxHeaderBytes: 32 << 10}
 	go func() {

@@ -37,8 +37,11 @@ type Config struct {
 	S3Bucket                  string
 	S3AccessKeyID             string
 	S3SecretAccessKey         string
+	S3ServerSideEncryption    string
 	MediaURLTTL               time.Duration
 	MediaCleanupInterval      time.Duration
+	MediaUploadGlobalLimit    int
+	MediaUploadActorLimit     int
 	RetentionInterval         time.Duration
 	RetentionBatchSize        int
 	PreviewRetention          time.Duration
@@ -72,9 +75,9 @@ func Load() (Config, error) {
 		EmailVerificationRequired: envBool("EMAIL_VERIFICATION_REQUIRED", false), PublicAppURL: envDefault("PUBLIC_APP_URL", "http://localhost:8081"),
 		MailProvider: strings.ToLower(envDefault("MAIL_PROVIDER", "disabled")), MailFromAddress: strings.TrimSpace(os.Getenv("MAIL_FROM_ADDRESS")), MailFromName: envDefault("MAIL_FROM_NAME", "Puntazo"),
 		SMTPHost: strings.TrimSpace(os.Getenv("SMTP_HOST")), SMTPPort: envInt("SMTP_PORT", 587), SMTPUsername: os.Getenv("SMTP_USERNAME"), SMTPPassword: os.Getenv("SMTP_PASSWORD"), SMTPTLSMode: strings.ToLower(envDefault("SMTP_TLS_MODE", "starttls")), MailPollInterval: time.Duration(envInt("MAIL_POLL_INTERVAL_SECONDS", 5)) * time.Second,
-		MediaProvider: strings.ToLower(envDefault("MEDIA_PROVIDER", "disabled")), S3Endpoint: strings.TrimSpace(os.Getenv("S3_ENDPOINT")), S3Region: envDefault("S3_REGION", "us-east-1"), S3Bucket: strings.TrimSpace(os.Getenv("S3_BUCKET")), S3AccessKeyID: os.Getenv("S3_ACCESS_KEY_ID"), S3SecretAccessKey: os.Getenv("S3_SECRET_ACCESS_KEY"), MediaURLTTL: time.Duration(envInt("MEDIA_URL_TTL_SECONDS", 300)) * time.Second, MediaCleanupInterval: time.Duration(envInt("MEDIA_CLEANUP_INTERVAL_SECONDS", 60)) * time.Second,
+		MediaProvider: strings.ToLower(envDefault("MEDIA_PROVIDER", "disabled")), S3Endpoint: strings.TrimSpace(os.Getenv("S3_ENDPOINT")), S3Region: envDefault("S3_REGION", "us-east-1"), S3Bucket: strings.TrimSpace(os.Getenv("S3_BUCKET")), S3AccessKeyID: os.Getenv("S3_ACCESS_KEY_ID"), S3SecretAccessKey: os.Getenv("S3_SECRET_ACCESS_KEY"), S3ServerSideEncryption: strings.ToUpper(envDefault("S3_SERVER_SIDE_ENCRYPTION", "AES256")), MediaURLTTL: time.Duration(envInt("MEDIA_URL_TTL_SECONDS", 300)) * time.Second, MediaCleanupInterval: time.Duration(envInt("MEDIA_CLEANUP_INTERVAL_SECONDS", 60)) * time.Second, MediaUploadGlobalLimit: envInt("MEDIA_UPLOAD_GLOBAL_CONCURRENCY", 8), MediaUploadActorLimit: envInt("MEDIA_UPLOAD_ACTOR_CONCURRENCY", 2),
 		RetentionInterval: time.Duration(envInt("RETENTION_INTERVAL_SECONDS", 300)) * time.Second, RetentionBatchSize: envInt("RETENTION_BATCH_SIZE", 500), PreviewRetention: time.Duration(envInt("PREVIEW_RETENTION_HOURS", 168)) * time.Hour, IdempotencyRetention: time.Duration(envInt("IDEMPOTENCY_RETENTION_HOURS", 720)) * time.Hour, SessionRetention: time.Duration(envInt("SESSION_RETENTION_HOURS", 720)) * time.Hour, IdentityTokenRetention: time.Duration(envInt("IDENTITY_TOKEN_RETENTION_HOURS", 168)) * time.Hour, OutboxRedactAfter: time.Duration(envInt("OUTBOX_REDACT_AFTER_HOURS", 168)) * time.Hour, OutboxRetention: time.Duration(envInt("OUTBOX_RETENTION_HOURS", 720)) * time.Hour,
-		GitCommit: envDefault("GIT_COMMIT", "0000000"), ExpectedSchemaVersion: envDefault("EXPECTED_SCHEMA_VERSION", "0016"),
+		GitCommit: envDefault("GIT_COMMIT", "0000000"), ExpectedSchemaVersion: envDefault("EXPECTED_SCHEMA_VERSION", "0017"),
 		Port: envDefault("PORT", "8080"), TrustedProxyCount: envInt("TRUSTED_PROXY_COUNT", 0),
 		ReadTimeout: 10 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second,
 		RateLimitProvider: strings.ToLower(envDefault("RATE_LIMIT_PROVIDER", "memory")), RedisURL: strings.TrimSpace(os.Getenv("REDIS_URL")), RateLimitPrefix: strings.TrimSpace(os.Getenv("RATE_LIMIT_PREFIX")), RateLimitTimeout: time.Duration(envInt("RATE_LIMIT_TIMEOUT_MS", 200)) * time.Millisecond, RateLimitDevFallback: envBool("RATE_LIMIT_DEV_FALLBACK", false),
@@ -159,12 +162,21 @@ func Load() (Config, error) {
 		if production && endpoint.Scheme != "https" {
 			return Config{}, errors.New("S3_ENDPOINT must use HTTPS in production")
 		}
+		if c.S3ServerSideEncryption != "AES256" && c.S3ServerSideEncryption != "DISABLED" {
+			return Config{}, errors.New("S3_SERVER_SIDE_ENCRYPTION must be AES256 or DISABLED")
+		}
+		if production && c.S3ServerSideEncryption != "AES256" {
+			return Config{}, errors.New("S3_SERVER_SIDE_ENCRYPTION=AES256 is required in production")
+		}
 	}
 	if c.MediaURLTTL < time.Minute || c.MediaURLTTL > 15*time.Minute {
 		return Config{}, errors.New("MEDIA_URL_TTL_SECONDS must be between 60 and 900")
 	}
 	if c.MediaCleanupInterval < 5*time.Second || c.MediaCleanupInterval > time.Hour {
 		return Config{}, errors.New("MEDIA_CLEANUP_INTERVAL_SECONDS must be between 5 and 3600")
+	}
+	if c.MediaUploadGlobalLimit < 1 || c.MediaUploadGlobalLimit > 64 || c.MediaUploadActorLimit < 1 || c.MediaUploadActorLimit > c.MediaUploadGlobalLimit {
+		return Config{}, errors.New("media upload concurrency limits are invalid")
 	}
 	if c.RetentionInterval < 10*time.Second || c.RetentionInterval > 24*time.Hour || c.RetentionBatchSize < 1 || c.RetentionBatchSize > 5000 {
 		return Config{}, errors.New("retention interval or batch size is outside the safe range")

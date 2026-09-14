@@ -27,6 +27,12 @@ func (h *Handler) HealthReady(c *gin.Context) {
 		web.Error(c, http.StatusServiceUnavailable, "DEPENDENCY_UNAVAILABLE", "Redis no disponible", nil)
 		return
 	}
+	if h.Service.Media != nil {
+		if err := h.Service.Media.Ready(ctx); err != nil {
+			web.Error(c, http.StatusServiceUnavailable, "DEPENDENCY_UNAVAILABLE", "Storage no disponible", nil)
+			return
+		}
+	}
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 

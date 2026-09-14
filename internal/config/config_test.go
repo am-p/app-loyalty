@@ -80,6 +80,11 @@ func TestProductionRequiresVerifiedSMTPIdentity(t *testing.T) {
 	if _, err := Load(); err != nil {
 		t.Fatal(err)
 	}
+	t.Setenv("S3_SERVER_SIDE_ENCRYPTION", "DISABLED")
+	if _, err := Load(); err == nil {
+		t.Fatal("production accepted media storage without AES256 server-side encryption")
+	}
+	t.Setenv("S3_SERVER_SIDE_ENCRYPTION", "AES256")
 	t.Setenv("PUBLIC_APP_URL", "http://app.puntazo.test")
 	if _, err := Load(); err == nil {
 		t.Fatal("production accepted an insecure PUBLIC_APP_URL")

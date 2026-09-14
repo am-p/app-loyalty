@@ -13,12 +13,14 @@ import (
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
 type S3 struct {
 	client    *s3.Client
 	presigner *s3.PresignClient
 	bucket    string
+	sse       string
 }
 
 const operationTimeout = 10 * time.Second
@@ -35,22 +37,35 @@ func NewS3(ctx context.Context, cfg config.Config) (*S3, error) {
 		options.BaseEndpoint = aws.String(cfg.S3Endpoint)
 		options.UsePathStyle = true
 	})
-	return &S3{client: client, presigner: s3.NewPresignClient(client), bucket: cfg.S3Bucket}, nil
+	return &S3{client: client, presigner: s3.NewPresignClient(client), bucket: cfg.S3Bucket, sse: cfg.S3ServerSideEncryption}, nil
 }
 
 func (s *S3) Put(ctx context.Context, key, mime string, body, digest []byte) error {
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
-	_, err := s.client.PutObject(ctx, &s3.PutObjectInput{
+	input := &s3.PutObjectInput{
 		Bucket:         aws.String(s.bucket),
 		Key:            aws.String(key),
 		Body:           bytes.NewReader(body),
 		ContentLength:  aws.Int64(int64(len(body))),
 		ContentType:    aws.String(mime),
 		ChecksumSHA256: aws.String(base64.StdEncoding.EncodeToString(digest)),
-	})
+	}
+	if s.sse == "AES256" {
+		input.ServerSideEncryption = types.ServerSideEncryptionAes256
+	}
+	_, err := s.client.PutObject(ctx, input)
 	if err != nil {
 		return fmt.Errorf("put private media object: %w", err)
+	}
+	return nil
+}
+
+func (s *S3) Ready(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
+	defer cancel()
+	if _, err := s.client.HeadBucket(ctx, &s3.HeadBucketInput{Bucket: aws.String(s.bucket)}); err != nil {
+		return fmt.Errorf("head private media bucket: %w", err)
 	}
 	return nil
 }

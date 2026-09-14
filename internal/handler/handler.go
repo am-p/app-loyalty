@@ -18,6 +18,7 @@ type Handler struct {
 	Service           *service.Service
 	Repo              *repository.Repository
 	Limiter           *middleware.RateLimiter
+	Uploads           *middleware.UploadSemaphore
 	Logger            *slog.Logger
 	TrustedProxyCount int
 }

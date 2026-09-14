@@ -28,6 +28,7 @@ type MediaStore interface {
 	Put(context.Context, string, string, []byte, []byte) error
 	Delete(context.Context, string) error
 	SignedGet(context.Context, string, time.Duration) (string, error)
+	Ready(context.Context) error
 }
 
 type Service struct {
