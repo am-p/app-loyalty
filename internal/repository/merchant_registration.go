@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-func (r *Repository) CreateDemoMerchant(ctx context.Context, key string, fingerprint []byte, email, passwordHash, ownerName, brandName, branchName string, branchAddress *string, programType, sessionID string, refreshHash []byte, sessionExpiresAt, authTime time.Time, build func(model.User, model.MerchantContext) ([]byte, error)) (IdempotentResult, error) {
+func (r *Repository) CreateDemoMerchant(ctx context.Context, key string, fingerprint []byte, email, passwordHash, ownerName, brandName, branchName string, branchAddress *string, programType, sessionID string, refreshHash []byte, sessionExpiresAt, authTime time.Time, verifiedAt *time.Time, verificationHash []byte, verificationExpires time.Time, message *model.EmailMessage, build func(model.User, model.MerchantContext) ([]byte, error)) (IdempotentResult, error) {
 	tx, err := r.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return IdempotentResult{}, err
@@ -24,8 +24,8 @@ func (r *Repository) CreateDemoMerchant(ctx context.Context, key string, fingerp
 		return *claimed, nil
 	}
 	var u model.User
-	err = tx.QueryRow(ctx, `INSERT INTO usuarios(email,password_hash,nombre,tipo_cuenta) VALUES($1,$2,$3,'PERSONAL_MARCA') RETURNING id,email::text,nombre,tipo_cuenta,activo,created_at`, email, passwordHash, ownerName).
-		Scan(&u.ID, &u.Email, &u.Name, &u.AccountType, &u.Active, &u.CreatedAt)
+	err = tx.QueryRow(ctx, `INSERT INTO usuarios(email,password_hash,nombre,tipo_cuenta,email_verified_at) VALUES($1,$2,$3,'PERSONAL_MARCA',$4) RETURNING id,email::text,nombre,tipo_cuenta,activo,(email_verified_at IS NOT NULL),auth_version,created_at`, email, passwordHash, ownerName, verifiedAt).
+		Scan(&u.ID, &u.Email, &u.Name, &u.AccountType, &u.Active, &u.EmailVerified, &u.AuthVersion, &u.CreatedAt)
 	if err != nil {
 		return IdempotentResult{}, normalize(err)
 	}
@@ -56,8 +56,14 @@ func (r *Repository) CreateDemoMerchant(ctx context.Context, key string, fingerp
 		return IdempotentResult{}, err
 	}
 	merchant := model.MerchantContext{BrandID: brandID, BrandName: brandName, Role: "PROPIETARIO", Branch: model.Branch{ID: branchID, BrandID: brandID, Name: branchName, Address: branchAddress, Active: true}, Program: model.Program{ID: programID, BrandID: brandID, Type: programType, StampsPerAccumulation: stampsPerAccumulation, Active: true}, Benefits: []model.Benefit{}, DemoAccess: model.DemoAccess{Kind: demoKind, PriceMinor: 0, Currency: "ARS", AutomaticCharge: false, Active: true, StartedAt: started}}
-	if _, err = tx.Exec(ctx, `INSERT INTO sesiones_auth(id,usuario_id,refresh_hash,expires_at,family_id,auth_time) VALUES($1,$2,$3,$4,$1,$5)`, sessionID, u.ID, refreshHash, sessionExpiresAt, authTime); err != nil {
-		return IdempotentResult{}, err
+	if message != nil {
+		if err = enqueueIdentityEmail(ctx, tx, u.ID, verificationHash, verificationExpires, *message); err != nil {
+			return IdempotentResult{}, err
+		}
+	} else {
+		if _, err = tx.Exec(ctx, `INSERT INTO sesiones_auth(id,usuario_id,refresh_hash,expires_at,family_id,auth_time) VALUES($1,$2,$3,$4,$1,$5)`, sessionID, u.ID, refreshHash, sessionExpiresAt, authTime); err != nil {
+			return IdempotentResult{}, err
+		}
 	}
 	body, err := build(u, merchant)
 	if err != nil {

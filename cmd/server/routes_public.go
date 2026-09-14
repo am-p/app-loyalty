@@ -14,5 +14,7 @@ func registerPublicRoutes(r *gin.RouterGroup, h *handler.Handler) {
 	r.POST("/auth/login", h.Login)
 	r.POST("/auth/google", h.LoginGoogle)
 	r.POST("/auth/refresh", h.Refresh)
+	r.POST("/auth/email-verification/request", h.RequestEmailVerification)
+	r.POST("/auth/email-verification/confirm", h.ConfirmEmailVerification)
 	r.POST("/demo/comercios", h.RegisterDemoMerchant)
 }

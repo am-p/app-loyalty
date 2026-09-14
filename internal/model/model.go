@@ -29,12 +29,14 @@ type GoogleAuthRequest struct {
 }
 
 type User struct {
-	ID          int64     `json:"id"`
-	Email       string    `json:"email"`
-	Name        string    `json:"name"`
-	AccountType string    `json:"account_type"`
-	Active      bool      `json:"active"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID            int64     `json:"id"`
+	Email         string    `json:"email"`
+	Name          string    `json:"name"`
+	AccountType   string    `json:"account_type"`
+	Active        bool      `json:"active"`
+	EmailVerified bool      `json:"email_verified"`
+	AuthVersion   int       `json:"auth_version"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 type Session struct {
 	AccessToken  string `json:"access_token"`
@@ -45,6 +47,28 @@ type Session struct {
 type AuthData struct {
 	Session Session `json:"session"`
 	User    User    `json:"user"`
+}
+type RegisterCustomerData struct {
+	User                 User     `json:"user"`
+	Session              *Session `json:"session,omitempty"`
+	VerificationRequired bool     `json:"verification_required"`
+}
+type EmailRequest struct {
+	Email string `json:"email"`
+}
+type TokenRequest struct {
+	Token string `json:"token"`
+}
+type PasswordResetConfirmRequest struct {
+	Token       string `json:"token"`
+	NewPassword string `json:"new_password"`
+}
+type EmailMessage struct {
+	Kind, To, Subject, Text, HTML string
+}
+type OutboxEmail struct {
+	ID, To, Subject, Text, HTML string
+	Attempts                    int
 }
 type Membership struct {
 	BrandID   int64   `json:"brand_id"`
@@ -110,10 +134,11 @@ type MerchantContext struct {
 	DemoAccess DemoAccess `json:"demo_access"`
 }
 type DemoMerchantData struct {
-	Session            Session         `json:"session"`
-	User               User            `json:"user"`
-	Merchant           MerchantContext `json:"merchant"`
-	OnboardingComplete bool            `json:"onboarding_complete"`
+	Session              *Session        `json:"session,omitempty"`
+	User                 User            `json:"user"`
+	Merchant             MerchantContext `json:"merchant"`
+	OnboardingComplete   bool            `json:"onboarding_complete"`
+	VerificationRequired bool            `json:"verification_required"`
 }
 
 type Card struct {

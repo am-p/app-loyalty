@@ -22,6 +22,7 @@ func TestRouteInventoryAndAuthentication(t *testing.T) {
 	public := []string{
 		"GET /v1/health/live", "GET /v1/health/ready", "GET /v1/version",
 		"POST /v1/auth/register", "POST /v1/auth/login", "POST /v1/auth/google", "POST /v1/auth/refresh", "POST /v1/demo/comercios",
+		"POST /v1/auth/email-verification/request", "POST /v1/auth/email-verification/confirm",
 		"POST /auth/register", "POST /auth/login", "POST /auth/google",
 	}
 	protected := []struct{ method, pattern, request string }{

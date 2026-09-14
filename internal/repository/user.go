@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"time"
 
 	"clientesFrecuentes/internal/model"
 
@@ -10,26 +11,32 @@ import (
 )
 
 type AuthUser struct {
-	User         model.User
-	PasswordHash *string
-	GoogleID     *string
+	User            model.User
+	PasswordHash    *string
+	GoogleID        *string
+	EmailVerifiedAt *time.Time
 }
 
-func (r *Repository) CreateCustomer(ctx context.Context, email, passwordHash, name string, provisionalQRHash []byte, finalQRHash func(int64) []byte) (model.User, error) {
+func (r *Repository) CreateCustomer(ctx context.Context, email, passwordHash, name string, provisionalQRHash []byte, finalQRHash func(int64) []byte, verifiedAt *time.Time, tokenHash []byte, tokenExpires time.Time, message *model.EmailMessage) (model.User, error) {
 	tx, err := r.Pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return model.User{}, err
 	}
 	defer tx.Rollback(ctx)
 	var u model.User
-	err = tx.QueryRow(ctx, `INSERT INTO usuarios(email,password_hash,nombre,tipo_cuenta,qr_hash)
-		VALUES($1,$2,$3,'CLIENTE_FINAL',$4) RETURNING id,email::text,nombre,tipo_cuenta,activo,created_at`, email, passwordHash, name, provisionalQRHash).
-		Scan(&u.ID, &u.Email, &u.Name, &u.AccountType, &u.Active, &u.CreatedAt)
+	err = tx.QueryRow(ctx, `INSERT INTO usuarios(email,password_hash,nombre,tipo_cuenta,qr_hash,email_verified_at)
+		VALUES($1,$2,$3,'CLIENTE_FINAL',$4,$5) RETURNING id,email::text,nombre,tipo_cuenta,activo,(email_verified_at IS NOT NULL),auth_version,created_at`, email, passwordHash, name, provisionalQRHash, verifiedAt).
+		Scan(&u.ID, &u.Email, &u.Name, &u.AccountType, &u.Active, &u.EmailVerified, &u.AuthVersion, &u.CreatedAt)
 	if err != nil {
 		return model.User{}, normalize(err)
 	}
 	if _, err = tx.Exec(ctx, `UPDATE usuarios SET qr_hash=$1 WHERE id=$2`, finalQRHash(u.ID), u.ID); err != nil {
 		return model.User{}, err
+	}
+	if message != nil {
+		if err = enqueueIdentityEmail(ctx, tx, u.ID, tokenHash, tokenExpires, *message); err != nil {
+			return model.User{}, err
+		}
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return model.User{}, normalize(err)
@@ -39,8 +46,9 @@ func (r *Repository) CreateCustomer(ctx context.Context, email, passwordHash, na
 
 func (r *Repository) GetUserByEmail(ctx context.Context, email string) (AuthUser, error) {
 	var u AuthUser
-	err := r.Pool.QueryRow(ctx, `SELECT id,email::text,password_hash,google_id,nombre,tipo_cuenta,activo,created_at FROM usuarios WHERE email=$1 AND deleted_at IS NULL`, email).
-		Scan(&u.User.ID, &u.User.Email, &u.PasswordHash, &u.GoogleID, &u.User.Name, &u.User.AccountType, &u.User.Active, &u.User.CreatedAt)
+	err := r.Pool.QueryRow(ctx, `SELECT id,email::text,password_hash,google_id,nombre,tipo_cuenta,activo,email_verified_at,auth_version,created_at FROM usuarios WHERE email=$1 AND deleted_at IS NULL`, email).
+		Scan(&u.User.ID, &u.User.Email, &u.PasswordHash, &u.GoogleID, &u.User.Name, &u.User.AccountType, &u.User.Active, &u.EmailVerifiedAt, &u.User.AuthVersion, &u.User.CreatedAt)
+	u.User.EmailVerified = u.EmailVerifiedAt != nil
 	if errors.Is(err, pgx.ErrNoRows) {
 		return AuthUser{}, ErrNotFound
 	}
@@ -54,7 +62,7 @@ func (r *Repository) LoginGoogle(ctx context.Context, googleID, email, name stri
 	}
 	defer tx.Rollback(ctx)
 	var u model.User
-	err = tx.QueryRow(ctx, `SELECT id,email::text,nombre,tipo_cuenta,activo,created_at FROM usuarios WHERE google_id=$1 AND activo AND deleted_at IS NULL FOR UPDATE`, googleID).Scan(&u.ID, &u.Email, &u.Name, &u.AccountType, &u.Active, &u.CreatedAt)
+	err = tx.QueryRow(ctx, `SELECT id,email::text,nombre,tipo_cuenta,activo,(email_verified_at IS NOT NULL),auth_version,created_at FROM usuarios WHERE google_id=$1 AND activo AND deleted_at IS NULL FOR UPDATE`, googleID).Scan(&u.ID, &u.Email, &u.Name, &u.AccountType, &u.Active, &u.EmailVerified, &u.AuthVersion, &u.CreatedAt)
 	if err == nil {
 		if err = tx.Commit(ctx); err != nil {
 			return model.User{}, err
@@ -64,20 +72,21 @@ func (r *Repository) LoginGoogle(ctx context.Context, googleID, email, name stri
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return model.User{}, err
 	}
-	err = tx.QueryRow(ctx, `SELECT id,email::text,nombre,tipo_cuenta,activo,created_at FROM usuarios WHERE email=$1 AND activo AND deleted_at IS NULL FOR UPDATE`, email).Scan(&u.ID, &u.Email, &u.Name, &u.AccountType, &u.Active, &u.CreatedAt)
+	err = tx.QueryRow(ctx, `SELECT id,email::text,nombre,tipo_cuenta,activo,(email_verified_at IS NOT NULL),auth_version,created_at FROM usuarios WHERE email=$1 AND activo AND deleted_at IS NULL FOR UPDATE`, email).Scan(&u.ID, &u.Email, &u.Name, &u.AccountType, &u.Active, &u.EmailVerified, &u.AuthVersion, &u.CreatedAt)
 	if err == nil {
-		if _, err = tx.Exec(ctx, `UPDATE usuarios SET google_id=$1 WHERE id=$2`, googleID, u.ID); err != nil {
+		if _, err = tx.Exec(ctx, `UPDATE usuarios SET google_id=$1,email_verified_at=COALESCE(email_verified_at,now()) WHERE id=$2`, googleID, u.ID); err != nil {
 			return model.User{}, normalize(err)
 		}
 		if err = tx.Commit(ctx); err != nil {
 			return model.User{}, err
 		}
+		u.EmailVerified = true
 		return u, nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return model.User{}, err
 	}
-	err = tx.QueryRow(ctx, `INSERT INTO usuarios(email,google_id,nombre,tipo_cuenta,qr_hash) VALUES($1,$2,$3,'CLIENTE_FINAL',$4) RETURNING id,email::text,nombre,tipo_cuenta,activo,created_at`, email, googleID, name, provisionalQRHash).Scan(&u.ID, &u.Email, &u.Name, &u.AccountType, &u.Active, &u.CreatedAt)
+	err = tx.QueryRow(ctx, `INSERT INTO usuarios(email,google_id,nombre,tipo_cuenta,qr_hash,email_verified_at) VALUES($1,$2,$3,'CLIENTE_FINAL',$4,now()) RETURNING id,email::text,nombre,tipo_cuenta,activo,true,auth_version,created_at`, email, googleID, name, provisionalQRHash).Scan(&u.ID, &u.Email, &u.Name, &u.AccountType, &u.Active, &u.EmailVerified, &u.AuthVersion, &u.CreatedAt)
 	if err != nil {
 		return model.User{}, normalize(err)
 	}
@@ -92,8 +101,8 @@ func (r *Repository) LoginGoogle(ctx context.Context, googleID, email, name stri
 
 func (r *Repository) GetUserByID(ctx context.Context, id int64) (model.User, error) {
 	var u model.User
-	err := r.Pool.QueryRow(ctx, `SELECT id,email::text,nombre,tipo_cuenta,activo,created_at FROM usuarios WHERE id=$1 AND deleted_at IS NULL`, id).
-		Scan(&u.ID, &u.Email, &u.Name, &u.AccountType, &u.Active, &u.CreatedAt)
+	err := r.Pool.QueryRow(ctx, `SELECT id,email::text,nombre,tipo_cuenta,activo,(email_verified_at IS NOT NULL),auth_version,created_at FROM usuarios WHERE id=$1 AND deleted_at IS NULL`, id).
+		Scan(&u.ID, &u.Email, &u.Name, &u.AccountType, &u.Active, &u.EmailVerified, &u.AuthVersion, &u.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.User{}, ErrNotFound
 	}

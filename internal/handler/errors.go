@@ -37,6 +37,10 @@ func writeErr(c *gin.Context, err error) {
 		web.Error(c, http.StatusConflict, "PREVIEW_CHANGED", "La preview ya no coincide con el estado actual", nil)
 	case errors.Is(err, repository.ErrInsufficientBalance):
 		web.Error(c, http.StatusConflict, "INSUFFICIENT_BALANCE", "Saldo insuficiente", nil)
+	case errors.Is(err, service.ErrIdentityToken):
+		web.Error(c, http.StatusUnprocessableEntity, "IDENTITY_TOKEN_INVALID", "Token inválido, vencido o utilizado", nil)
+	case errors.Is(err, service.ErrEmailUnverified):
+		web.Error(c, http.StatusForbidden, "EMAIL_VERIFICATION_REQUIRED", "Verificá tu correo antes de iniciar sesión", nil)
 	case errors.Is(err, repository.ErrNotFound):
 		web.Error(c, http.StatusNotFound, "NOT_FOUND", "Recurso no encontrado", nil)
 	default:

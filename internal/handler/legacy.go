@@ -24,7 +24,11 @@ func (h *Handler) LegacyRegister(c *gin.Context) {
 		writeErr(c, err)
 		return
 	}
-	c.JSON(http.StatusCreated, legacyAuth(data))
+	if data.Session == nil {
+		c.JSON(http.StatusCreated, gin.H{"verification_required": true, "usuario": data.User})
+		return
+	}
+	c.JSON(http.StatusCreated, legacyAuth(model.AuthData{Session: *data.Session, User: data.User}))
 }
 
 func (h *Handler) LegacyLogin(c *gin.Context) {

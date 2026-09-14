@@ -29,7 +29,7 @@ func (h *Handler) RegisterCustomer(c *gin.Context) {
 		writeErr(c, err)
 		return
 	}
-	writeAuth(c, http.StatusCreated, platform, data)
+	writeCustomerRegistration(c, http.StatusCreated, platform, data)
 }
 
 func (h *Handler) Login(c *gin.Context) {

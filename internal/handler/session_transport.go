@@ -44,3 +44,11 @@ func writeAuth(c *gin.Context, status int, platform string, data model.AuthData)
 	}
 	c.JSON(status, web.Envelope[model.AuthData]{Data: data, RequestID: web.RequestID(c)})
 }
+
+func writeCustomerRegistration(c *gin.Context, status int, platform string, data model.RegisterCustomerData) {
+	if data.Session != nil && platform == "web" {
+		setRefreshCookie(c, data.Session.RefreshToken)
+		data.Session.RefreshToken = ""
+	}
+	c.JSON(status, web.Envelope[model.RegisterCustomerData]{Data: data, RequestID: web.RequestID(c)})
+}

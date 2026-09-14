@@ -39,8 +39,10 @@ func (h *Handler) RegisterDemoMerchant(c *gin.Context) {
 		return
 	}
 	if platform == "web" {
-		setRefreshCookie(c, envelope.Data.Session.RefreshToken)
-		envelope.Data.Session.RefreshToken = ""
+		if envelope.Data.Session != nil {
+			setRefreshCookie(c, envelope.Data.Session.RefreshToken)
+			envelope.Data.Session.RefreshToken = ""
+		}
 	}
 	result.Body, err = json.Marshal(envelope)
 	if err != nil {

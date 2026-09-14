@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"time"
 
+	"clientesFrecuentes/internal/mailer"
 	"clientesFrecuentes/internal/model"
 	"clientesFrecuentes/internal/repository"
 	"clientesFrecuentes/internal/web"
@@ -68,10 +70,29 @@ func (s *Service) RegisterDemoMerchant(ctx context.Context, key, requestID strin
 	if err != nil {
 		return repository.IdempotentResult{}, err
 	}
+	var verifiedAt *time.Time
+	var verificationHash []byte
+	var verificationExpires time.Time
+	var verificationMessage *model.EmailMessage
+	if s.Config.EmailVerificationRequired {
+		token, tokenHash, tokenErr := identityToken()
+		if tokenErr != nil {
+			return repository.IdempotentResult{}, tokenErr
+		}
+		verificationHash, verificationExpires = tokenHash, s.Now().Add(24*time.Hour)
+		m := mailer.VerificationMessage(s.Config.PublicAppURL, email, token)
+		verificationMessage = &m
+	} else {
+		now := s.Now()
+		verifiedAt = &now
+	}
 	var result repository.IdempotentResult
 	err = retry(ctx, func() error {
 		var e error
-		result, e = s.Repo.CreateDemoMerchant(ctx, key, fingerprint, email, string(passwordHash), owner, brand, branch, req.BranchAddress, programType, credentials.id, credentials.hash, credentials.expiresAt, credentials.authTime, func(u model.User, m model.MerchantContext) ([]byte, error) {
+		result, e = s.Repo.CreateDemoMerchant(ctx, key, fingerprint, email, string(passwordHash), owner, brand, branch, req.BranchAddress, programType, credentials.id, credentials.hash, credentials.expiresAt, credentials.authTime, verifiedAt, verificationHash, verificationExpires, verificationMessage, func(u model.User, m model.MerchantContext) ([]byte, error) {
+			if s.Config.EmailVerificationRequired {
+				return json.Marshal(web.Envelope[model.DemoMerchantData]{Data: model.DemoMerchantData{User: u, Merchant: m, VerificationRequired: true}, RequestID: requestID})
+			}
 			merchantSession, e := s.session(u, credentials)
 			if e != nil {
 				return nil, e
@@ -79,7 +100,7 @@ func (s *Service) RegisterDemoMerchant(ctx context.Context, key, requestID strin
 			// Idempotency persistence must never retain the bearer-equivalent
 			// refresh secret. It is injected only into the in-memory response.
 			merchantSession.RefreshToken = ""
-			return json.Marshal(web.Envelope[model.DemoMerchantData]{Data: model.DemoMerchantData{Session: merchantSession, User: u, Merchant: m}, RequestID: requestID})
+			return json.Marshal(web.Envelope[model.DemoMerchantData]{Data: model.DemoMerchantData{Session: &merchantSession, User: u, Merchant: m}, RequestID: requestID})
 		})
 		return e
 	})
@@ -90,8 +111,14 @@ func (s *Service) RegisterDemoMerchant(ctx context.Context, key, requestID strin
 	if err = json.Unmarshal(result.Body, &envelope); err != nil {
 		return repository.IdempotentResult{}, err
 	}
+	if envelope.Data.VerificationRequired {
+		result.Body, err = json.Marshal(envelope)
+		return result, err
+	}
 	if result.Replayed {
-		envelope.Data.Session, err = s.issueSession(ctx, envelope.Data.User)
+		sess, sessionErr := s.issueSession(ctx, envelope.Data.User)
+		err = sessionErr
+		envelope.Data.Session = &sess
 		if err != nil {
 			return repository.IdempotentResult{}, err
 		}

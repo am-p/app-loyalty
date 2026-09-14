@@ -30,10 +30,10 @@ func (r *Repository) RotateSession(ctx context.Context, refreshHash []byte, repl
 	var revokedAt *time.Time
 	var expiresAt, authTime time.Time
 	var u model.User
-	err = tx.QueryRow(ctx, `SELECT s.id,s.family_id,s.revoked_at,s.expires_at,s.auth_time,u.id,u.email::text,u.nombre,u.tipo_cuenta,u.activo,u.created_at
+	err = tx.QueryRow(ctx, `SELECT s.id,s.family_id,s.revoked_at,s.expires_at,s.auth_time,u.id,u.email::text,u.nombre,u.tipo_cuenta,u.activo,(u.email_verified_at IS NOT NULL),u.auth_version,u.created_at
 		FROM sesiones_auth s JOIN usuarios u ON u.id=s.usuario_id
 		WHERE s.refresh_hash=$1 AND u.activo AND u.deleted_at IS NULL FOR UPDATE OF s`, refreshHash).
-		Scan(&oldID, &familyID, &revokedAt, &expiresAt, &authTime, &u.ID, &u.Email, &u.Name, &u.AccountType, &u.Active, &u.CreatedAt)
+		Scan(&oldID, &familyID, &revokedAt, &expiresAt, &authTime, &u.ID, &u.Email, &u.Name, &u.AccountType, &u.Active, &u.EmailVerified, &u.AuthVersion, &u.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return RotatedSession{}, ErrNotFound
 	}
@@ -75,9 +75,9 @@ func (r *Repository) RevokeSession(ctx context.Context, userID int64, sessionID 
 	return nil
 }
 
-func (r *Repository) ActiveSessionAccountType(ctx context.Context, userID int64, sessionID string) (string, error) {
+func (r *Repository) ActiveSessionAccountType(ctx context.Context, userID int64, sessionID string, authVersion int) (string, error) {
 	var accountType string
 	err := r.Pool.QueryRow(ctx, `SELECT u.tipo_cuenta FROM sesiones_auth s JOIN usuarios u ON u.id=s.usuario_id
-		WHERE s.id=$1 AND s.usuario_id=$2 AND s.revoked_at IS NULL AND s.expires_at>now() AND u.activo AND u.deleted_at IS NULL`, sessionID, userID).Scan(&accountType)
+		WHERE s.id=$1 AND s.usuario_id=$2 AND s.revoked_at IS NULL AND s.expires_at>now() AND u.activo AND u.deleted_at IS NULL AND u.auth_version=$3`, sessionID, userID, authVersion).Scan(&accountType)
 	return accountType, err
 }

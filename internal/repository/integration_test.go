@@ -107,18 +107,56 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if _, err = pool.Exec(ctx, string(snapshotMigration)); err != nil {
 		t.Fatalf("migration 0007: %v", err)
 	}
-	if _, err = pool.Exec(ctx, `CREATE TABLE schema_migrations(version CHAR(4) PRIMARY KEY,applied_at TIMESTAMPTZ NOT NULL DEFAULT now()); INSERT INTO schema_migrations(version) VALUES('0001'),('0002'),('0003'),('0004'),('0005'),('0006'),('0007')`); err != nil {
+	identityMigration, err := os.ReadFile(filepath.Join("..", "..", "migrations", "0008_email_identity.up.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, string(identityMigration)); err != nil {
+		t.Fatalf("migration 0008: %v", err)
+	}
+	if _, err = pool.Exec(ctx, `CREATE TABLE schema_migrations(version CHAR(4) PRIMARY KEY,applied_at TIMESTAMPTZ NOT NULL DEFAULT now()); INSERT INTO schema_migrations(version) VALUES('0001'),('0002'),('0003'),('0004'),('0005'),('0006'),('0007'),('0008')`); err != nil {
 		t.Fatal(err)
 	}
 	demoHash, _ := bcrypt.GenerateFromPassword([]byte("demo-access-code"), bcrypt.MinCost)
-	cfg := config.Config{JWTSecret: "jwt-secret-0123456789012345678901", JWTIssuer: "puntazo", QRPepper: "qr-pepper-01234567890123456789012", DemoAccessCodeHash: string(demoHash), DemoSignupEnabled: true, ExpectedSchemaVersion: "0007"}
+	cfg := config.Config{JWTSecret: "jwt-secret-0123456789012345678901", JWTIssuer: "puntazo", QRPepper: "qr-pepper-01234567890123456789012", DemoAccessCodeHash: string(demoHash), DemoSignupEnabled: true, ExpectedSchemaVersion: "0008", PublicAppURL: "https://app.puntazo.test"}
 	repo := repository.New(pool)
 	tokens := auth.NewTokens(cfg.JWTSecret, cfg.JWTIssuer)
 	svc := service.New(repo, tokens, cfg)
+	identityCfg := cfg
+	identityCfg.EmailVerificationRequired = true
+	identitySvc := service.New(repo, tokens, identityCfg)
+	pendingRegistration, err := identitySvc.RegisterCustomer(ctx, model.RegisterCustomerRequest{Email: "pending@example.com", Password: "pending-pass", Name: "Pending"})
+	if err != nil || pendingRegistration.Session != nil || !pendingRegistration.VerificationRequired {
+		t.Fatalf("pending registration=%+v err=%v", pendingRegistration, err)
+	}
+	if _, err = identitySvc.Login(ctx, model.LoginRequest{Email: "pending@example.com", Password: "pending-pass"}); !errors.Is(err, service.ErrEmailUnverified) {
+		t.Fatalf("unverified login: %v", err)
+	}
+	var verificationBody string
+	if err = pool.QueryRow(ctx, `SELECT cuerpo_texto FROM email_outbox WHERE destinatario='pending@example.com' AND tipo='VERIFY_EMAIL' ORDER BY created_at DESC LIMIT 1`).Scan(&verificationBody); err != nil {
+		t.Fatal(err)
+	}
+	parts := strings.Split(verificationBody, "?token=")
+	if len(parts) != 2 {
+		t.Fatal("verification token missing from outbox")
+	}
+	verificationToken := strings.Fields(parts[1])[0]
+	if err = identitySvc.ConfirmEmailVerification(ctx, model.TokenRequest{Token: verificationToken}); err != nil {
+		t.Fatal(err)
+	}
+	if err = identitySvc.ConfirmEmailVerification(ctx, model.TokenRequest{Token: verificationToken}); !errors.Is(err, service.ErrIdentityToken) {
+		t.Fatalf("verification token reused: %v", err)
+	}
+	if _, err = identitySvc.Login(ctx, model.LoginRequest{Email: "pending@example.com", Password: "pending-pass"}); err != nil {
+		t.Fatalf("verified login: %v", err)
+	}
 
 	customerAuth, err := svc.RegisterCustomer(ctx, model.RegisterCustomerRequest{Email: "client@example.com", Password: "customer-pass", Name: "Client"})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if customerAuth.Session == nil {
+		t.Fatal("registration omitted session while verification is disabled")
 	}
 	gin.SetMode(gin.TestMode)
 	protected := gin.New()
@@ -135,10 +173,12 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	}
 	originalAccess := customerAuth.Session.AccessToken
 	originalRefresh := customerAuth.Session.RefreshToken
-	customerAuth, err = svc.Refresh(ctx, customerAuth.Session.RefreshToken)
+	refreshedAuth, err := svc.Refresh(ctx, customerAuth.Session.RefreshToken)
 	if err != nil {
 		t.Fatal(err)
 	}
+	customerAuth.Session = &refreshedAuth.Session
+	customerAuth.User = refreshedAuth.User
 	if w := authorizedRequest(originalAccess); w.Code != http.StatusUnauthorized {
 		t.Fatalf("rotated access token status=%d body=%s", w.Code, w.Body.String())
 	}
@@ -151,10 +191,12 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if _, err = svc.Refresh(ctx, customerAuth.Session.RefreshToken); !errors.Is(err, service.ErrInvalidCredentials) {
 		t.Fatalf("session family refresh after reuse: %v", err)
 	}
-	customerAuth, err = svc.Login(ctx, model.LoginRequest{Email: "client@example.com", Password: "customer-pass"})
+	loggedInAuth, err := svc.Login(ctx, model.LoginRequest{Email: "client@example.com", Password: "customer-pass"})
 	if err != nil {
 		t.Fatal(err)
 	}
+	customerAuth.Session = &loggedInAuth.Session
+	customerAuth.User = loggedInAuth.User
 	if _, err = pool.Exec(ctx, `UPDATE usuarios SET activo=false WHERE id=$1`, customerAuth.User.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -520,7 +562,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if _, err = pool.Exec(ctx, `UPDATE membresias_marca SET activo=true WHERE usuario_id=$1 AND marca_id=$2`, merchant.User.ID, merchant.Merchant.BrandID); err != nil {
 		t.Fatal(err)
 	}
-	if err = repo.CheckSchema(ctx, "0007"); err != nil {
+	if err = repo.CheckSchema(ctx, "0008"); err != nil {
 		t.Fatal(err)
 	}
 	if err = repo.CheckSchema(ctx, "9999"); err == nil {

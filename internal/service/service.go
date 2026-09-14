@@ -15,6 +15,8 @@ var (
 	ErrForbidden          = errors.New("forbidden")
 	ErrDemoDisabled       = errors.New("demo signup disabled")
 	ErrDemoAccess         = errors.New("demo access denied")
+	ErrEmailUnverified    = errors.New("email unverified")
+	ErrIdentityToken      = errors.New("identity token invalid")
 )
 
 type Service struct {
