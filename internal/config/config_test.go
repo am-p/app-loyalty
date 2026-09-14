@@ -74,6 +74,9 @@ func TestProductionRequiresVerifiedSMTPIdentity(t *testing.T) {
 	t.Setenv("S3_BUCKET", "puntazo-media")
 	t.Setenv("S3_ACCESS_KEY_ID", "test-access")
 	t.Setenv("S3_SECRET_ACCESS_KEY", "test-secret")
+	t.Setenv("RATE_LIMIT_PROVIDER", "redis")
+	t.Setenv("REDIS_URL", "rediss://redis.puntazo.test:6379/0")
+	t.Setenv("RATE_LIMIT_PREFIX", "puntazo:production")
 	if _, err := Load(); err != nil {
 		t.Fatal(err)
 	}

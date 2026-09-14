@@ -2,7 +2,9 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"time"
 
 	"clientesFrecuentes/internal/model"
 	"clientesFrecuentes/internal/service"
@@ -51,6 +53,9 @@ func (h *Handler) CreateInvitation(c *gin.Context) {
 	brandID, err := positiveID(c.Param("brand_id"))
 	if err != nil {
 		writeErr(c, err)
+		return
+	}
+	if !h.limit(c, fmt.Sprintf("invitation-create:actor:%d:brand:%d", a.ID, brandID), 20, time.Hour) {
 		return
 	}
 	var req model.CreateInvitationRequest
@@ -105,6 +110,9 @@ func (h *Handler) ResendInvitation(c *gin.Context) {
 		writeErr(c, err)
 		return
 	}
+	if !h.limit(c, fmt.Sprintf("invitation-resend:actor:%d:brand:%d", a.ID, brandID), 20, time.Hour) {
+		return
+	}
 	id, err := invitationID(c)
 	if err != nil {
 		writeErr(c, service.ErrInvalidRequest)
@@ -129,6 +137,9 @@ func (h *Handler) PublicInvitation(c *gin.Context) {
 func (h *Handler) AcceptInvitation(c *gin.Context) {
 	a, ok := actor(c)
 	if !ok {
+		return
+	}
+	if !h.limit(c, fmt.Sprintf("invitation-accept:actor:%d", a.ID), 20, time.Hour) {
 		return
 	}
 	item, err := h.Service.AcceptInvitation(c.Request.Context(), a.ID, c.Param("token"))

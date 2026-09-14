@@ -52,6 +52,15 @@ func main() {
 		go (mailer.Worker{Repo: repo, Sender: mailer.NewSMTP(cfg), Logger: logger, Interval: cfg.MailPollInterval, PublicAppURL: cfg.PublicAppURL, CipherKey: cfg.OutboxEncryptionKey}).Run(workerCtx)
 	}
 	tokens := auth.NewTokens(cfg.JWTSecret, cfg.JWTIssuer)
+	limiter := middleware.NewRateLimiter()
+	if cfg.RateLimitProvider == "redis" {
+		limiter, err = middleware.NewRedisRateLimiter(cfg.RedisURL, cfg.RateLimitPrefix, cfg.RateLimitTimeout, !cfg.Production && cfg.RateLimitDevFallback)
+		if err != nil {
+			logger.Error("rate limiter configuration failed", "error", err)
+			os.Exit(1)
+		}
+	}
+	defer limiter.Close()
 	var mediaStore service.MediaStore
 	if cfg.MediaProvider == "s3" {
 		mediaStore, err = storage.NewS3(context.Background(), cfg)
@@ -62,7 +71,7 @@ func main() {
 	}
 	go (maintenance.Worker{Repo: repo, Store: mediaStore, Logger: logger, Config: cfg}).Run(workerCtx)
 	svc := service.New(repo, tokens, cfg, mediaStore)
-	h := &handler.Handler{Service: svc, Repo: repo, Limiter: middleware.NewRateLimiter(), Logger: logger, TrustedProxyCount: cfg.TrustedProxyCount}
+	h := &handler.Handler{Service: svc, Repo: repo, Limiter: limiter, Logger: logger, TrustedProxyCount: cfg.TrustedProxyCount}
 	router := newRouter(h, tokens, logger)
 	server := &http.Server{Addr: ":" + cfg.Port, Handler: router, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: cfg.ReadTimeout, WriteTimeout: cfg.WriteTimeout, IdleTimeout: cfg.IdleTimeout, MaxHeaderBytes: 32 << 10}
 	go func() {

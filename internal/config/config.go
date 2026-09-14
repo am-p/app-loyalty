@@ -56,6 +56,12 @@ type Config struct {
 	ReadTimeout               time.Duration
 	WriteTimeout              time.Duration
 	IdleTimeout               time.Duration
+	Production                bool
+	RateLimitProvider         string
+	RedisURL                  string
+	RateLimitPrefix           string
+	RateLimitTimeout          time.Duration
+	RateLimitDevFallback      bool
 }
 
 func Load() (Config, error) {
@@ -71,6 +77,7 @@ func Load() (Config, error) {
 		GitCommit: envDefault("GIT_COMMIT", "0000000"), ExpectedSchemaVersion: envDefault("EXPECTED_SCHEMA_VERSION", "0016"),
 		Port: envDefault("PORT", "8080"), TrustedProxyCount: envInt("TRUSTED_PROXY_COUNT", 0),
 		ReadTimeout: 10 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second,
+		RateLimitProvider: strings.ToLower(envDefault("RATE_LIMIT_PROVIDER", "memory")), RedisURL: strings.TrimSpace(os.Getenv("REDIS_URL")), RateLimitPrefix: strings.TrimSpace(os.Getenv("RATE_LIMIT_PREFIX")), RateLimitTimeout: time.Duration(envInt("RATE_LIMIT_TIMEOUT_MS", 200)) * time.Millisecond, RateLimitDevFallback: envBool("RATE_LIMIT_DEV_FALLBACK", false),
 	}
 	if c.DatabaseURL == "" {
 		return Config{}, errors.New("DATABASE_URL is required")
@@ -98,6 +105,7 @@ func Load() (Config, error) {
 		return Config{}, errors.New("PUBLIC_APP_URL must be an absolute http(s) URL")
 	}
 	production := strings.EqualFold(os.Getenv("APP_ENV"), "production")
+	c.Production = production
 	if encodedKey := strings.TrimSpace(os.Getenv("OUTBOX_ENCRYPTION_KEY")); encodedKey != "" {
 		c.OutboxEncryptionKey, err = base64.StdEncoding.DecodeString(encodedKey)
 		if err != nil || len(c.OutboxEncryptionKey) != 32 {
@@ -160,6 +168,24 @@ func Load() (Config, error) {
 	}
 	if c.RetentionInterval < 10*time.Second || c.RetentionInterval > 24*time.Hour || c.RetentionBatchSize < 1 || c.RetentionBatchSize > 5000 {
 		return Config{}, errors.New("retention interval or batch size is outside the safe range")
+	}
+	if c.RateLimitProvider != "memory" && c.RateLimitProvider != "redis" {
+		return Config{}, errors.New("RATE_LIMIT_PROVIDER must be memory or redis")
+	}
+	if production && c.RateLimitProvider != "redis" {
+		return Config{}, errors.New("RATE_LIMIT_PROVIDER=redis is required in production")
+	}
+	if c.RateLimitProvider == "redis" {
+		redisURL, redisErr := url.Parse(c.RedisURL)
+		if redisErr != nil || redisURL.Host == "" || (redisURL.Scheme != "redis" && redisURL.Scheme != "rediss") || c.RateLimitPrefix == "" || strings.ContainsAny(c.RateLimitPrefix, " \t\r\n") {
+			return Config{}, errors.New("valid REDIS_URL and environment-specific RATE_LIMIT_PREFIX are required")
+		}
+		if production && redisURL.Scheme != "rediss" {
+			return Config{}, errors.New("REDIS_URL must use TLS in production")
+		}
+	}
+	if c.RateLimitTimeout < 50*time.Millisecond || c.RateLimitTimeout > 2*time.Second {
+		return Config{}, errors.New("RATE_LIMIT_TIMEOUT_MS must be between 50 and 2000")
 	}
 	if c.PreviewRetention < time.Hour || c.IdempotencyRetention < 24*time.Hour || c.SessionRetention < 24*time.Hour || c.IdentityTokenRetention < time.Hour || c.OutboxRedactAfter < time.Hour || c.OutboxRetention < c.OutboxRedactAfter {
 		return Config{}, errors.New("retention windows are outside the safe range")

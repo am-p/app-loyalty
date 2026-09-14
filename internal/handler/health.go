@@ -23,6 +23,10 @@ func (h *Handler) HealthReady(c *gin.Context) {
 		web.Error(c, http.StatusServiceUnavailable, "DEPENDENCY_UNAVAILABLE", "Esquema no disponible", nil)
 		return
 	}
+	if err := h.Limiter.Ready(ctx); err != nil {
+		web.Error(c, http.StatusServiceUnavailable, "DEPENDENCY_UNAVAILABLE", "Redis no disponible", nil)
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
