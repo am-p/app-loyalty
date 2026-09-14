@@ -67,7 +67,12 @@ func TestProductionRequiresVerifiedSMTPIdentity(t *testing.T) {
 	t.Setenv("SMTP_HOST", "smtp.puntazo.test")
 	t.Setenv("SMTP_TLS_MODE", "starttls")
 	t.Setenv("OUTBOX_ENCRYPTION_KEY", base64.StdEncoding.EncodeToString([]byte("separate-outbox-key-32-bytes!!!!")))
+	t.Setenv("PUBLIC_APP_URL", "https://app.puntazo.test")
 	if _, err := Load(); err != nil {
 		t.Fatal(err)
+	}
+	t.Setenv("PUBLIC_APP_URL", "http://app.puntazo.test")
+	if _, err := Load(); err == nil {
+		t.Fatal("production accepted an insecure PUBLIC_APP_URL")
 	}
 }

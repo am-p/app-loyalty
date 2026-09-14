@@ -89,6 +89,9 @@ func Load() (Config, error) {
 	if production && !c.EmailVerificationRequired {
 		return Config{}, errors.New("EMAIL_VERIFICATION_REQUIRED=true is required in production")
 	}
+	if production && (appURL.Scheme != "https" || appURL.Hostname() == "" || appURL.User != nil || appURL.RawQuery != "" || appURL.Fragment != "") {
+		return Config{}, errors.New("PUBLIC_APP_URL must be a clean HTTPS origin in production")
+	}
 	if c.EmailVerificationRequired && len(c.OutboxEncryptionKey) != 32 {
 		return Config{}, errors.New("OUTBOX_ENCRYPTION_KEY is required while email verification is required")
 	}
