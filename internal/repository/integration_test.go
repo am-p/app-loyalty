@@ -154,6 +154,16 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if _, err = pool.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES('0012')`); err != nil {
 		t.Fatal(err)
 	}
+	staffMigration, err := os.ReadFile(filepath.Join("..", "..", "migrations", "0013_brand_staff_invitations.up.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, string(staffMigration)); err != nil {
+		t.Fatalf("migration 0013: %v", err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES('0013')`); err != nil {
+		t.Fatal(err)
+	}
 	var legacyPasswordVerified, legacyGoogleVerified bool
 	if err = pool.QueryRow(ctx, `SELECT email_verified_at IS NOT NULL FROM usuarios WHERE email='legacy-password@example.com'`).Scan(&legacyPasswordVerified); err != nil {
 		t.Fatal(err)
@@ -170,7 +180,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	}
 	demoHash, _ := bcrypt.GenerateFromPassword([]byte("demo-access-code"), bcrypt.MinCost)
 	outboxKey := []byte("01234567890123456789012345678901")
-	cfg := config.Config{JWTSecret: "jwt-secret-0123456789012345678901", JWTIssuer: "puntazo", QRPepper: "qr-pepper-01234567890123456789012", DemoAccessCodeHash: string(demoHash), DemoSignupEnabled: true, ExpectedSchemaVersion: "0012", PublicAppURL: "https://app.puntazo.test", OutboxEncryptionKey: outboxKey}
+	cfg := config.Config{JWTSecret: "jwt-secret-0123456789012345678901", JWTIssuer: "puntazo", QRPepper: "qr-pepper-01234567890123456789012", DemoAccessCodeHash: string(demoHash), DemoSignupEnabled: true, ExpectedSchemaVersion: "0013", PublicAppURL: "https://app.puntazo.test", OutboxEncryptionKey: outboxKey}
 	repo := repository.New(pool, outboxKey)
 	tokens := auth.NewTokens(cfg.JWTSecret, cfg.JWTIssuer)
 	svc := service.New(repo, tokens, cfg)
@@ -823,7 +833,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if err = repo.MarkEmailFailed(ctx, claimedEmails[1].ID, claimedEmails[1].LeaseOwner, claimedEmails[1].Attempts, errors.New("temporary smtp failure")); err != nil {
 		t.Fatal(err)
 	}
-	if err = repo.CheckSchema(ctx, "0012"); err != nil {
+	if err = repo.CheckSchema(ctx, "0013"); err != nil {
 		t.Fatal(err)
 	}
 	if err = repo.CheckSchema(ctx, "9999"); err == nil {
