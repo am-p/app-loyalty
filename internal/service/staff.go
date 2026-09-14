@@ -3,11 +3,15 @@ package service
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"strings"
 	"time"
 
 	"clientesFrecuentes/internal/model"
 	"clientesFrecuentes/internal/repository"
+	"clientesFrecuentes/internal/web"
+
+	"github.com/google/uuid"
 )
 
 func cleanInvitation(req *model.CreateInvitationRequest) error {
@@ -39,15 +43,30 @@ func cleanInvitation(req *model.CreateInvitationRequest) error {
 func (s *Service) Invitations(ctx context.Context, actorID, brandID int64) ([]model.BrandInvitation, error) {
 	return s.Repo.ListInvitations(ctx, actorID, brandID)
 }
-func (s *Service) CreateInvitation(ctx context.Context, actorID, brandID int64, req model.CreateInvitationRequest) (model.BrandInvitation, error) {
+func (s *Service) CreateInvitation(ctx context.Context, actorID, brandID int64, key, requestID string, req model.CreateInvitationRequest) (repository.IdempotentResult, error) {
 	if err := cleanInvitation(&req); err != nil {
-		return model.BrandInvitation{}, err
+		return repository.IdempotentResult{}, err
+	}
+	if _, err := uuid.Parse(key); err != nil {
+		return repository.IdempotentResult{}, ErrInvalidRequest
 	}
 	token, hash, err := identityToken()
 	if err != nil {
-		return model.BrandInvitation{}, err
+		return repository.IdempotentResult{}, err
 	}
-	return s.Repo.CreateInvitation(ctx, actorID, brandID, req, token, hash, s.Now().Add(72*time.Hour))
+	fingerprint := KeyedFingerprint(s.Config.QRPepper, struct {
+		BrandID int64
+		Request model.CreateInvitationRequest
+	}{brandID, req})
+	var result repository.IdempotentResult
+	err = retry(ctx, func() error {
+		var retryErr error
+		result, retryErr = s.Repo.CreateInvitation(ctx, actorID, brandID, key, fingerprint, req, token, hash, s.Now().Add(72*time.Hour), func(item model.BrandInvitation) ([]byte, error) {
+			return json.Marshal(web.Envelope[model.BrandInvitation]{Data: item, RequestID: requestID})
+		})
+		return retryErr
+	})
+	return result, err
 }
 func (s *Service) RevokeInvitation(ctx context.Context, actorID, brandID int64, id string) error {
 	return s.Repo.RevokeInvitation(ctx, actorID, brandID, id)

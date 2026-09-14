@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"strconv"
 	"time"
 
 	"clientesFrecuentes/internal/model"
@@ -81,42 +82,59 @@ func validateInvitationBranches(ctx context.Context, tx pgx.Tx, brandID int64, b
 	return nil
 }
 
-func (r *Repository) CreateInvitation(ctx context.Context, actorID, brandID int64, req model.CreateInvitationRequest, token string, hash []byte, expires time.Time) (model.BrandInvitation, error) {
+func (r *Repository) CreateInvitation(ctx context.Context, actorID, brandID int64, key string, fingerprint []byte, req model.CreateInvitationRequest, token string, hash []byte, expires time.Time, build func(model.BrandInvitation) ([]byte, error)) (IdempotentResult, error) {
 	tx, err := r.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
-		return model.BrandInvitation{}, err
+		return IdempotentResult{}, err
 	}
 	defer tx.Rollback(ctx)
 	if err = requireStaffManager(ctx, tx, actorID, brandID); err != nil {
-		return model.BrandInvitation{}, err
+		return IdempotentResult{}, err
+	}
+	claimed, err := claimIdempotency(ctx, tx, key, "brand:"+strconv.FormatInt(brandID, 10)+":actor:"+strconv.FormatInt(actorID, 10), "CREATE_BRAND_INVITATION", fingerprint)
+	if err != nil {
+		return IdempotentResult{}, err
+	}
+	if claimed != nil {
+		return *claimed, nil
 	}
 	if err = validateInvitationBranches(ctx, tx, brandID, req.BranchIDs); err != nil {
-		return model.BrandInvitation{}, err
+		return IdempotentResult{}, err
 	}
 	var exists bool
 	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM usuarios u JOIN membresias_marca mm ON mm.usuario_id=u.id WHERE u.email=$1 AND mm.marca_id=$2 AND mm.activo)`, req.Email, brandID).Scan(&exists); err != nil {
-		return model.BrandInvitation{}, err
+		return IdempotentResult{}, err
 	}
 	if exists {
-		return model.BrandInvitation{}, ErrConflict
+		return IdempotentResult{}, ErrConflict
 	}
 	id := uuid.New()
 	if _, err = tx.Exec(ctx, `INSERT INTO invitaciones_marca(id,marca_id,invitado_por,email,rol,token_hash,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7)`, id, brandID, actorID, req.Email, req.Role, hash, expires); err != nil {
-		return model.BrandInvitation{}, normalize(err)
+		return IdempotentResult{}, normalize(err)
 	}
 	for _, branchID := range req.BranchIDs {
 		if _, err = tx.Exec(ctx, `INSERT INTO invitaciones_sucursales(invitacion_id,sucursal_id,marca_id) VALUES($1,$2,$3)`, id, branchID, brandID); err != nil {
-			return model.BrandInvitation{}, err
+			return IdempotentResult{}, err
 		}
 	}
 	if err = enqueueInvitationEmail(ctx, tx, r.OutboxCipherKey, actorID, id, req.Email, token, expires); err != nil {
-		return model.BrandInvitation{}, err
+		return IdempotentResult{}, err
 	}
 	item, err := scanInvitation(tx.QueryRow(ctx, invitationSelect+` WHERE i.id=$1 GROUP BY i.id`, id))
 	if err != nil {
-		return item, err
+		return IdempotentResult{}, err
 	}
-	return item, tx.Commit(ctx)
+	body, err := build(item)
+	if err != nil {
+		return IdempotentResult{}, err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE solicitudes_idempotentes SET estado='COMPLETED',response_status=201,response_body=$2,completed_at=now() WHERE idempotency_key=$1`, key, body); err != nil {
+		return IdempotentResult{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return IdempotentResult{}, normalize(err)
+	}
+	return IdempotentResult{Status: 201, Body: body}, nil
 }
 
 func (r *Repository) RevokeInvitation(ctx context.Context, actorID, brandID int64, id string) error {

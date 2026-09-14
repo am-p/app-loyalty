@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"clientesFrecuentes/internal/model"
@@ -48,13 +49,21 @@ func (h *Handler) CreateInvitation(c *gin.Context) {
 		writeErr(c, service.ErrInvalidRequest)
 		return
 	}
-	item, err := h.Service.CreateInvitation(c.Request.Context(), a.ID, brandID, req)
+	result, err := h.Service.CreateInvitation(c.Request.Context(), a.ID, brandID, c.GetHeader("Idempotency-Key"), web.RequestID(c), req)
 	if err != nil {
 		writeErr(c, err)
 		return
 	}
-	c.Header("ETag", accountETag(item.Version))
-	c.JSON(http.StatusCreated, web.Envelope[model.BrandInvitation]{Data: item, RequestID: web.RequestID(c)})
+	var envelope web.Envelope[model.BrandInvitation]
+	if err = json.Unmarshal(result.Body, &envelope); err != nil {
+		writeErr(c, err)
+		return
+	}
+	c.Header("ETag", accountETag(envelope.Data.Version))
+	if result.Replayed {
+		c.Header("Idempotent-Replayed", "true")
+	}
+	c.Data(result.Status, "application/json", result.Body)
 }
 func (h *Handler) RevokeInvitation(c *gin.Context) {
 	a, ok := actor(c)

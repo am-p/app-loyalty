@@ -529,6 +529,7 @@ paths:
       summary: Invita un administrador u operador durante 72 horas
       operationId: createBrandInvitation
       x-puntazo-implementation: IMPLEMENTED
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CreateInvitationRequest' } } } }
       responses:
         '201': { description: Invitación creada, content: { application/json: { schema: { $ref: '#/components/schemas/InvitationEnvelope' } } } }

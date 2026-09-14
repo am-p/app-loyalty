@@ -55,3 +55,11 @@ func TestUpdateCurrentUserRejectsEmptyAndInvalidPartialPatches(t *testing.T) {
 		})
 	}
 }
+
+func TestCreateInvitationRequiresUUIDIdempotencyKey(t *testing.T) {
+	svc := &Service{}
+	_, err := svc.CreateInvitation(context.Background(), 1, 2, "not-a-uuid", "request-id", model.CreateInvitationRequest{Email: "staff@example.com", Role: "OPERADOR", BranchIDs: []int64{3}})
+	if !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("error=%v", err)
+	}
+}

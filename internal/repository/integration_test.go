@@ -728,9 +728,24 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if err != nil || !benefitCurrent.Active || benefitCurrent.DeletedAt != nil {
 		t.Fatalf("reactivate benefit=%+v err=%v", benefitCurrent, err)
 	}
-	invitation, err := svc.CreateInvitation(ctx, merchant.User.ID, merchant.Merchant.BrandID, model.CreateInvitationRequest{Email: "client@example.com", Role: "OPERADOR", BranchIDs: []int64{newBranch.ID}})
+	invitationKey := uuid.NewString()
+	invitationRequestID := uuid.NewString()
+	invitationResult, err := svc.CreateInvitation(ctx, merchant.User.ID, merchant.Merchant.BrandID, invitationKey, invitationRequestID, model.CreateInvitationRequest{Email: "client@example.com", Role: "OPERADOR", BranchIDs: []int64{newBranch.ID}})
+	var invitationEnvelope web.Envelope[model.BrandInvitation]
+	if err == nil {
+		err = json.Unmarshal(invitationResult.Body, &invitationEnvelope)
+	}
+	invitation := invitationEnvelope.Data
 	if err != nil || invitation.Status != "PENDIENTE" || len(invitation.BranchIDs) != 1 {
 		t.Fatalf("create invitation=%+v err=%v", invitation, err)
+	}
+	replayedInvitation, err := svc.CreateInvitation(ctx, merchant.User.ID, merchant.Merchant.BrandID, invitationKey, uuid.NewString(), model.CreateInvitationRequest{Email: "client@example.com", Role: "OPERADOR", BranchIDs: []int64{newBranch.ID}})
+	if err != nil || !replayedInvitation.Replayed || !bytes.Equal(replayedInvitation.Body, invitationResult.Body) {
+		t.Fatalf("invitation replay exact=%v err=%v", replayedInvitation.Replayed, err)
+	}
+	var invitationOutboxCount int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM email_outbox WHERE invitation_id=$1`, invitation.ID).Scan(&invitationOutboxCount); err != nil || invitationOutboxCount != 1 {
+		t.Fatalf("invitation replay outbox count=%d err=%v", invitationOutboxCount, err)
 	}
 	var inviteOutbox model.OutboxEmail
 	if err = pool.QueryRow(ctx, `SELECT id::text,token_ciphertext,token_nonce,token_expires_at FROM email_outbox WHERE tipo='BRAND_INVITATION' AND destinatario='client@example.com' ORDER BY created_at DESC LIMIT 1`).Scan(&inviteOutbox.ID, &inviteOutbox.Ciphertext, &inviteOutbox.Nonce, &inviteOutbox.ExpiresAt); err != nil {
@@ -879,7 +894,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 		t.Fatalf("anonymized state email=%s name=%s inactive=%t credentials=%t qr=%t profile=%t ledger=%d/%d", tombstone, anonymizedName, inactive, credentialsCleared, qrCleared, profileCleared, ledgerAfter, ledgerBefore)
 	}
 	var piiLeaks int
-	if err = pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM email_outbox WHERE usuario_id=$1 AND (destinatario::text ILIKE '%client@example.com%' OR COALESCE(cuerpo_texto,'') ILIKE '%Client%' OR COALESCE(cuerpo_html,'') ILIKE '%client@example.com%'))+(SELECT count(*) FROM solicitudes_idempotentes WHERE actor_scope=$2 OR convert_from(COALESCE(response_body,''::bytea),'UTF8') ILIKE '%client@example.com%')`, customer.ID, fmt.Sprintf("user:%d", customer.ID)).Scan(&piiLeaks); err != nil || piiLeaks != 0 {
+	if err = pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM email_outbox WHERE destinatario::text ILIKE '%client@example.com%' OR COALESCE(cuerpo_texto,'') ILIKE '%Client%' OR COALESCE(cuerpo_html,'') ILIKE '%client@example.com%')+(SELECT count(*) FROM solicitudes_idempotentes WHERE actor_scope=$1 OR convert_from(COALESCE(response_body,''::bytea),'UTF8') ILIKE '%client@example.com%')+(SELECT count(*) FROM invitaciones_marca WHERE email::text ILIKE '%client@example.com%')`, fmt.Sprintf("user:%d", customer.ID)).Scan(&piiLeaks); err != nil || piiLeaks != 0 {
 		t.Fatalf("PII leaks after anonymization=%d err=%v", piiLeaks, err)
 	}
 	pendingMerchantRaw, err := identitySvc.RegisterDemoMerchant(ctx, uuid.NewString(), uuid.NewString(), model.RegisterDemoMerchantRequest{Email: "pendingmerchant@example.com", Password: "pending-merchant-pass", OwnerName: "Pending Owner", BrandName: "Pending Brand", BranchName: "Principal", ProgramType: "SELLOS", AccessCode: "demo-access-code"})
