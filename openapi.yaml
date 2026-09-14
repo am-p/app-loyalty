@@ -459,18 +459,18 @@ paths:
       x-puntazo-implementation: IMPLEMENTED
       parameters: [{ $ref: '#/components/parameters/IfMatch' }]
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/UpdateProgramRequest' } } } }
-      responses: { '200': { description: Programa actualizado }, '409': { description: PROGRAM_TYPE_IMMUTABLE tras el primer movimiento }, '412': { description: Versión desactualizada } }
+      responses: { '200': { description: Programa actualizado }, '409': { description: PROGRAM_TYPE_HAS_BENEFITS si existen beneficios o PROGRAM_TYPE_IMMUTABLE tras el primer movimiento }, '412': { description: Versión desactualizada } }
   /marcas/{brand_id}/beneficios:
     parameters:
       - $ref: '#/components/parameters/BrandId'
     get:
       tags: [Marcas]
       operationId: listBenefits
-      summary: Lista los beneficios activos del programa de la marca
+      summary: Lista beneficios activos e inactivos del programa de la marca
       x-puntazo-implementation: IMPLEMENTED
       responses:
         '200':
-          description: Lista vacía durante el onboarding inicial
+          description: Lista vacía durante el onboarding inicial; incluye inactivos para permitir reactivación
           content:
             application/json:
               schema: { $ref: '#/components/schemas/BenefitListEnvelope' }
@@ -899,7 +899,7 @@ components:
           properties:
             code:
               type: string
-              enum: [INVALID_REQUEST, IDENTITY_TOKEN_INVALID, INVITATION_INVALID, INVITATION_EMAIL_MISMATCH, EMAIL_VERIFICATION_REQUIRED, UNAUTHENTICATED, RECENT_AUTH_REQUIRED, FORBIDDEN, NOT_FOUND, EMAIL_EXISTS, IDEMPOTENCY_CONFLICT, IDEMPOTENCY_IN_PROGRESS, PREVIEW_EXPIRED, PREVIEW_CONSUMED, PREVIEW_CHANGED, PRECONDITION_FAILED, OWNERSHIP_TRANSFER_REQUIRED, INSUFFICIENT_BALANCE, DEMO_SIGNUP_DISABLED, DEMO_ACCESS_DENIED, RATE_LIMITED, DEPENDENCY_UNAVAILABLE, INTERNAL_ERROR]
+              enum: [INVALID_REQUEST, IDENTITY_TOKEN_INVALID, INVITATION_INVALID, INVITATION_EMAIL_MISMATCH, EMAIL_VERIFICATION_REQUIRED, UNAUTHENTICATED, RECENT_AUTH_REQUIRED, FORBIDDEN, NOT_FOUND, EMAIL_EXISTS, RESOURCE_CONFLICT, PROGRAM_TYPE_HAS_BENEFITS, PROGRAM_TYPE_IMMUTABLE, IDEMPOTENCY_CONFLICT, IDEMPOTENCY_IN_PROGRESS, PREVIEW_EXPIRED, PREVIEW_CONSUMED, PREVIEW_CHANGED, PRECONDITION_FAILED, OWNERSHIP_TRANSFER_REQUIRED, INSUFFICIENT_BALANCE, DEMO_SIGNUP_DISABLED, DEMO_ACCESS_DENIED, RATE_LIMITED, DEPENDENCY_UNAVAILABLE, INTERNAL_ERROR]
             message: { type: string }
             details: { type: object, additionalProperties: true }
         request_id: { $ref: '#/components/schemas/RequestId' }
