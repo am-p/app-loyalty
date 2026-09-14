@@ -33,6 +33,7 @@ type Config struct {
 	MailPollInterval          time.Duration
 	MediaProvider             string
 	S3Endpoint                string
+	S3PublicEndpoint          string
 	S3Region                  string
 	S3Bucket                  string
 	S3AccessKeyID             string
@@ -68,6 +69,7 @@ type Config struct {
 }
 
 func Load() (Config, error) {
+	s3Endpoint := strings.TrimSpace(os.Getenv("S3_ENDPOINT"))
 	c := Config{
 		DatabaseURL: os.Getenv("DATABASE_URL"), JWTSecret: os.Getenv("JWT_SECRET"), JWTIssuer: envDefault("JWT_ISSUER", "puntazo"),
 		QRPepper: os.Getenv("QR_PEPPER"), DemoAccessCodeHash: os.Getenv("DEMO_ACCESS_CODE_HASH"),
@@ -75,7 +77,7 @@ func Load() (Config, error) {
 		EmailVerificationRequired: envBool("EMAIL_VERIFICATION_REQUIRED", false), PublicAppURL: envDefault("PUBLIC_APP_URL", "http://localhost:8081"),
 		MailProvider: strings.ToLower(envDefault("MAIL_PROVIDER", "disabled")), MailFromAddress: strings.TrimSpace(os.Getenv("MAIL_FROM_ADDRESS")), MailFromName: envDefault("MAIL_FROM_NAME", "Puntazo"),
 		SMTPHost: strings.TrimSpace(os.Getenv("SMTP_HOST")), SMTPPort: envInt("SMTP_PORT", 587), SMTPUsername: os.Getenv("SMTP_USERNAME"), SMTPPassword: os.Getenv("SMTP_PASSWORD"), SMTPTLSMode: strings.ToLower(envDefault("SMTP_TLS_MODE", "starttls")), MailPollInterval: time.Duration(envInt("MAIL_POLL_INTERVAL_SECONDS", 5)) * time.Second,
-		MediaProvider: strings.ToLower(envDefault("MEDIA_PROVIDER", "disabled")), S3Endpoint: strings.TrimSpace(os.Getenv("S3_ENDPOINT")), S3Region: envDefault("S3_REGION", "us-east-1"), S3Bucket: strings.TrimSpace(os.Getenv("S3_BUCKET")), S3AccessKeyID: os.Getenv("S3_ACCESS_KEY_ID"), S3SecretAccessKey: os.Getenv("S3_SECRET_ACCESS_KEY"), S3ServerSideEncryption: strings.ToUpper(envDefault("S3_SERVER_SIDE_ENCRYPTION", "AES256")), MediaURLTTL: time.Duration(envInt("MEDIA_URL_TTL_SECONDS", 300)) * time.Second, MediaCleanupInterval: time.Duration(envInt("MEDIA_CLEANUP_INTERVAL_SECONDS", 60)) * time.Second, MediaUploadGlobalLimit: envInt("MEDIA_UPLOAD_GLOBAL_CONCURRENCY", 8), MediaUploadActorLimit: envInt("MEDIA_UPLOAD_ACTOR_CONCURRENCY", 2),
+		MediaProvider: strings.ToLower(envDefault("MEDIA_PROVIDER", "disabled")), S3Endpoint: s3Endpoint, S3PublicEndpoint: strings.TrimSpace(envDefault("S3_PUBLIC_ENDPOINT", s3Endpoint)), S3Region: envDefault("S3_REGION", "us-east-1"), S3Bucket: strings.TrimSpace(os.Getenv("S3_BUCKET")), S3AccessKeyID: os.Getenv("S3_ACCESS_KEY_ID"), S3SecretAccessKey: os.Getenv("S3_SECRET_ACCESS_KEY"), S3ServerSideEncryption: strings.ToUpper(envDefault("S3_SERVER_SIDE_ENCRYPTION", "AES256")), MediaURLTTL: time.Duration(envInt("MEDIA_URL_TTL_SECONDS", 300)) * time.Second, MediaCleanupInterval: time.Duration(envInt("MEDIA_CLEANUP_INTERVAL_SECONDS", 60)) * time.Second, MediaUploadGlobalLimit: envInt("MEDIA_UPLOAD_GLOBAL_CONCURRENCY", 8), MediaUploadActorLimit: envInt("MEDIA_UPLOAD_ACTOR_CONCURRENCY", 2),
 		RetentionInterval: time.Duration(envInt("RETENTION_INTERVAL_SECONDS", 300)) * time.Second, RetentionBatchSize: envInt("RETENTION_BATCH_SIZE", 500), PreviewRetention: time.Duration(envInt("PREVIEW_RETENTION_HOURS", 168)) * time.Hour, IdempotencyRetention: time.Duration(envInt("IDEMPOTENCY_RETENTION_HOURS", 720)) * time.Hour, SessionRetention: time.Duration(envInt("SESSION_RETENTION_HOURS", 720)) * time.Hour, IdentityTokenRetention: time.Duration(envInt("IDENTITY_TOKEN_RETENTION_HOURS", 168)) * time.Hour, OutboxRedactAfter: time.Duration(envInt("OUTBOX_REDACT_AFTER_HOURS", 168)) * time.Hour, OutboxRetention: time.Duration(envInt("OUTBOX_RETENTION_HOURS", 720)) * time.Hour,
 		GitCommit: envDefault("GIT_COMMIT", "0000000"), ExpectedSchemaVersion: envDefault("EXPECTED_SCHEMA_VERSION", "0017"),
 		Port: envDefault("PORT", "8080"), TrustedProxyCount: envInt("TRUSTED_PROXY_COUNT", 0),
@@ -159,8 +161,15 @@ func Load() (Config, error) {
 		if endpointErr != nil || endpoint.Host == "" || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" || (endpoint.Scheme != "http" && endpoint.Scheme != "https") || c.S3Bucket == "" || c.S3Region == "" || c.S3AccessKeyID == "" || c.S3SecretAccessKey == "" {
 			return Config{}, errors.New("valid S3 endpoint, region, bucket and credentials are required")
 		}
+		publicEndpoint, publicEndpointErr := url.Parse(c.S3PublicEndpoint)
+		if publicEndpointErr != nil || publicEndpoint.Host == "" || publicEndpoint.User != nil || publicEndpoint.RawQuery != "" || publicEndpoint.Fragment != "" || (publicEndpoint.Scheme != "http" && publicEndpoint.Scheme != "https") {
+			return Config{}, errors.New("S3_PUBLIC_ENDPOINT must be a clean absolute HTTP(S) URL")
+		}
 		if production && endpoint.Scheme != "https" {
 			return Config{}, errors.New("S3_ENDPOINT must use HTTPS in production")
+		}
+		if production && publicEndpoint.Scheme != "https" {
+			return Config{}, errors.New("S3_PUBLIC_ENDPOINT must use HTTPS in production")
 		}
 		if c.S3ServerSideEncryption != "AES256" && c.S3ServerSideEncryption != "DISABLED" {
 			return Config{}, errors.New("S3_SERVER_SIDE_ENCRYPTION must be AES256 or DISABLED")

@@ -81,7 +81,9 @@ ALLOW_MIGRATION_DOWN=true go run ./cmd/migrate down
 | `GIT_COMMIT` | Revisión del código informada por `/v1/version`; `0000000` si no se proporciona. No ejecuta Git. |
 | `TRUSTED_PROXY_COUNT` | Cantidad de proxies confiables para resolver la IP usada por rate limits. |
 | `MEDIA_PROVIDER` | `s3` habilita imágenes privadas; es obligatorio en producción. |
-| `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET` | Bucket S3-compatible privado. El endpoint debe usar HTTPS en producción. |
+| `S3_ENDPOINT` | Endpoint interno del storage S3-compatible para readiness, uploads y borrados. Debe usar HTTPS en producción. |
+| `S3_PUBLIC_ENDPOINT` | Endpoint público opcional usado sólo para presigned GET; por defecto usa `S3_ENDPOINT`. En producción debe ser HTTPS y no incluir credenciales, query ni fragmento. |
+| `S3_REGION`, `S3_BUCKET` | Región y bucket S3-compatible privado. |
 | `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | Credenciales de mínimo privilegio para el bucket privado. |
 | `S3_SERVER_SIDE_ENCRYPTION` | `AES256` por defecto y obligatorio en producción; se envía en cada upload. |
 | `MEDIA_UPLOAD_GLOBAL_CONCURRENCY` | Máximo de uploads procesados simultáneamente por instancia; por defecto `8`. |

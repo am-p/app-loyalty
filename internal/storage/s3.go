@@ -33,11 +33,19 @@ func NewS3(ctx context.Context, cfg config.Config) (*S3, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load s3 configuration: %w", err)
 	}
-	client := s3.NewFromConfig(awsCfg, func(options *s3.Options) {
+	internalClient := s3.NewFromConfig(awsCfg, func(options *s3.Options) {
 		options.BaseEndpoint = aws.String(cfg.S3Endpoint)
 		options.UsePathStyle = true
 	})
-	return &S3{client: client, presigner: s3.NewPresignClient(client), bucket: cfg.S3Bucket, sse: cfg.S3ServerSideEncryption}, nil
+	publicEndpoint := cfg.S3PublicEndpoint
+	if publicEndpoint == "" {
+		publicEndpoint = cfg.S3Endpoint
+	}
+	publicClient := s3.NewFromConfig(awsCfg, func(options *s3.Options) {
+		options.BaseEndpoint = aws.String(publicEndpoint)
+		options.UsePathStyle = true
+	})
+	return &S3{client: internalClient, presigner: s3.NewPresignClient(publicClient), bucket: cfg.S3Bucket, sse: cfg.S3ServerSideEncryption}, nil
 }
 
 func (s *S3) Put(ctx context.Context, key, mime string, body, digest []byte) error {
