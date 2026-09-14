@@ -52,13 +52,14 @@ paths:
   /health/ready:
     get:
       tags: [Health]
-      summary: Comprueba PostgreSQL y la versión de esquema
+      summary: Comprueba PostgreSQL, esquema, Redis y storage privado
+      description: Valida conexión PostgreSQL, versión exacta de migración, disponibilidad del rate limiter Redis y acceso al bucket S3-compatible cuando media está habilitado.
       operationId: getReadiness
       security: []
       x-puntazo-implementation: IMPLEMENTED
       responses:
         '200':
-          description: API, PostgreSQL y migración requerida están listos
+          description: API, PostgreSQL, migración requerida, Redis y storage configurado están listos
           content:
             application/json:
               schema: { $ref: '#/components/schemas/HealthResponse' }
@@ -605,7 +606,7 @@ paths:
       parameters: [{ name: token, in: path, required: true, schema: { type: string, minLength: 40, maxLength: 256 } }]
       responses:
         '200': { description: Membresía creada, content: { application/json: { schema: { $ref: '#/components/schemas/StaffEnvelope' } } } }
-        '409': { description: INVITATION_EMAIL_MISMATCH o membresía activa existente }
+        '409': { description: 'INVITATION_EMAIL_MISMATCH, ACCOUNT_MODE_CONFLICT o membresía activa existente' }
         '422': { description: IDENTITY_TOKEN_INVALID }
   /marcas/{brand_id}/personal:
     parameters: [{ $ref: '#/components/parameters/BrandId' }]
@@ -696,7 +697,10 @@ paths:
       tags: [Marcas]
       operationId: uploadBrandImage
       summary: Normaliza y sube una imagen privada de marca o beneficio
-      description: JPEG y PNG hasta 5 MiB. WebP queda rechazado hasta disponer de reencode seguro. Reemplaza atómicamente la imagen activa del mismo slot después del upload.
+      description: |
+        JPEG, PNG y WebP hasta 5 MiB, validados por contenido real y reencodeados por el servidor a JPEG o PNG.
+        Los logos se reducen proporcionalmente a un máximo de 1024 px por lado y los iconos a 512 px; las imágenes de beneficio conservan hasta 4096 px por lado y 16 megapíxeles.
+        Reemplaza atómicamente la imagen activa del mismo slot después del upload. Si el objeto queda activo pero falla únicamente la firma de la URL, responde 201 con el recurso persistido y sin `url` ni `url_expires_at`; el cliente puede recuperarlas volviendo a listar.
       x-puntazo-implementation: IMPLEMENTED
       parameters: [{ $ref: '#/components/parameters/BrandId' }]
       requestBody:
@@ -712,7 +716,8 @@ paths:
                 benefit_id: { type: integer, format: int64, minimum: 1, description: Obligatorio sólo para BENEFICIO }
                 archivo: { type: string, format: binary }
       responses:
-        '201': { description: Imagen activa, headers: { ETag: { schema: { type: string } } }, content: { application/json: { schema: { $ref: '#/components/schemas/BrandImageEnvelope' } } } }
+        '201': { description: Imagen activa; la URL puede omitirse si el presign transitorio falla después de persistirla, headers: { ETag: { schema: { type: string } } }, content: { application/json: { schema: { $ref: '#/components/schemas/BrandImageEnvelope' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '413': { description: Archivo mayor a 5 MiB, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
         '415': { description: Tipo de imagen no soportado, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
@@ -1236,6 +1241,7 @@ components:
       type: object
       additionalProperties: false
       minProperties: 1
+      description: Un ADMINISTRADOR tiene alcance global y no admite sucursales asignadas. Para cambiar a OPERADOR se deben enviar sucursales activas en la misma actualización.
       properties:
         rol: { type: string, enum: [ADMINISTRADOR, OPERADOR] }
         sucursal_ids: { type: array, uniqueItems: true, items: { type: integer, format: int64, minimum: 1 } }
@@ -1393,7 +1399,7 @@ components:
     BrandImage:
       type: object
       additionalProperties: false
-      required: [id, brand_id, tipo, mime_type, byte_size, sha256, width, height, estado, version, url, url_expires_at, created_at, updated_at]
+      required: [id, brand_id, tipo, mime_type, byte_size, sha256, width, height, estado, version, created_at, updated_at]
       properties:
         id: { type: string, format: uuid }
         brand_id: { type: integer, format: int64 }
@@ -1406,8 +1412,8 @@ components:
         height: { type: integer, minimum: 1, maximum: 4096 }
         estado: { type: string, const: ACTIVA }
         version: { type: integer, minimum: 1 }
-        url: { type: string, format: uri }
-        url_expires_at: { $ref: '#/components/schemas/Timestamp' }
+        url: { type: string, format: uri, description: URL privada firmada; puede omitirse sólo cuando el presign falla después de activar el objeto }
+        url_expires_at: { allOf: [{ $ref: '#/components/schemas/Timestamp' }], description: Vencimiento de `url`; se omite junto con ella }
         created_at: { $ref: '#/components/schemas/Timestamp' }
         updated_at: { $ref: '#/components/schemas/Timestamp' }
     BrandImageEnvelope:
