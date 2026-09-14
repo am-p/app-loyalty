@@ -9,8 +9,8 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const merchantContextSelect = `SELECT m.id,m.nombre,mm.rol,s.id,s.marca_id,s.nombre,s.direccion,s.activo,
-		p.id,p.marca_id,p.tipo,p.sellos_por_acumulacion,p.activo,
+const merchantContextSelect = `SELECT m.id,m.nombre,m.descripcion,m.color_primario,m.color_secundario,m.zona_horaria,m.version,mm.rol,s.id,s.marca_id,s.nombre,s.direccion,s.activo,s.localidad,s.provincia,s.codigo_postal,s.latitud,s.longitud,s.principal,s.version,s.created_at,s.updated_at,
+		p.id,p.marca_id,p.tipo,p.sellos_por_acumulacion,p.activo,p.nombre_unidad,p.version,p.created_at,p.updated_at,
 	a.tipo,a.precio_minor,a.moneda,a.cobro_automatico,a.activo,a.started_at
 	FROM membresias_marca mm JOIN marcas m ON m.id=mm.marca_id AND m.activo
 	JOIN membresias_sucursales ms ON ms.membresia_id=mm.id AND ms.marca_id=mm.marca_id AND ms.activo
@@ -21,8 +21,8 @@ const merchantContextSelect = `SELECT m.id,m.nombre,mm.rol,s.id,s.marca_id,s.nom
 
 func scanMerchant(row pgx.Row) (model.MerchantContext, error) {
 	var m model.MerchantContext
-	err := row.Scan(&m.BrandID, &m.BrandName, &m.Role, &m.Branch.ID, &m.Branch.BrandID, &m.Branch.Name, &m.Branch.Address, &m.Branch.Active,
-		&m.Program.ID, &m.Program.BrandID, &m.Program.Type, &m.Program.StampsPerAccumulation, &m.Program.Active,
+	err := row.Scan(&m.BrandID, &m.BrandName, &m.BrandDescription, &m.PrimaryColor, &m.SecondaryColor, &m.Timezone, &m.BrandVersion, &m.Role, &m.Branch.ID, &m.Branch.BrandID, &m.Branch.Name, &m.Branch.Address, &m.Branch.Active, &m.Branch.Locality, &m.Branch.Province, &m.Branch.PostalCode, &m.Branch.Latitude, &m.Branch.Longitude, &m.Branch.Primary, &m.Branch.Version, &m.Branch.CreatedAt, &m.Branch.UpdatedAt,
+		&m.Program.ID, &m.Program.BrandID, &m.Program.Type, &m.Program.StampsPerAccumulation, &m.Program.Active, &m.Program.UnitName, &m.Program.Version, &m.Program.CreatedAt, &m.Program.UpdatedAt,
 		&m.DemoAccess.Kind, &m.DemoAccess.PriceMinor, &m.DemoAccess.Currency, &m.DemoAccess.AutomaticCharge, &m.DemoAccess.Active, &m.DemoAccess.StartedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.MerchantContext{}, ErrNotFound

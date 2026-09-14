@@ -17,9 +17,9 @@ func (r *Repository) ListBenefits(ctx context.Context, actorID, brandID int64) (
 	if !authorized {
 		return nil, ErrNotFound
 	}
-	rows, err := r.Pool.Query(ctx, `SELECT b.id,b.programa_id,b.nombre,b.requisito_sellos,b.requisito_puntos,b.activo,b.version
-		FROM beneficios b JOIN programas_fidelidad p ON p.id=b.programa_id AND p.marca_id=$1 AND p.activo
-		WHERE b.activo AND b.deleted_at IS NULL ORDER BY b.id`, brandID)
+	rows, err := r.Pool.Query(ctx, `SELECT b.id,b.programa_id,b.nombre,b.requisito_sellos,b.requisito_puntos,b.activo,b.version,b.descripcion,b.deleted_at,b.created_at,b.updated_at
+		FROM beneficios b JOIN programas_fidelidad p ON p.id=b.programa_id AND p.marca_id=$1
+		ORDER BY b.id`, brandID)
 	if err != nil {
 		return nil, err
 	}
@@ -27,7 +27,7 @@ func (r *Repository) ListBenefits(ctx context.Context, actorID, brandID int64) (
 	items := make([]model.Benefit, 0)
 	for rows.Next() {
 		var item model.Benefit
-		if err = rows.Scan(&item.ID, &item.ProgramID, &item.Name, &item.RequiredStamps, &item.RequiredPoints, &item.Active, &item.Version); err != nil {
+		if err = scanBenefit(rows, &item); err != nil {
 			return nil, err
 		}
 		items = append(items, item)
@@ -40,7 +40,7 @@ func (r *Repository) listBenefitsByProgramIDs(ctx context.Context, programIDs []
 	if len(programIDs) == 0 {
 		return result, nil
 	}
-	rows, err := r.Pool.Query(ctx, `SELECT id,programa_id,nombre,requisito_sellos,requisito_puntos,activo,version
+	rows, err := r.Pool.Query(ctx, `SELECT id,programa_id,nombre,requisito_sellos,requisito_puntos,activo,version,descripcion,deleted_at,created_at,updated_at
 		FROM beneficios WHERE programa_id=ANY($1) AND activo AND deleted_at IS NULL ORDER BY id`, programIDs)
 	if err != nil {
 		return nil, err
@@ -48,7 +48,7 @@ func (r *Repository) listBenefitsByProgramIDs(ctx context.Context, programIDs []
 	defer rows.Close()
 	for rows.Next() {
 		var item model.Benefit
-		if err = rows.Scan(&item.ID, &item.ProgramID, &item.Name, &item.RequiredStamps, &item.RequiredPoints, &item.Active, &item.Version); err != nil {
+		if err = scanBenefit(rows, &item); err != nil {
 			return nil, err
 		}
 		result[item.ProgramID] = append(result[item.ProgramID], item)
@@ -56,7 +56,7 @@ func (r *Repository) listBenefitsByProgramIDs(ctx context.Context, programIDs []
 	return result, rows.Err()
 }
 
-func (r *Repository) CreateBenefit(ctx context.Context, actorID, brandID int64, name string, requirement int64) (model.Benefit, error) {
+func (r *Repository) CreateBenefit(ctx context.Context, actorID, brandID int64, name, description string, requirement int64) (model.Benefit, error) {
 	tx, err := r.Pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return model.Benefit{}, err
@@ -84,9 +84,9 @@ func (r *Repository) CreateBenefit(ctx context.Context, actorID, brandID int64, 
 		requiredStamps = &requirement
 	}
 	var item model.Benefit
-	err = tx.QueryRow(ctx, `INSERT INTO beneficios(programa_id,nombre,requisito_sellos,requisito_puntos)
-		VALUES($1,$2,$3,$4) RETURNING id,programa_id,nombre,requisito_sellos,requisito_puntos,activo,version`, programID, name, requiredStamps, requiredPoints).
-		Scan(&item.ID, &item.ProgramID, &item.Name, &item.RequiredStamps, &item.RequiredPoints, &item.Active, &item.Version)
+	row := tx.QueryRow(ctx, `INSERT INTO beneficios(programa_id,nombre,descripcion,requisito_sellos,requisito_puntos)
+		VALUES($1,$2,$3,$4,$5) RETURNING id,programa_id,nombre,requisito_sellos,requisito_puntos,activo,version,descripcion,deleted_at,created_at,updated_at`, programID, name, description, requiredStamps, requiredPoints)
+	err = scanBenefit(row, &item)
 	if err != nil {
 		return model.Benefit{}, normalize(err)
 	}

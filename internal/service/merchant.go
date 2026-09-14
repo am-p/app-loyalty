@@ -153,11 +153,17 @@ func (s *Service) Benefits(ctx context.Context, actorID, brandID int64) ([]model
 }
 
 func (s *Service) CreateBenefit(ctx context.Context, actorID, brandID int64, req model.CreateBenefitRequest) (model.Benefit, error) {
+	if req.CanonicalName != "" {
+		req.Name = req.CanonicalName
+	}
+	if req.CanonicalRequirement != 0 {
+		req.Requirement = req.CanonicalRequirement
+	}
 	name, err := cleanName(req.Name, 120)
-	if err != nil || req.Requirement < 1 || req.Requirement > 10000000 {
+	if err != nil || req.Requirement < 1 || req.Requirement > 10000000 || len(req.Description) > 1000 {
 		return model.Benefit{}, ErrInvalidRequest
 	}
-	return s.Repo.CreateBenefit(ctx, actorID, brandID, name, req.Requirement)
+	return s.Repo.CreateBenefit(ctx, actorID, brandID, name, req.Description, req.Requirement)
 }
 
 func (s *Service) BrandMovements(ctx context.Context, actorID, brandID int64, page, size int) ([]model.Movement, web.Pagination, error) {

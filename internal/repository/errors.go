@@ -20,6 +20,8 @@ var (
 	ErrSessionReuse          = errors.New("session refresh reuse")
 	ErrPreconditionFailed    = errors.New("precondition failed")
 	ErrOwnershipTransfer     = errors.New("ownership transfer required")
+	ErrConflict              = errors.New("resource conflict")
+	ErrProgramTypeImmutable  = errors.New("program type immutable")
 )
 
 func normalize(err error) error {

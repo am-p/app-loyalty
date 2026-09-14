@@ -37,7 +37,7 @@ func (r *Repository) CreateDemoMerchant(ctx context.Context, key string, fingerp
 	if err = tx.QueryRow(ctx, `INSERT INTO membresias_marca(usuario_id,marca_id,rol) VALUES($1,$2,'PROPIETARIO') RETURNING id`, u.ID, brandID).Scan(&membershipID); err != nil {
 		return IdempotentResult{}, err
 	}
-	if err = tx.QueryRow(ctx, `INSERT INTO sucursales(marca_id,nombre,direccion) VALUES($1,$2,$3) RETURNING id`, brandID, branchName, branchAddress).Scan(&branchID); err != nil {
+	if err = tx.QueryRow(ctx, `INSERT INTO sucursales(marca_id,nombre,direccion,principal) VALUES($1,$2,$3,true) RETURNING id`, brandID, branchName, branchAddress).Scan(&branchID); err != nil {
 		return IdempotentResult{}, err
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO membresias_sucursales(membresia_id,sucursal_id,marca_id) VALUES($1,$2,$3)`, membershipID, branchID, brandID); err != nil {
@@ -48,14 +48,18 @@ func (r *Repository) CreateDemoMerchant(ctx context.Context, key string, fingerp
 		one := int64(1)
 		stampsPerAccumulation = &one
 	}
-	if err = tx.QueryRow(ctx, `INSERT INTO programas_fidelidad(marca_id,tipo,sellos_por_acumulacion) VALUES($1,$2,$3) RETURNING id`, brandID, programType, stampsPerAccumulation).Scan(&programID); err != nil {
+	unitName := "sellos"
+	if programType == "PUNTOS" {
+		unitName = "puntos"
+	}
+	if err = tx.QueryRow(ctx, `INSERT INTO programas_fidelidad(marca_id,tipo,sellos_por_acumulacion,nombre_unidad) VALUES($1,$2,$3,$4) RETURNING id`, brandID, programType, stampsPerAccumulation, unitName).Scan(&programID); err != nil {
 		return IdempotentResult{}, err
 	}
 	demoKind := programType + "_FREE_TRIAL"
 	if err = tx.QueryRow(ctx, `INSERT INTO accesos_demo(marca_id,tipo,precio_minor,moneda,cobro_automatico) VALUES($1,$2,0,'ARS',false) RETURNING started_at`, brandID, demoKind).Scan(&started); err != nil {
 		return IdempotentResult{}, err
 	}
-	merchant := model.MerchantContext{BrandID: brandID, BrandName: brandName, Role: "PROPIETARIO", Branch: model.Branch{ID: branchID, BrandID: brandID, Name: branchName, Address: branchAddress, Active: true}, Program: model.Program{ID: programID, BrandID: brandID, Type: programType, StampsPerAccumulation: stampsPerAccumulation, Active: true}, Benefits: []model.Benefit{}, DemoAccess: model.DemoAccess{Kind: demoKind, PriceMinor: 0, Currency: "ARS", AutomaticCharge: false, Active: true, StartedAt: started}}
+	merchant := model.MerchantContext{BrandID: brandID, BrandName: brandName, Timezone: "America/Argentina/Buenos_Aires", BrandVersion: 1, Role: "PROPIETARIO", Branch: model.Branch{ID: branchID, BrandID: brandID, Name: branchName, Address: branchAddress, Active: true, Primary: true, Version: 1}, Program: model.Program{ID: programID, BrandID: brandID, Type: programType, StampsPerAccumulation: stampsPerAccumulation, Active: true, UnitName: unitName, Version: 1}, Benefits: []model.Benefit{}, DemoAccess: model.DemoAccess{Kind: demoKind, PriceMinor: 0, Currency: "ARS", AutomaticCharge: false, Active: true, StartedAt: started}}
 	if message != nil {
 		if err = enqueueIdentityEmail(ctx, tx, r.OutboxCipherKey, u.ID, verificationHash, verificationExpires, *message); err != nil {
 			return IdempotentResult{}, err

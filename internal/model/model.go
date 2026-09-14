@@ -136,41 +136,109 @@ type DemoAccess struct {
 	StartedAt       time.Time `json:"started_at"`
 }
 type Branch struct {
-	ID      int64   `json:"id"`
-	BrandID int64   `json:"brand_id"`
-	Name    string  `json:"name"`
-	Address *string `json:"address"`
-	Active  bool    `json:"active"`
+	ID         int64     `json:"id"`
+	BrandID    int64     `json:"brand_id"`
+	Name       string    `json:"name"`
+	Address    *string   `json:"address"`
+	Active     bool      `json:"active"`
+	Locality   *string   `json:"localidad,omitempty"`
+	Province   *string   `json:"provincia,omitempty"`
+	PostalCode *string   `json:"codigo_postal,omitempty"`
+	Latitude   *float64  `json:"latitud,omitempty"`
+	Longitude  *float64  `json:"longitud,omitempty"`
+	Primary    bool      `json:"principal"`
+	Version    int       `json:"version"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+type CreateBranchRequest struct {
+	Name       string   `json:"nombre"`
+	Address    *string  `json:"direccion,omitempty"`
+	Locality   *string  `json:"localidad,omitempty"`
+	Province   *string  `json:"provincia,omitempty"`
+	PostalCode *string  `json:"codigo_postal,omitempty"`
+	Latitude   *float64 `json:"latitud,omitempty"`
+	Longitude  *float64 `json:"longitud,omitempty"`
+}
+type UpdateBranchRequest struct {
+	Name       string   `json:"nombre"`
+	Address    *string  `json:"direccion,omitempty"`
+	Locality   *string  `json:"localidad,omitempty"`
+	Province   *string  `json:"provincia,omitempty"`
+	PostalCode *string  `json:"codigo_postal,omitempty"`
+	Latitude   *float64 `json:"latitud,omitempty"`
+	Longitude  *float64 `json:"longitud,omitempty"`
+	Primary    *bool    `json:"principal,omitempty"`
 }
 type Program struct {
-	ID                    int64  `json:"id"`
-	BrandID               int64  `json:"brand_id"`
-	Type                  string `json:"type"`
-	StampsPerAccumulation *int64 `json:"stamps_per_accumulation,omitempty"`
-	Active                bool   `json:"active"`
+	ID                    int64     `json:"id"`
+	BrandID               int64     `json:"brand_id"`
+	Type                  string    `json:"type"`
+	StampsPerAccumulation *int64    `json:"stamps_per_accumulation,omitempty"`
+	Active                bool      `json:"active"`
+	UnitName              string    `json:"nombre_unidad"`
+	Version               int       `json:"version"`
+	CreatedAt             time.Time `json:"created_at"`
+	UpdatedAt             time.Time `json:"updated_at"`
+}
+type UpdateProgramRequest struct {
+	Type     string `json:"tipo"`
+	UnitName string `json:"nombre_unidad"`
+	Active   bool   `json:"activo"`
 }
 type Benefit struct {
-	ID             int64  `json:"id"`
-	ProgramID      int64  `json:"program_id"`
-	Name           string `json:"name"`
-	RequiredStamps *int64 `json:"required_stamps,omitempty"`
-	RequiredPoints *int64 `json:"required_points,omitempty"`
-	Active         bool   `json:"active"`
-	Version        int    `json:"version"`
+	ID             int64      `json:"id"`
+	ProgramID      int64      `json:"program_id"`
+	Name           string     `json:"name"`
+	RequiredStamps *int64     `json:"required_stamps,omitempty"`
+	RequiredPoints *int64     `json:"required_points,omitempty"`
+	Active         bool       `json:"active"`
+	Version        int        `json:"version"`
+	Description    string     `json:"descripcion"`
+	DeletedAt      *time.Time `json:"deleted_at,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
 }
 type CreateBenefitRequest struct {
-	Name        string `json:"name"`
-	Requirement int64  `json:"requirement"`
+	Name                 string `json:"name"`
+	Requirement          int64  `json:"requirement"`
+	CanonicalName        string `json:"nombre"`
+	Description          string `json:"descripcion"`
+	CanonicalRequirement int64  `json:"requisito_cantidad"`
+}
+type ReplaceBenefitRequest struct {
+	Name        string `json:"nombre"`
+	Description string `json:"descripcion"`
+	Requirement int64  `json:"requisito_cantidad"`
+	Active      bool   `json:"activo"`
+}
+type UpdateBenefitRequest struct {
+	Name        *string `json:"nombre,omitempty"`
+	Description *string `json:"descripcion,omitempty"`
+	Requirement *int64  `json:"requisito_cantidad,omitempty"`
+	Active      *bool   `json:"activo,omitempty"`
 }
 type MerchantContext struct {
-	BrandID    int64      `json:"brand_id"`
-	BrandName  string     `json:"brand_name"`
-	Role       string     `json:"role"`
-	Branch     Branch     `json:"branch"`
-	Program    Program    `json:"program"`
-	Benefit    *Benefit   `json:"benefit,omitempty"`
-	Benefits   []Benefit  `json:"benefits"`
-	DemoAccess DemoAccess `json:"demo_access"`
+	BrandID          int64      `json:"brand_id"`
+	BrandName        string     `json:"brand_name"`
+	BrandDescription *string    `json:"brand_description,omitempty"`
+	PrimaryColor     *string    `json:"primary_color,omitempty"`
+	SecondaryColor   *string    `json:"secondary_color,omitempty"`
+	Timezone         string     `json:"timezone"`
+	BrandVersion     int        `json:"brand_version"`
+	Role             string     `json:"role"`
+	Branch           Branch     `json:"branch"`
+	Program          Program    `json:"program"`
+	Benefit          *Benefit   `json:"benefit,omitempty"`
+	Benefits         []Benefit  `json:"benefits"`
+	DemoAccess       DemoAccess `json:"demo_access"`
+}
+type UpdateBrandRequest struct {
+	Name           *string `json:"nombre,omitempty"`
+	Description    *string `json:"descripcion,omitempty"`
+	PrimaryColor   *string `json:"color_primario,omitempty"`
+	SecondaryColor *string `json:"color_secundario,omitempty"`
+	Timezone       *string `json:"zona_horaria,omitempty"`
 }
 type DemoMerchantData struct {
 	Session              *Session        `json:"session,omitempty"`
