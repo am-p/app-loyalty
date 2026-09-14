@@ -57,10 +57,6 @@ func (h *Handler) ListBrands(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if a.AccountType != "PERSONAL_MARCA" {
-		writeErr(c, service.ErrForbidden)
-		return
-	}
 	data, err := h.Service.ListBrands(c.Request.Context(), a.ID)
 	if err != nil {
 		writeErr(c, err)

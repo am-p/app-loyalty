@@ -277,6 +277,15 @@ func (r *Repository) ReplaceBenefit(ctx context.Context, actorID, brandID, benef
 	if !mutableRole(role) {
 		return model.Benefit{}, ErrForbidden
 	}
+	var currentVersion int
+	if err = r.Pool.QueryRow(ctx, `SELECT b.version FROM beneficios b JOIN programas_fidelidad p ON p.id=b.programa_id WHERE b.id=$1 AND p.marca_id=$2`, benefitID, brandID).Scan(&currentVersion); errors.Is(err, pgx.ErrNoRows) {
+		return model.Benefit{}, ErrNotFound
+	} else if err != nil {
+		return model.Benefit{}, err
+	}
+	if currentVersion != version {
+		return model.Benefit{}, ErrPreconditionFailed
+	}
 	var stamps, points *int64
 	if typ == "PUNTOS" {
 		points = &req.Requirement

@@ -31,6 +31,9 @@ func normalize(err error) error {
 		if pgErr.ConstraintName == "usuarios_email_key" {
 			return ErrEmailExists
 		}
+		if pgErr.ConstraintName == "invitaciones_marca_email_pendiente_uk" {
+			return ErrConflict
+		}
 	}
 	return err
 }
