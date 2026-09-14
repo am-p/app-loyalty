@@ -20,17 +20,26 @@ security:
   - bearerAuth: []
 tags:
   - name: Health
+    description: Estado operativo y versión desplegada
   - name: Auth
+    description: Identidad, sesiones y recuperación
   - name: Demo
+    description: Alta gratuita controlada de comercios
   - name: Cuenta
+    description: Perfil y ciclo de vida de la cuenta autenticada
   - name: Marcas
+    description: Configuración comercial y personal
   - name: Clientes
+    description: Clientes finales, tarjetas y saldos
   - name: Analíticas
+    description: Resúmenes operativos autorizados
   - name: Movimientos
+    description: Preview y confirmación transaccional del ledger
 paths:
   /health/live:
     get:
       tags: [Health]
+      summary: Comprueba que el proceso está vivo
       operationId: getLiveness
       security: []
       x-puntazo-implementation: IMPLEMENTED
@@ -43,6 +52,7 @@ paths:
   /health/ready:
     get:
       tags: [Health]
+      summary: Comprueba PostgreSQL y la versión de esquema
       operationId: getReadiness
       security: []
       x-puntazo-implementation: IMPLEMENTED
@@ -56,6 +66,7 @@ paths:
   /version:
     get:
       tags: [Health]
+      summary: Informa versión de aplicación, commit y esquema
       operationId: getVersion
       security: []
       x-puntazo-implementation: IMPLEMENTED
@@ -92,25 +103,29 @@ paths:
     parameters: [{ $ref: '#/components/parameters/BrandId' }, { $ref: '#/components/parameters/ResourceId' }]
     get:
       tags: [Marcas]
+      summary: Consulta un beneficio activo o archivado
       operationId: getBenefit
       x-puntazo-implementation: IMPLEMENTED
       responses: { '200': { description: Beneficio activo o inactivo, content: { application/json: { schema: { $ref: '#/components/schemas/BenefitEnvelope' } } } }, '404': { $ref: '#/components/responses/NotFound' } }
     put:
       tags: [Marcas]
+      summary: Reemplaza o reactiva un beneficio
       operationId: replaceBenefit
       x-puntazo-implementation: IMPLEMENTED
       parameters: [{ $ref: '#/components/parameters/IfMatch' }]
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ReplaceBenefitRequest' } } } }
-      responses: { '200': { description: Beneficio reemplazado o reactivado }, '412': { description: Versión desactualizada } }
+      responses: { '200': { description: Beneficio reemplazado o reactivado, content: { application/json: { schema: { $ref: '#/components/schemas/BenefitEnvelope' } } } }, '412': { description: Versión desactualizada } }
     patch:
       tags: [Marcas]
+      summary: Actualiza parcialmente un beneficio
       operationId: patchBenefit
       x-puntazo-implementation: IMPLEMENTED
       parameters: [{ $ref: '#/components/parameters/IfMatch' }]
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/UpdateBenefitRequest' } } } }
-      responses: { '200': { description: Beneficio actualizado }, '412': { description: Versión desactualizada } }
+      responses: { '200': { description: Beneficio actualizado, content: { application/json: { schema: { $ref: '#/components/schemas/BenefitEnvelope' } } } }, '412': { description: Versión desactualizada } }
     delete:
       tags: [Marcas]
+      summary: Archiva lógicamente un beneficio
       operationId: deleteBenefit
       x-puntazo-implementation: IMPLEMENTED
       parameters: [{ $ref: '#/components/parameters/IfMatch' }]
@@ -209,6 +224,7 @@ paths:
   /auth/login:
     post:
       tags: [Auth]
+      summary: Inicia una sesión con email y contraseña verificados
       operationId: login
       security: []
       parameters:
@@ -285,6 +301,7 @@ paths:
   /me:
     get:
       tags: [Cuenta]
+      summary: Consulta la cuenta y sus membresías activas
       operationId: getCurrentUser
       x-puntazo-implementation: IMPLEMENTED
       responses:
@@ -300,6 +317,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthenticated' }
     patch:
       tags: [Cuenta]
+      summary: Actualiza parcialmente el perfil con control de versión
       operationId: updateCurrentUser
       x-puntazo-implementation: IMPLEMENTED
       parameters:
@@ -402,6 +420,7 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
     patch:
       tags: [Marcas]
+      summary: Actualiza parcialmente una marca
       operationId: updateBrand
       x-puntazo-implementation: IMPLEMENTED
       parameters: [{ $ref: '#/components/parameters/BrandId' }, { $ref: '#/components/parameters/IfMatch' }]
@@ -409,6 +428,7 @@ paths:
       responses: { '200': { description: Marca actualizada, content: { application/json: { schema: { $ref: '#/components/schemas/MerchantContextEnvelope' } } } }, '403': { $ref: '#/components/responses/Forbidden' }, '412': { description: Versión desactualizada } }
     delete:
       tags: [Marcas]
+      summary: Desactiva lógicamente una marca y sus recursos activos
       operationId: deleteBrand
       x-puntazo-implementation: IMPLEMENTED
       parameters: [{ $ref: '#/components/parameters/BrandId' }, { $ref: '#/components/parameters/IfMatch' }]
@@ -417,31 +437,36 @@ paths:
     parameters: [{ $ref: '#/components/parameters/BrandId' }]
     get:
       tags: [Marcas]
+      summary: Lista sucursales según el alcance del rol
       operationId: listBranches
       x-puntazo-implementation: IMPLEMENTED
-      responses: { '200': { description: Sucursales, content: { application/json: { schema: { type: object } } } }, '404': { $ref: '#/components/responses/NotFound' } }
+      responses: { '200': { description: Sucursales, content: { application/json: { schema: { $ref: '#/components/schemas/BranchListEnvelope' } } } }, '404': { $ref: '#/components/responses/NotFound' } }
     post:
       tags: [Marcas]
+      summary: Crea una sucursal activa no principal
       operationId: createBranch
       x-puntazo-implementation: IMPLEMENTED
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CreateBranchRequest' } } } }
-      responses: { '201': { description: Sucursal creada, content: { application/json: { schema: { type: object } } } }, '403': { $ref: '#/components/responses/Forbidden' } }
+      responses: { '201': { description: Sucursal creada, content: { application/json: { schema: { $ref: '#/components/schemas/BranchEnvelope' } } } }, '403': { $ref: '#/components/responses/Forbidden' } }
   /marcas/{brand_id}/sucursales/{resource_id}:
     parameters: [{ $ref: '#/components/parameters/BrandId' }, { $ref: '#/components/parameters/ResourceId' }]
     get:
       tags: [Marcas]
+      summary: Consulta una sucursal visible para el rol
       operationId: getBranch
       x-puntazo-implementation: IMPLEMENTED
-      responses: { '200': { description: Sucursal, content: { application/json: { schema: { type: object } } } }, '404': { $ref: '#/components/responses/NotFound' } }
+      responses: { '200': { description: Sucursal, content: { application/json: { schema: { $ref: '#/components/schemas/BranchEnvelope' } } } }, '404': { $ref: '#/components/responses/NotFound' } }
     patch:
       tags: [Marcas]
+      summary: Edita o promueve atómicamente una sucursal
       operationId: updateBranch
       x-puntazo-implementation: IMPLEMENTED
       parameters: [{ $ref: '#/components/parameters/IfMatch' }]
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/UpdateBranchRequest' } } } }
-      responses: { '200': { description: Sucursal actualizada }, '409': { description: Debe conservarse una principal activa }, '412': { description: Versión desactualizada } }
+      responses: { '200': { description: Sucursal actualizada, content: { application/json: { schema: { $ref: '#/components/schemas/BranchEnvelope' } } } }, '409': { description: Debe conservarse una principal activa }, '412': { description: Versión desactualizada } }
     delete:
       tags: [Marcas]
+      summary: Desactiva una sucursal secundaria
       operationId: deleteBranch
       x-puntazo-implementation: IMPLEMENTED
       parameters: [{ $ref: '#/components/parameters/IfMatch' }]
@@ -450,16 +475,18 @@ paths:
     parameters: [{ $ref: '#/components/parameters/BrandId' }]
     get:
       tags: [Marcas]
+      summary: Consulta el programa de fidelidad de la marca
       operationId: getProgram
       x-puntazo-implementation: IMPLEMENTED
-      responses: { '200': { description: Programa, content: { application/json: { schema: { type: object } } } } }
+      responses: { '200': { description: Programa, content: { application/json: { schema: { $ref: '#/components/schemas/ProgramEnvelope' } } } } }
     put:
       tags: [Marcas]
+      summary: Reemplaza la configuración versionada del programa
       operationId: updateProgram
       x-puntazo-implementation: IMPLEMENTED
       parameters: [{ $ref: '#/components/parameters/IfMatch' }]
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/UpdateProgramRequest' } } } }
-      responses: { '200': { description: Programa actualizado }, '409': { description: PROGRAM_TYPE_HAS_BENEFITS si existen beneficios o PROGRAM_TYPE_IMMUTABLE tras el primer movimiento }, '412': { description: Versión desactualizada } }
+      responses: { '200': { description: Programa actualizado, content: { application/json: { schema: { $ref: '#/components/schemas/ProgramEnvelope' } } } }, '409': { description: PROGRAM_TYPE_HAS_BENEFITS si existen beneficios o PROGRAM_TYPE_IMMUTABLE tras el primer movimiento }, '412': { description: Versión desactualizada } }
   /marcas/{brand_id}/beneficios:
     parameters:
       - $ref: '#/components/parameters/BrandId'
@@ -669,6 +696,7 @@ paths:
   /clientes/me/tarjetas:
     get:
       tags: [Clientes]
+      summary: Lista las tarjetas activas del cliente autenticado
       operationId: listCurrentCustomerCards
       x-puntazo-implementation: IMPLEMENTED
       parameters:
@@ -684,6 +712,7 @@ paths:
   /clientes/me/tarjetas/{card_id}/movimientos:
     get:
       tags: [Clientes]
+      summary: Lista movimientos autorizados de una tarjeta propia
       operationId: listCurrentCustomerCardMovements
       x-puntazo-implementation: IMPLEMENTED
       parameters:
@@ -1244,15 +1273,22 @@ components:
     Branch:
       type: object
       additionalProperties: false
-      required: [id, brand_id, name, active]
+      required: [id, brand_id, name, address, active, principal, version, created_at, updated_at]
       properties:
         id: { type: integer, format: int64 }
         brand_id: { type: integer, format: int64 }
-        name: { type: string }
+        name: { type: string, minLength: 1, maxLength: 120 }
         address: { type: [string, 'null'] }
         active: { type: boolean }
+        localidad: { type: string }
+        provincia: { type: string }
+        codigo_postal: { type: string }
+        latitud: { type: number, minimum: -90, maximum: 90 }
+        longitud: { type: number, minimum: -180, maximum: 180 }
         principal: { type: boolean }
         version: { type: integer, minimum: 1 }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
     CreateBranchRequest:
       type: object
       required: [nombre]
@@ -1265,7 +1301,7 @@ components:
     Program:
       type: object
       additionalProperties: false
-      required: [id, brand_id, type, active]
+      required: [id, brand_id, type, active, nombre_unidad, version, created_at, updated_at]
       properties:
         id: { type: integer, format: int64 }
         brand_id: { type: integer, format: int64 }
@@ -1274,6 +1310,8 @@ components:
         active: { type: boolean }
         nombre_unidad: { type: string }
         version: { type: integer, minimum: 1 }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
     UpdateProgramRequest:
       type: object
       required: [tipo, nombre_unidad, activo]
@@ -1281,7 +1319,7 @@ components:
     Benefit:
       type: object
       additionalProperties: false
-      required: [id, program_id, name, active, version]
+      required: [id, program_id, name, active, version, descripcion, created_at, updated_at]
       properties:
         id: { type: integer, format: int64 }
         program_id: { type: integer, format: int64 }
@@ -1292,6 +1330,8 @@ components:
         version: { type: integer, minimum: 1 }
         descripcion: { type: string }
         deleted_at: { type: [string, 'null'], format: date-time }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
     CreateBenefitRequest:
       oneOf:
         - type: object
@@ -1319,6 +1359,27 @@ components:
       properties:
         data: { $ref: '#/components/schemas/Benefit' }
         request_id: { $ref: '#/components/schemas/RequestId' }
+    BranchEnvelope:
+      type: object
+      additionalProperties: false
+      required: [data, request_id]
+      properties:
+        data: { $ref: '#/components/schemas/Branch' }
+        request_id: { $ref: '#/components/schemas/RequestId' }
+    BranchListEnvelope:
+      type: object
+      additionalProperties: false
+      required: [data, request_id]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/Branch' } }
+        request_id: { $ref: '#/components/schemas/RequestId' }
+    ProgramEnvelope:
+      type: object
+      additionalProperties: false
+      required: [data, request_id]
+      properties:
+        data: { $ref: '#/components/schemas/Program' }
+        request_id: { $ref: '#/components/schemas/RequestId' }
     BenefitListEnvelope:
       type: object
       additionalProperties: false
@@ -1331,11 +1392,16 @@ components:
     MerchantContext:
       type: object
       additionalProperties: false
-      required: [brand_id, brand_name, role, branch, program, benefits, demo_access]
+      required: [brand_id, brand_name, timezone, brand_version, role, branch, program, benefits, demo_access]
       properties:
         brand_id: { type: integer, format: int64 }
         brand_name: { type: string }
-        role: { type: string, const: PROPIETARIO }
+        brand_description: { type: string }
+        primary_color: { type: string, pattern: '^#[0-9A-Fa-f]{6}$' }
+        secondary_color: { type: string, pattern: '^#[0-9A-Fa-f]{6}$' }
+        timezone: { type: string }
+        brand_version: { type: integer, minimum: 1 }
+        role: { type: string, enum: [PROPIETARIO, ADMINISTRADOR, OPERADOR] }
         branch: { $ref: '#/components/schemas/Branch' }
         program: { $ref: '#/components/schemas/Program' }
         benefit: { $ref: '#/components/schemas/Benefit' }
