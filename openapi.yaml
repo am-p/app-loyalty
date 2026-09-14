@@ -97,7 +97,11 @@ paths:
       x-puntazo-implementation: IMPLEMENTED
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/EmailRequest' } } } }
       responses:
-        '202': { description: Solicitud aceptada de forma genérica }
+        '202':
+          description: Solicitud aceptada de forma genérica
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MessageEnvelope' }
         '422': { $ref: '#/components/responses/ValidationError' }
         '429': { $ref: '#/components/responses/RateLimited' }
   /auth/email-verification/confirm:
@@ -109,7 +113,11 @@ paths:
       x-puntazo-implementation: IMPLEMENTED
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/TokenRequest' } } } }
       responses:
-        '200': { description: Correo verificado; el usuario debe iniciar sesión }
+        '200':
+          description: Correo verificado; el usuario debe iniciar sesión
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MessageEnvelope' }
         '422': { $ref: '#/components/responses/ValidationError' }
         '429': { $ref: '#/components/responses/RateLimited' }
   /auth/password-reset/request:
@@ -121,7 +129,11 @@ paths:
       x-puntazo-implementation: IMPLEMENTED
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/EmailRequest' } } } }
       responses:
-        '202': { description: Solicitud aceptada de forma genérica }
+        '202':
+          description: Solicitud aceptada de forma genérica
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MessageEnvelope' }
         '422': { $ref: '#/components/responses/ValidationError' }
         '429': { $ref: '#/components/responses/RateLimited' }
   /auth/password-reset/confirm:
@@ -133,7 +145,11 @@ paths:
       x-puntazo-implementation: IMPLEMENTED
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/PasswordResetConfirmRequest' } } } }
       responses:
-        '200': { description: Contraseña actualizada; requiere iniciar sesión }
+        '200':
+          description: Contraseña actualizada; requiere iniciar sesión
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MessageEnvelope' }
         '422': { $ref: '#/components/responses/ValidationError' }
         '429': { $ref: '#/components/responses/RateLimited' }
   /demo/comercios:
@@ -691,6 +707,18 @@ components:
               enum: [INVALID_REQUEST, IDENTITY_TOKEN_INVALID, EMAIL_VERIFICATION_REQUIRED, UNAUTHENTICATED, RECENT_AUTH_REQUIRED, FORBIDDEN, NOT_FOUND, EMAIL_EXISTS, IDEMPOTENCY_CONFLICT, IDEMPOTENCY_IN_PROGRESS, PREVIEW_EXPIRED, PREVIEW_CONSUMED, PREVIEW_CHANGED, PRECONDITION_FAILED, OWNERSHIP_TRANSFER_REQUIRED, INSUFFICIENT_BALANCE, DEMO_SIGNUP_DISABLED, DEMO_ACCESS_DENIED, RATE_LIMITED, DEPENDENCY_UNAVAILABLE, INTERNAL_ERROR]
             message: { type: string }
             details: { type: object, additionalProperties: true }
+        request_id: { $ref: '#/components/schemas/RequestId' }
+    MessageEnvelope:
+      type: object
+      additionalProperties: false
+      required: [data, request_id]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [message]
+          properties:
+            message: { type: string }
         request_id: { $ref: '#/components/schemas/RequestId' }
     AccountType:
       type: string
