@@ -872,7 +872,7 @@ components:
     Membership:
       type: object
       additionalProperties: false
-      required: [brand_id, brand_name, role, branch_ids]
+      required: [brand_id, brand_name, role, branch_ids, active]
       properties:
         brand_id: { type: integer, format: int64 }
         brand_name: { type: string }
@@ -880,6 +880,7 @@ components:
         branch_ids:
           type: array
           items: { type: integer, format: int64 }
+        active: { type: boolean }
     Session:
       type: object
       additionalProperties: false

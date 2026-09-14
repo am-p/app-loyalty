@@ -25,17 +25,17 @@ func (r *Repository) ExportAccount(ctx context.Context, id int64) (model.Account
 		return model.AccountExport{}, err
 	}
 
-	rows, err := tx.Query(ctx, `SELECT m.id,m.nombre,mm.rol,COALESCE(array_agg(ms.sucursal_id ORDER BY ms.sucursal_id) FILTER(WHERE ms.activo),'{}')
+	rows, err := tx.Query(ctx, `SELECT m.id,m.nombre,mm.rol,COALESCE(array_agg(ms.sucursal_id ORDER BY ms.sucursal_id) FILTER(WHERE ms.activo),'{}'),mm.activo
 		FROM membresias_marca mm JOIN marcas m ON m.id=mm.marca_id
 		LEFT JOIN membresias_sucursales ms ON ms.membresia_id=mm.id
-		WHERE mm.usuario_id=$1 AND mm.activo GROUP BY m.id,m.nombre,mm.rol ORDER BY m.id`, id)
+		WHERE mm.usuario_id=$1 GROUP BY m.id,m.nombre,mm.rol,mm.activo ORDER BY m.id`, id)
 	if err != nil {
 		return model.AccountExport{}, err
 	}
 	out.Memberships = make([]model.Membership, 0)
 	for rows.Next() {
 		var membership model.Membership
-		if err = rows.Scan(&membership.BrandID, &membership.BrandName, &membership.Role, &membership.BranchIDs); err != nil {
+		if err = rows.Scan(&membership.BrandID, &membership.BrandName, &membership.Role, &membership.BranchIDs, &membership.Active); err != nil {
 			rows.Close()
 			return model.AccountExport{}, err
 		}

@@ -160,6 +160,7 @@ func (r *Repository) GetCurrentUser(ctx context.Context, id int64) (model.Curren
 		if err = rows.Scan(&m.BrandID, &m.BrandName, &m.Role, &m.BranchIDs); err != nil {
 			return model.CurrentUser{}, err
 		}
+		m.Active = true
 		memberships = append(memberships, m)
 	}
 	if err = rows.Err(); err != nil {

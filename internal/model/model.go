@@ -97,6 +97,7 @@ type Membership struct {
 	BrandName string  `json:"brand_name"`
 	Role      string  `json:"role"`
 	BranchIDs []int64 `json:"branch_ids"`
+	Active    bool    `json:"active"`
 }
 type CurrentUser struct {
 	User               User         `json:"user"`
