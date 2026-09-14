@@ -35,4 +35,3 @@ CREATE TABLE invitaciones_sucursales (
 ALTER TABLE email_outbox DROP CONSTRAINT email_outbox_tipo_check;
 ALTER TABLE email_outbox ADD CONSTRAINT email_outbox_tipo_check
   CHECK (tipo IN ('VERIFY_EMAIL','RESET_PASSWORD','BRAND_INVITATION'));
-

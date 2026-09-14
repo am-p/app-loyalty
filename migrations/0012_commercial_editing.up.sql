@@ -12,4 +12,3 @@ ALTER TABLE programas_fidelidad ALTER COLUMN nombre_unidad SET NOT NULL,ADD CONS
 
 ALTER TABLE beneficios ADD COLUMN descripcion TEXT NOT NULL DEFAULT '',ADD COLUMN updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
 ALTER TABLE beneficios ADD CONSTRAINT beneficios_descripcion_check CHECK(length(descripcion)<=1000);
-

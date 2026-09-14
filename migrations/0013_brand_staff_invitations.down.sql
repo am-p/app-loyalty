@@ -9,4 +9,3 @@ ALTER TABLE email_outbox ADD CONSTRAINT email_outbox_tipo_check
 DROP TABLE invitaciones_sucursales;
 DROP TABLE invitaciones_marca;
 ALTER TABLE membresias_marca DROP COLUMN updated_at, DROP COLUMN version;
-

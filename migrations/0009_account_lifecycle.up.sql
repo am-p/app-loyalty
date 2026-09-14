@@ -12,4 +12,3 @@ ALTER TABLE usuarios
     (tipo_cuenta = 'PERSONAL_MARCA' AND qr_hash IS NULL)
   ),
   ADD CONSTRAINT usuarios_foto_url_length_check CHECK (foto_url IS NULL OR length(foto_url) <= 2048);
-

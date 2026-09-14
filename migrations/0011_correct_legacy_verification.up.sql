@@ -14,4 +14,3 @@ UPDATE sesiones_auth s
 SET revoked_at=COALESCE(s.revoked_at,now())
 FROM usuarios u
 WHERE u.id=s.usuario_id AND u.email_verified_at IS NULL;
-

@@ -22,4 +22,3 @@ ALTER TABLE email_outbox
     (estado='SENDING' AND lease_until IS NOT NULL AND lease_owner IS NOT NULL) OR
     (estado<>'SENDING' AND lease_until IS NULL AND lease_owner IS NULL)
   );
-
