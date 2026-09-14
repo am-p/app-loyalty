@@ -68,6 +68,12 @@ func TestProductionRequiresVerifiedSMTPIdentity(t *testing.T) {
 	t.Setenv("SMTP_TLS_MODE", "starttls")
 	t.Setenv("OUTBOX_ENCRYPTION_KEY", base64.StdEncoding.EncodeToString([]byte("separate-outbox-key-32-bytes!!!!")))
 	t.Setenv("PUBLIC_APP_URL", "https://app.puntazo.test")
+	t.Setenv("MEDIA_PROVIDER", "s3")
+	t.Setenv("S3_ENDPOINT", "https://s3.puntazo.test")
+	t.Setenv("S3_REGION", "us-east-1")
+	t.Setenv("S3_BUCKET", "puntazo-media")
+	t.Setenv("S3_ACCESS_KEY_ID", "test-access")
+	t.Setenv("S3_SECRET_ACCESS_KEY", "test-secret")
 	if _, err := Load(); err != nil {
 		t.Fatal(err)
 	}

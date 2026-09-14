@@ -31,6 +31,14 @@ type Config struct {
 	SMTPPassword              string
 	SMTPTLSMode               string
 	MailPollInterval          time.Duration
+	MediaProvider             string
+	S3Endpoint                string
+	S3Region                  string
+	S3Bucket                  string
+	S3AccessKeyID             string
+	S3SecretAccessKey         string
+	MediaURLTTL               time.Duration
+	MediaCleanupInterval      time.Duration
 	OutboxEncryptionKey       []byte
 	AppVersion                string
 	GitCommit                 string
@@ -50,7 +58,8 @@ func Load() (Config, error) {
 		EmailVerificationRequired: envBool("EMAIL_VERIFICATION_REQUIRED", false), PublicAppURL: envDefault("PUBLIC_APP_URL", "http://localhost:8081"),
 		MailProvider: strings.ToLower(envDefault("MAIL_PROVIDER", "disabled")), MailFromAddress: strings.TrimSpace(os.Getenv("MAIL_FROM_ADDRESS")), MailFromName: envDefault("MAIL_FROM_NAME", "Puntazo"),
 		SMTPHost: strings.TrimSpace(os.Getenv("SMTP_HOST")), SMTPPort: envInt("SMTP_PORT", 587), SMTPUsername: os.Getenv("SMTP_USERNAME"), SMTPPassword: os.Getenv("SMTP_PASSWORD"), SMTPTLSMode: strings.ToLower(envDefault("SMTP_TLS_MODE", "starttls")), MailPollInterval: time.Duration(envInt("MAIL_POLL_INTERVAL_SECONDS", 5)) * time.Second,
-		GitCommit: envDefault("GIT_COMMIT", "0000000"), ExpectedSchemaVersion: envDefault("EXPECTED_SCHEMA_VERSION", "0014"),
+		MediaProvider: strings.ToLower(envDefault("MEDIA_PROVIDER", "disabled")), S3Endpoint: strings.TrimSpace(os.Getenv("S3_ENDPOINT")), S3Region: envDefault("S3_REGION", "us-east-1"), S3Bucket: strings.TrimSpace(os.Getenv("S3_BUCKET")), S3AccessKeyID: os.Getenv("S3_ACCESS_KEY_ID"), S3SecretAccessKey: os.Getenv("S3_SECRET_ACCESS_KEY"), MediaURLTTL: time.Duration(envInt("MEDIA_URL_TTL_SECONDS", 300)) * time.Second, MediaCleanupInterval: time.Duration(envInt("MEDIA_CLEANUP_INTERVAL_SECONDS", 60)) * time.Second,
+		GitCommit: envDefault("GIT_COMMIT", "0000000"), ExpectedSchemaVersion: envDefault("EXPECTED_SCHEMA_VERSION", "0015"),
 		Port: envDefault("PORT", "8080"), TrustedProxyCount: envInt("TRUSTED_PROXY_COUNT", 0),
 		ReadTimeout: 10 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second,
 	}
@@ -118,6 +127,24 @@ func Load() (Config, error) {
 		if mailErr != nil || from.Address != c.MailFromAddress || strings.ContainsAny(c.MailFromName, "\r\n") {
 			return Config{}, errors.New("mail sender identity is invalid")
 		}
+	}
+	if c.MediaProvider != "disabled" && c.MediaProvider != "s3" {
+		return Config{}, errors.New("MEDIA_PROVIDER must be disabled or s3")
+	}
+	if production && c.MediaProvider != "s3" {
+		return Config{}, errors.New("MEDIA_PROVIDER=s3 is required in production")
+	}
+	if c.MediaProvider == "s3" {
+		endpoint, endpointErr := url.Parse(c.S3Endpoint)
+		if endpointErr != nil || endpoint.Host == "" || (endpoint.Scheme != "http" && endpoint.Scheme != "https") || c.S3Bucket == "" || c.S3Region == "" || c.S3AccessKeyID == "" || c.S3SecretAccessKey == "" {
+			return Config{}, errors.New("valid S3 endpoint, region, bucket and credentials are required")
+		}
+		if production && endpoint.Scheme != "https" {
+			return Config{}, errors.New("S3_ENDPOINT must use HTTPS in production")
+		}
+	}
+	if c.MediaURLTTL < time.Minute || c.MediaURLTTL > 15*time.Minute {
+		return Config{}, errors.New("MEDIA_URL_TTL_SECONDS must be between 60 and 900")
 	}
 	return c, nil
 }
