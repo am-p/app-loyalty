@@ -14,6 +14,8 @@ type RegisterDemoMerchantRequest struct {
 	BrandName     string  `json:"brand_name"`
 	BranchName    string  `json:"branch_name"`
 	BranchAddress *string `json:"branch_address,omitempty"`
+	ProgramType   string  `json:"program_type"`
+	AccessCode    string  `json:"access_code"`
 }
 type LoginRequest struct {
 	Email    string `json:"email"`
@@ -77,14 +79,15 @@ type Program struct {
 	ID                    int64  `json:"id"`
 	BrandID               int64  `json:"brand_id"`
 	Type                  string `json:"type"`
-	StampsPerAccumulation int64  `json:"stamps_per_accumulation"`
+	StampsPerAccumulation *int64 `json:"stamps_per_accumulation,omitempty"`
 	Active                bool   `json:"active"`
 }
 type Benefit struct {
 	ID             int64  `json:"id"`
 	ProgramID      int64  `json:"program_id"`
 	Name           string `json:"name"`
-	RequiredStamps int64  `json:"required_stamps"`
+	RequiredStamps *int64 `json:"required_stamps,omitempty"`
+	RequiredPoints *int64 `json:"required_points,omitempty"`
 	Active         bool   `json:"active"`
 }
 type MerchantContext struct {
@@ -93,20 +96,24 @@ type MerchantContext struct {
 	Role       string     `json:"role"`
 	Branch     Branch     `json:"branch"`
 	Program    Program    `json:"program"`
-	Benefit    Benefit    `json:"benefit"`
+	Benefit    *Benefit   `json:"benefit,omitempty"`
+	Benefits   []Benefit  `json:"benefits"`
 	DemoAccess DemoAccess `json:"demo_access"`
 }
 type DemoMerchantData struct {
-	Session  Session         `json:"session"`
-	User     User            `json:"user"`
-	Merchant MerchantContext `json:"merchant"`
+	Session            Session         `json:"session"`
+	User               User            `json:"user"`
+	Merchant           MerchantContext `json:"merchant"`
+	OnboardingComplete bool            `json:"onboarding_complete"`
 }
 
 type Card struct {
 	ID            int64   `json:"id"`
 	BrandID       int64   `json:"brand_id"`
 	BrandName     string  `json:"brand_name"`
+	ProgramType   string  `json:"program_type"`
 	BalanceStamps int64   `json:"balance_stamps"`
+	BalancePoints int64   `json:"balance_points"`
 	Benefit       Benefit `json:"benefit"`
 }
 type BrandCustomer struct {
@@ -114,18 +121,24 @@ type BrandCustomer struct {
 	CardID         int64      `json:"card_id"`
 	Name           string     `json:"name"`
 	Email          string     `json:"email"`
+	ProgramType    string     `json:"program_type"`
 	BalanceStamps  int64      `json:"balance_stamps"`
+	BalancePoints  int64      `json:"balance_points"`
 	MovementsCount int64      `json:"movements_count"`
 	LastMovementAt *time.Time `json:"last_movement_at"`
 	JoinedAt       time.Time  `json:"joined_at"`
 }
 type BrandMetricsSummary struct {
 	ActiveCustomers     int64      `json:"active_customers"`
+	ProgramType         string     `json:"program_type"`
 	CurrentStampBalance int64      `json:"current_stamp_balance"`
+	CurrentPointBalance int64      `json:"current_point_balance"`
 	Accumulations       int64      `json:"accumulations"`
 	Redemptions         int64      `json:"redemptions"`
 	StampsIssued        int64      `json:"stamps_issued"`
 	StampsRedeemed      int64      `json:"stamps_redeemed"`
+	PointsIssued        int64      `json:"points_issued"`
+	PointsRedeemed      int64      `json:"points_redeemed"`
 	LastMovementAt      *time.Time `json:"last_movement_at"`
 }
 type MovementPreviewRequest struct {
@@ -134,6 +147,7 @@ type MovementPreviewRequest struct {
 	CustomerCode string `json:"customer_code,omitempty"`
 	BranchID     int64  `json:"branch_id"`
 	BenefitID    *int64 `json:"benefit_id,omitempty"`
+	PointsAmount *int64 `json:"cantidad_puntos,omitempty"`
 }
 type ConfirmAccumulationRequest struct {
 	PreviewID    string `json:"preview_id"`
@@ -156,6 +170,7 @@ type Preview struct {
 	ID            string          `json:"id"`
 	ExpiresAt     time.Time       `json:"expires_at"`
 	Operation     string          `json:"operation"`
+	ProgramType   string          `json:"program_type"`
 	Customer      PreviewCustomer `json:"customer"`
 	CardID        int64           `json:"card_id"`
 	BalanceBefore int64           `json:"balance_before"`
@@ -172,12 +187,14 @@ type Movement struct {
 	BranchID                      int64     `json:"branch_id"`
 	BranchName                    string    `json:"branch_name,omitempty"`
 	Operation                     string    `json:"operation"`
+	ProgramType                   string    `json:"program_type"`
 	Direction                     string    `json:"direction"`
 	Amount                        int64     `json:"amount"`
 	BalanceBefore                 int64     `json:"balance_before"`
 	BalanceAfter                  int64     `json:"balance_after"`
 	BenefitNameSnapshot           *string   `json:"benefit_name_snapshot,omitempty"`
 	BenefitRequiredStampsSnapshot *int64    `json:"benefit_required_stamps_snapshot,omitempty"`
+	BenefitRequiredPointsSnapshot *int64    `json:"benefit_required_points_snapshot,omitempty"`
 	OccurredAt                    time.Time `json:"occurred_at"`
 }
 

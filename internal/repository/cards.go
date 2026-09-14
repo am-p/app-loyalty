@@ -22,7 +22,7 @@ func (r *Repository) ListCards(ctx context.Context, actorID int64, page, pageSiz
 	if err := r.Pool.QueryRow(ctx, `SELECT count(*) FROM tarjetas WHERE usuario_id=$1 AND activo`, actorID).Scan(&total); err != nil {
 		return nil, 0, err
 	}
-	rows, err := r.Pool.Query(ctx, `SELECT t.id,m.id,m.nombre,t.saldo_sellos,b.id,b.programa_id,b.nombre,b.requisito_sellos,b.activo
+	rows, err := r.Pool.Query(ctx, `SELECT t.id,m.id,m.nombre,p.tipo,t.saldo_sellos,t.saldo_puntos,b.id,b.programa_id,b.nombre,b.requisito_sellos,b.requisito_puntos,b.activo
 		FROM tarjetas t JOIN marcas m ON m.id=t.marca_id JOIN programas_fidelidad p ON p.marca_id=m.id AND p.activo
 		JOIN beneficios b ON b.programa_id=p.id AND b.activo WHERE t.usuario_id=$1 AND t.activo ORDER BY t.id LIMIT $2 OFFSET $3`, actorID, pageSize, (page-1)*pageSize)
 	if err != nil {
@@ -32,7 +32,7 @@ func (r *Repository) ListCards(ctx context.Context, actorID int64, page, pageSiz
 	items := make([]model.Card, 0)
 	for rows.Next() {
 		var c model.Card
-		if err = rows.Scan(&c.ID, &c.BrandID, &c.BrandName, &c.BalanceStamps, &c.Benefit.ID, &c.Benefit.ProgramID, &c.Benefit.Name, &c.Benefit.RequiredStamps, &c.Benefit.Active); err != nil {
+		if err = rows.Scan(&c.ID, &c.BrandID, &c.BrandName, &c.ProgramType, &c.BalanceStamps, &c.BalancePoints, &c.Benefit.ID, &c.Benefit.ProgramID, &c.Benefit.Name, &c.Benefit.RequiredStamps, &c.Benefit.RequiredPoints, &c.Benefit.Active); err != nil {
 			return nil, 0, err
 		}
 		items = append(items, c)

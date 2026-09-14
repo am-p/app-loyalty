@@ -20,7 +20,7 @@ func (h *Handler) RegisterDemoMerchant(c *gin.Context) {
 	if !h.limit(c, "merchant-register:ip:"+h.clientIP(c), merchantIPAttempts, merchantIPWindow) || !h.limit(c, "merchant-register:email:"+strings.ToLower(strings.TrimSpace(req.Email)), merchantEmailAttempts, merchantEmailWindow) {
 		return
 	}
-	result, err := h.Service.RegisterDemoMerchant(c.Request.Context(), c.GetHeader("Idempotency-Key"), c.GetHeader("X-Demo-Access-Code"), web.RequestID(c), req)
+	result, err := h.Service.RegisterDemoMerchant(c.Request.Context(), c.GetHeader("Idempotency-Key"), web.RequestID(c), req)
 	if err != nil {
 		writeErr(c, err)
 		return

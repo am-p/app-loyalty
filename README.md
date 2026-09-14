@@ -1,6 +1,6 @@
 # Puntazo · backend Sellos
 
-API de la vertical `DEMO-01-SELLOS`, implementada con Go, Gin, pgx y PostgreSQL 16. El contrato versionado está en [`openapi.yaml`](./openapi.yaml) y el proceso de la API no crea ni modifica tablas al iniciar.
+API del lanzamiento gratuito de Puntazo para programas `SELLOS` y `PUNTOS`, implementada con Go, Gin, pgx y PostgreSQL 16. El contrato versionado está en [`openapi.yaml`](./openapi.yaml) y el proceso de la API no crea ni modifica tablas al iniciar.
 
 Esta versión parte de una base PostgreSQL nueva. No migra ni reutiliza cuentas de la tabla legacy `users`.
 
@@ -75,7 +75,7 @@ ALLOW_MIGRATION_DOWN=true go run ./cmd/migrate down
 | `DEMO_SIGNUP_ENABLED` | Habilita o cierra nuevas altas gratuitas sin bloquear cuentas existentes. |
 | `CORS_ORIGINS` | Orígenes web exactos permitidos, separados por comas. |
 | `GOOGLE_CLIENT_ID` | Audiencia web de Google; opcional para el alias legado. |
-| `EXPECTED_SCHEMA_VERSION` | Versión de esquema requerida por readiness; por defecto `0001`. |
+| `EXPECTED_SCHEMA_VERSION` | Versión de esquema requerida por readiness; por defecto `0002`. |
 | `APP_VERSION` | Etiqueta de versión informada por `/v1/version`; por defecto `dev`. |
 | `GIT_COMMIT` | Revisión del código informada por `/v1/version`; `0000000` si no se proporciona. No ejecuta Git. |
 | `TRUSTED_PROXY_COUNT` | Cantidad de proxies confiables para resolver la IP usada por rate limits. |

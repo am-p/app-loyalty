@@ -65,11 +65,18 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if _, err = pool.Exec(ctx, migration); err != nil {
 		t.Fatalf("migration: %v", err)
 	}
-	if _, err = pool.Exec(ctx, `CREATE TABLE schema_migrations(version CHAR(4) PRIMARY KEY,applied_at TIMESTAMPTZ NOT NULL DEFAULT now()); INSERT INTO schema_migrations(version) VALUES('0001')`); err != nil {
+	programMigration, err := os.ReadFile(filepath.Join("..", "..", "migrations", "0002_program_types.up.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, string(programMigration)); err != nil {
+		t.Fatalf("migration 0002: %v", err)
+	}
+	if _, err = pool.Exec(ctx, `CREATE TABLE schema_migrations(version CHAR(4) PRIMARY KEY,applied_at TIMESTAMPTZ NOT NULL DEFAULT now()); INSERT INTO schema_migrations(version) VALUES('0001'),('0002')`); err != nil {
 		t.Fatal(err)
 	}
 	demoHash, _ := bcrypt.GenerateFromPassword([]byte("demo-access-code"), bcrypt.MinCost)
-	cfg := config.Config{JWTSecret: "jwt-secret-0123456789012345678901", JWTIssuer: "puntazo", QRPepper: "qr-pepper-01234567890123456789012", DemoAccessCodeHash: string(demoHash), DemoSignupEnabled: true, ExpectedSchemaVersion: "0001"}
+	cfg := config.Config{JWTSecret: "jwt-secret-0123456789012345678901", JWTIssuer: "puntazo", QRPepper: "qr-pepper-01234567890123456789012", DemoAccessCodeHash: string(demoHash), DemoSignupEnabled: true, ExpectedSchemaVersion: "0002"}
 	repo := repository.New(pool)
 	tokens := auth.NewTokens(cfg.JWTSecret, cfg.JWTIssuer)
 	svc := service.New(repo, tokens, cfg)
@@ -123,9 +130,9 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 		t.Fatalf("duplicate email: %v", err)
 	}
 
-	merchantReq := model.RegisterDemoMerchantRequest{Email: "owner@example.com", Password: "merchant-pass", OwnerName: "Owner", BrandName: "Brand", BranchName: "Main"}
+	merchantReq := model.RegisterDemoMerchantRequest{Email: "owner@example.com", Password: "merchant-pass", OwnerName: "Owner", BrandName: "Brand", BranchName: "Main", ProgramType: "SELLOS", AccessCode: "demo-access-code"}
 	merchantKey := uuid.NewString()
-	created, err := svc.RegisterDemoMerchant(ctx, merchantKey, "demo-access-code", uuid.NewString(), merchantReq)
+	created, err := svc.RegisterDemoMerchant(ctx, merchantKey, uuid.NewString(), merchantReq)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,13 +141,16 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	merchant := createdEnvelope.Data
-	replayed, err := svc.RegisterDemoMerchant(ctx, merchantKey, "demo-access-code", uuid.NewString(), merchantReq)
+	if merchant.OnboardingComplete || merchant.Merchant.Benefit != nil || len(merchant.Merchant.Benefits) != 0 {
+		t.Fatalf("merchant signup invented onboarding data: %+v", merchant)
+	}
+	replayed, err := svc.RegisterDemoMerchant(ctx, merchantKey, uuid.NewString(), merchantReq)
 	if err != nil || !replayed.Replayed || !bytes.Equal(created.Body, replayed.Body) {
 		t.Fatalf("merchant replay: replay=%v err=%v", replayed.Replayed, err)
 	}
 	changed := merchantReq
 	changed.BrandName = "Other"
-	if _, err = svc.RegisterDemoMerchant(ctx, merchantKey, "demo-access-code", uuid.NewString(), changed); !errors.Is(err, repository.ErrIdempotencyConflict) {
+	if _, err = svc.RegisterDemoMerchant(ctx, merchantKey, uuid.NewString(), changed); !errors.Is(err, repository.ErrIdempotencyConflict) {
 		t.Fatalf("merchant conflict: %v", err)
 	}
 	var brandsBefore int
@@ -149,7 +159,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	}
 	duplicate := merchantReq
 	duplicate.BrandName = "Rollback"
-	if _, err = svc.RegisterDemoMerchant(ctx, uuid.NewString(), "demo-access-code", uuid.NewString(), duplicate); !errors.Is(err, repository.ErrEmailExists) {
+	if _, err = svc.RegisterDemoMerchant(ctx, uuid.NewString(), uuid.NewString(), duplicate); !errors.Is(err, repository.ErrEmailExists) {
 		t.Fatalf("atomic duplicate: %v", err)
 	}
 	var brandsAfter, pending int
@@ -157,6 +167,16 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	_ = pool.QueryRow(ctx, `SELECT count(*) FROM solicitudes_idempotentes WHERE estado='PENDING'`).Scan(&pending)
 	if brandsAfter != brandsBefore || pending != 0 {
 		t.Fatalf("rollback leaked brand/idempotency: %d/%d pending=%d", brandsBefore, brandsAfter, pending)
+	}
+	var benefitID int64
+	if err = pool.QueryRow(ctx, `INSERT INTO beneficios(programa_id,nombre,requisito_sellos) VALUES($1,'Beneficio de prueba',5) RETURNING id`, merchant.Merchant.Program.ID).Scan(&benefitID); err != nil {
+		t.Fatal(err)
+	}
+	requiredStamps := int64(5)
+	merchant.Merchant.Benefit = &model.Benefit{ID: benefitID, ProgramID: merchant.Merchant.Program.ID, Name: "Beneficio de prueba", RequiredStamps: &requiredStamps, Active: true}
+	currentMerchant, err := svc.CurrentUser(ctx, merchant.User.ID)
+	if err != nil || !currentMerchant.OnboardingComplete {
+		t.Fatalf("configured merchant onboarding=%v err=%v", currentMerchant.OnboardingComplete, err)
 	}
 
 	memberCode := fmt.Sprintf("#USER-%04d", customer.ID)
@@ -314,13 +334,46 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 		t.Fatalf("unexpected brand metrics %+v", metrics)
 	}
 
-	secondReq := model.RegisterDemoMerchantRequest{Email: "owner2@example.com", Password: "merchant-pass", OwnerName: "Owner2", BrandName: "Brand2", BranchName: "Other"}
-	secondRaw, err := svc.RegisterDemoMerchant(ctx, uuid.NewString(), "demo-access-code", uuid.NewString(), secondReq)
+	secondReq := model.RegisterDemoMerchantRequest{Email: "owner2@example.com", Password: "merchant-pass", OwnerName: "Owner2", BrandName: "Brand2", BranchName: "Other", ProgramType: "PUNTOS", AccessCode: "demo-access-code"}
+	secondRaw, err := svc.RegisterDemoMerchant(ctx, uuid.NewString(), uuid.NewString(), secondReq)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var second web.Envelope[model.DemoMerchantData]
 	_ = json.Unmarshal(secondRaw.Body, &second)
+	if second.Data.OnboardingComplete || second.Data.Merchant.Program.Type != "PUNTOS" {
+		t.Fatalf("unexpected PUNTOS registration %+v", second.Data)
+	}
+	var pointsBenefitID int64
+	if err = pool.QueryRow(ctx, `INSERT INTO beneficios(programa_id,nombre,requisito_puntos) VALUES($1,'Beneficio Puntos',10000000) RETURNING id`, second.Data.Merchant.Program.ID).Scan(&pointsBenefitID); err != nil {
+		t.Fatal(err)
+	}
+	pointsPreview := model.MovementPreviewRequest{Operation: "ACUMULACION", QRToken: customer.QRToken, BranchID: second.Data.Merchant.Branch.ID}
+	if _, err = svc.Preview(ctx, second.Data.User.ID, pointsPreview); !errors.Is(err, repository.ErrInvalidRequest) {
+		t.Fatalf("PUNTOS preview without amount: %v", err)
+	}
+	tooManyPoints := int64(100001)
+	pointsPreview.PointsAmount = &tooManyPoints
+	if _, err = svc.Preview(ctx, second.Data.User.ID, pointsPreview); !errors.Is(err, repository.ErrInvalidRequest) {
+		t.Fatalf("PUNTOS preview over limit: %v", err)
+	}
+	manualPoints := int64(100000)
+	pointsPreview.PointsAmount = &manualPoints
+	pointSnapshot, err := svc.Preview(ctx, second.Data.User.ID, pointsPreview)
+	if err != nil || pointSnapshot.Amount != manualPoints || pointSnapshot.ProgramType != "PUNTOS" {
+		t.Fatalf("PUNTOS preview=%+v err=%v", pointSnapshot, err)
+	}
+	pointMovement, err := svc.ConfirmAccumulation(ctx, second.Data.User.ID, uuid.NewString(), uuid.NewString(), model.ConfirmAccumulationRequest{PreviewID: pointSnapshot.ID, QRToken: customer.QRToken, BranchID: second.Data.Merchant.Branch.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pointEnvelope web.Envelope[model.Movement]
+	if err = json.Unmarshal(pointMovement.Body, &pointEnvelope); err != nil || pointEnvelope.Data.Amount != manualPoints || pointEnvelope.Data.BalanceAfter != manualPoints || pointEnvelope.Data.ProgramType != "PUNTOS" {
+		t.Fatalf("PUNTOS confirmation=%+v err=%v", pointEnvelope, err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE programas_fidelidad SET tipo='SELLOS',sellos_por_acumulacion=1 WHERE id=$1`, second.Data.Merchant.Program.ID); err == nil {
+		t.Fatal("program type changed after first movement")
+	}
 	alien := previewReq
 	alien.BranchID = second.Data.Merchant.Branch.ID
 	if _, err = svc.Preview(ctx, merchant.User.ID, alien); !errors.Is(err, repository.ErrNotFound) {
@@ -344,7 +397,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if _, err = pool.Exec(ctx, `UPDATE membresias_marca SET activo=true WHERE usuario_id=$1 AND marca_id=$2`, merchant.User.ID, merchant.Merchant.BrandID); err != nil {
 		t.Fatal(err)
 	}
-	if err = repo.CheckSchema(ctx, "0001"); err != nil {
+	if err = repo.CheckSchema(ctx, "0002"); err != nil {
 		t.Fatal(err)
 	}
 	if err = repo.CheckSchema(ctx, "9999"); err == nil {

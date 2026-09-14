@@ -13,7 +13,7 @@ import (
 
 func writeErr(c *gin.Context, err error) {
 	switch {
-	case errors.Is(err, service.ErrInvalidRequest):
+	case errors.Is(err, service.ErrInvalidRequest), errors.Is(err, repository.ErrInvalidRequest):
 		web.Error(c, http.StatusUnprocessableEntity, "INVALID_REQUEST", "Solicitud inválida", nil)
 	case errors.Is(err, service.ErrInvalidCredentials):
 		web.Error(c, http.StatusUnauthorized, "UNAUTHENTICATED", "Credenciales inválidas", nil)

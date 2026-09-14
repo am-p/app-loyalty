@@ -21,8 +21,8 @@ func (r *Repository) CreatePreview(ctx context.Context, actorID int64, req model
 	}
 	defer tx.Rollback(ctx)
 	var brandID, programID int64
-	var branchName string
-	err = tx.QueryRow(ctx, `SELECT s.marca_id,s.nombre,p.id FROM membresias_marca mm JOIN membresias_sucursales ms ON ms.membresia_id=mm.id AND ms.activo JOIN sucursales s ON s.id=ms.sucursal_id AND s.activo JOIN marcas m ON m.id=s.marca_id AND m.activo JOIN programas_fidelidad p ON p.marca_id=m.id AND p.tipo='SELLOS' AND p.activo JOIN accesos_demo a ON a.marca_id=m.id AND a.activo WHERE mm.usuario_id=$1 AND mm.activo AND s.id=$2`, actorID, req.BranchID).Scan(&brandID, &branchName, &programID)
+	var branchName, programType string
+	err = tx.QueryRow(ctx, `SELECT s.marca_id,s.nombre,p.id,p.tipo FROM membresias_marca mm JOIN membresias_sucursales ms ON ms.membresia_id=mm.id AND ms.activo JOIN sucursales s ON s.id=ms.sucursal_id AND s.activo JOIN marcas m ON m.id=s.marca_id AND m.activo JOIN programas_fidelidad p ON p.marca_id=m.id AND p.activo JOIN accesos_demo a ON a.marca_id=m.id AND a.activo WHERE mm.usuario_id=$1 AND mm.activo AND s.id=$2 AND EXISTS(SELECT 1 FROM beneficios configured WHERE configured.programa_id=p.id AND configured.activo)`, actorID, req.BranchID).Scan(&brandID, &branchName, &programID, &programType)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.Preview{}, ErrNotFound
 	}
@@ -40,7 +40,7 @@ func (r *Repository) CreatePreview(ctx context.Context, actorID int64, req model
 	}
 	var cardID *int64
 	balance := int64(0)
-	err = tx.QueryRow(ctx, `SELECT id,saldo_sellos FROM tarjetas WHERE usuario_id=$1 AND marca_id=$2 AND activo`, customerID, brandID).Scan(&cardID, &balance)
+	err = tx.QueryRow(ctx, `SELECT id,CASE WHEN $3='PUNTOS' THEN saldo_puntos ELSE saldo_sellos END FROM tarjetas WHERE usuario_id=$1 AND marca_id=$2 AND activo`, customerID, brandID, programType).Scan(&cardID, &balance)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return model.Preview{}, err
 	}
@@ -49,21 +49,33 @@ func (r *Repository) CreatePreview(ctx context.Context, actorID int64, req model
 		balance = 0
 	}
 	amount := int64(1)
-	after := balance + 1
+	if programType == "PUNTOS" {
+		if req.PointsAmount == nil || *req.PointsAmount < 1 || *req.PointsAmount > 100000 {
+			return model.Preview{}, ErrInvalidRequest
+		}
+		amount = *req.PointsAmount
+	} else if req.PointsAmount != nil {
+		return model.Preview{}, ErrInvalidRequest
+	}
+	after := balance + amount
 	var benefit *model.Benefit
 	if req.Operation == "CANJE" {
 		if req.BenefitID == nil {
 			return model.Preview{}, ErrPreviewChanged
 		}
 		var b model.Benefit
-		err = tx.QueryRow(ctx, `SELECT id,programa_id,nombre,requisito_sellos,activo FROM beneficios WHERE id=$1 AND programa_id=$2 AND activo FOR SHARE`, *req.BenefitID, programID).Scan(&b.ID, &b.ProgramID, &b.Name, &b.RequiredStamps, &b.Active)
+		err = tx.QueryRow(ctx, `SELECT id,programa_id,nombre,requisito_sellos,requisito_puntos,activo FROM beneficios WHERE id=$1 AND programa_id=$2 AND activo FOR SHARE`, *req.BenefitID, programID).Scan(&b.ID, &b.ProgramID, &b.Name, &b.RequiredStamps, &b.RequiredPoints, &b.Active)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return model.Preview{}, ErrNotFound
 		}
 		if err != nil {
 			return model.Preview{}, err
 		}
-		amount = b.RequiredStamps
+		if programType == "PUNTOS" {
+			amount = *b.RequiredPoints
+		} else {
+			amount = *b.RequiredStamps
+		}
 		if balance < amount {
 			return model.Preview{}, ErrInsufficientBalance
 		}
@@ -74,7 +86,7 @@ func (r *Repository) CreatePreview(ctx context.Context, actorID int64, req model
 	}
 	id := uuid.New()
 	expires := r.Now().UTC().Add(5 * time.Minute)
-	_, err = tx.Exec(ctx, `INSERT INTO previews_movimiento(id,actor_id,sucursal_id,marca_id,cliente_id,tarjeta_id,operacion,beneficio_id,qr_hash,saldo_anterior,cantidad,saldo_posterior,request_fingerprint,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`, id, actorID, req.BranchID, brandID, customerID, cardID, req.Operation, req.BenefitID, qrHash, balance, amount, after, fingerprint, expires)
+	_, err = tx.Exec(ctx, `INSERT INTO previews_movimiento(id,actor_id,sucursal_id,marca_id,cliente_id,tarjeta_id,operacion,beneficio_id,qr_hash,saldo_anterior,cantidad,saldo_posterior,request_fingerprint,expires_at,programa_tipo) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`, id, actorID, req.BranchID, brandID, customerID, cardID, req.Operation, req.BenefitID, qrHash, balance, amount, after, fingerprint, expires, programType)
 	if err != nil {
 		return model.Preview{}, err
 	}
@@ -85,7 +97,7 @@ func (r *Repository) CreatePreview(ctx context.Context, actorID int64, req model
 	if cardID != nil {
 		cardValue = *cardID
 	}
-	return model.Preview{ID: id.String(), ExpiresAt: expires, Operation: req.Operation, Customer: model.PreviewCustomer{ID: customerID, Name: customerName}, CardID: cardValue, BalanceBefore: balance, Amount: amount, BalanceAfter: after, Benefit: benefit}, nil
+	return model.Preview{ID: id.String(), ExpiresAt: expires, Operation: req.Operation, ProgramType: programType, Customer: model.PreviewCustomer{ID: customerID, Name: customerName}, CardID: cardValue, BalanceBefore: balance, Amount: amount, BalanceAfter: after, Benefit: benefit}, nil
 }
 
 type ConfirmInput struct {
@@ -116,7 +128,7 @@ func (r *Repository) ConfirmMovement(ctx context.Context, in ConfirmInput, build
 	type previewRow struct {
 		ActorID, BranchID, BrandID, CustomerID int64
 		CardID                                 *int64
-		Operation                              string
+		Operation, ProgramType                 string
 		BenefitID                              *int64
 		QRHash                                 []byte
 		Before, Amount, After                  int64
@@ -124,8 +136,8 @@ func (r *Repository) ConfirmMovement(ctx context.Context, in ConfirmInput, build
 		Consumed                               *time.Time
 	}
 	var p previewRow
-	err = tx.QueryRow(ctx, `SELECT actor_id,sucursal_id,marca_id,cliente_id,tarjeta_id,operacion,beneficio_id,qr_hash,saldo_anterior,cantidad,saldo_posterior,expires_at,consumed_at FROM previews_movimiento WHERE id=$1 FOR UPDATE`, in.PreviewID).
-		Scan(&p.ActorID, &p.BranchID, &p.BrandID, &p.CustomerID, &p.CardID, &p.Operation, &p.BenefitID, &p.QRHash, &p.Before, &p.Amount, &p.After, &p.Expires, &p.Consumed)
+	err = tx.QueryRow(ctx, `SELECT actor_id,sucursal_id,marca_id,cliente_id,tarjeta_id,operacion,programa_tipo,beneficio_id,qr_hash,saldo_anterior,cantidad,saldo_posterior,expires_at,consumed_at FROM previews_movimiento WHERE id=$1 FOR UPDATE`, in.PreviewID).
+		Scan(&p.ActorID, &p.BranchID, &p.BrandID, &p.CustomerID, &p.CardID, &p.Operation, &p.ProgramType, &p.BenefitID, &p.QRHash, &p.Before, &p.Amount, &p.After, &p.Expires, &p.Consumed)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return IdempotentResult{}, ErrNotFound
 	}
@@ -141,17 +153,20 @@ func (r *Repository) ConfirmMovement(ctx context.Context, in ConfirmInput, build
 	if !r.Now().UTC().Before(p.Expires) {
 		return IdempotentResult{}, ErrPreviewExpired
 	}
-	var branchName, brandName string
+	var branchName, brandName, programType string
 	var programID int64
-	err = tx.QueryRow(ctx, `SELECT s.nombre,m.nombre,p.id FROM membresias_marca mm JOIN membresias_sucursales ms ON ms.membresia_id=mm.id AND ms.activo JOIN sucursales s ON s.id=ms.sucursal_id AND s.activo JOIN marcas m ON m.id=s.marca_id AND m.activo JOIN programas_fidelidad p ON p.marca_id=m.id AND p.activo AND p.tipo='SELLOS' JOIN accesos_demo a ON a.marca_id=m.id AND a.activo WHERE mm.usuario_id=$1 AND mm.activo AND s.id=$2 AND m.id=$3`, in.ActorID, in.BranchID, p.BrandID).Scan(&branchName, &brandName, &programID)
+	err = tx.QueryRow(ctx, `SELECT s.nombre,m.nombre,p.id,p.tipo FROM membresias_marca mm JOIN membresias_sucursales ms ON ms.membresia_id=mm.id AND ms.activo JOIN sucursales s ON s.id=ms.sucursal_id AND s.activo JOIN marcas m ON m.id=s.marca_id AND m.activo JOIN programas_fidelidad p ON p.marca_id=m.id AND p.activo JOIN accesos_demo a ON a.marca_id=m.id AND a.activo WHERE mm.usuario_id=$1 AND mm.activo AND s.id=$2 AND m.id=$3`, in.ActorID, in.BranchID, p.BrandID).Scan(&branchName, &brandName, &programID, &programType)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return IdempotentResult{}, ErrNotFound
 	}
 	if err != nil {
 		return IdempotentResult{}, err
 	}
+	if programType != p.ProgramType {
+		return IdempotentResult{}, ErrPreviewChanged
+	}
 	var customerID int64
-	if err = tx.QueryRow(ctx, `SELECT id FROM usuarios WHERE qr_hash=$1 AND activo AND tipo_cuenta='CLIENTE_FINAL'`, in.QRHash).Scan(&customerID); errors.Is(err, pgx.ErrNoRows) {
+	if err = tx.QueryRow(ctx, `SELECT id FROM usuarios WHERE qr_hash=$1 AND activo AND deleted_at IS NULL AND tipo_cuenta='CLIENTE_FINAL'`, in.QRHash).Scan(&customerID); errors.Is(err, pgx.ErrNoRows) {
 		return IdempotentResult{}, ErrNotFound
 	}
 	if err != nil {
@@ -169,7 +184,7 @@ func (r *Repository) ConfirmMovement(ctx context.Context, in ConfirmInput, build
 		}
 	}
 	var cardID, balance int64
-	err = tx.QueryRow(ctx, `SELECT id,saldo_sellos FROM tarjetas WHERE usuario_id=$1 AND marca_id=$2 AND activo FOR UPDATE`, p.CustomerID, p.BrandID).Scan(&cardID, &balance)
+	err = tx.QueryRow(ctx, `SELECT id,CASE WHEN $3='PUNTOS' THEN saldo_puntos ELSE saldo_sellos END FROM tarjetas WHERE usuario_id=$1 AND marca_id=$2 AND activo FOR UPDATE`, p.CustomerID, p.BrandID, programType).Scan(&cardID, &balance)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return IdempotentResult{}, ErrInsufficientBalance
 	}
@@ -181,7 +196,7 @@ func (r *Repository) ConfirmMovement(ctx context.Context, in ConfirmInput, build
 	if in.Operation == "CANJE" {
 		var n string
 		var required int64
-		err = tx.QueryRow(ctx, `SELECT nombre,requisito_sellos FROM beneficios WHERE id=$1 AND programa_id=$2 AND activo FOR SHARE`, *in.BenefitID, programID).Scan(&n, &required)
+		err = tx.QueryRow(ctx, `SELECT nombre,CASE WHEN $3='PUNTOS' THEN requisito_puntos ELSE requisito_sellos END FROM beneficios WHERE id=$1 AND programa_id=$2 AND activo FOR SHARE`, *in.BenefitID, programID, programType).Scan(&n, &required)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return IdempotentResult{}, ErrNotFound
 		}
@@ -206,12 +221,22 @@ func (r *Repository) ConfirmMovement(ctx context.Context, in ConfirmInput, build
 		after = balance - p.Amount
 		direction = "DEBITO"
 	}
-	if _, err = tx.Exec(ctx, `UPDATE tarjetas SET saldo_sellos=$1,version=version+1 WHERE id=$2`, after, cardID); err != nil {
+	balanceColumn := "saldo_sellos"
+	if programType == "PUNTOS" {
+		balanceColumn = "saldo_puntos"
+	}
+	if _, err = tx.Exec(ctx, `UPDATE tarjetas SET `+balanceColumn+`=$1,version=version+1 WHERE id=$2`, after, cardID); err != nil {
 		return IdempotentResult{}, err
 	}
 	operationID := uuid.New()
 	var m model.Movement
-	err = tx.QueryRow(ctx, `INSERT INTO historial_movimientos(operation_id,tarjeta_id,marca_id,sucursal_id,usuario_operador_id,beneficio_id,operacion,sentido,cantidad,saldo_anterior,saldo_posterior,beneficio_nombre_snapshot,beneficio_requisito_snapshot) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id,occurred_at`, operationID, cardID, p.BrandID, in.BranchID, in.ActorID, in.BenefitID, in.Operation, direction, p.Amount, balance, after, benefitName, benefitRequirement).Scan(&m.ID, &m.OccurredAt)
+	var requiredStamps, requiredPoints *int64
+	if programType == "PUNTOS" {
+		requiredPoints = benefitRequirement
+	} else {
+		requiredStamps = benefitRequirement
+	}
+	err = tx.QueryRow(ctx, `INSERT INTO historial_movimientos(operation_id,tarjeta_id,marca_id,sucursal_id,usuario_operador_id,beneficio_id,operacion,sentido,cantidad,saldo_anterior,saldo_posterior,beneficio_nombre_snapshot,beneficio_requisito_snapshot,programa_tipo,beneficio_requisito_puntos_snapshot) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id,occurred_at`, operationID, cardID, p.BrandID, in.BranchID, in.ActorID, in.BenefitID, in.Operation, direction, p.Amount, balance, after, benefitName, requiredStamps, programType, requiredPoints).Scan(&m.ID, &m.OccurredAt)
 	if err != nil {
 		return IdempotentResult{}, err
 	}
@@ -222,12 +247,14 @@ func (r *Repository) ConfirmMovement(ctx context.Context, in ConfirmInput, build
 	m.BranchID = in.BranchID
 	m.BranchName = branchName
 	m.Operation = in.Operation
+	m.ProgramType = programType
 	m.Direction = direction
 	m.Amount = p.Amount
 	m.BalanceBefore = balance
 	m.BalanceAfter = after
 	m.BenefitNameSnapshot = benefitName
-	m.BenefitRequiredStampsSnapshot = benefitRequirement
+	m.BenefitRequiredStampsSnapshot = requiredStamps
+	m.BenefitRequiredPointsSnapshot = requiredPoints
 	if _, err = tx.Exec(ctx, `UPDATE previews_movimiento SET consumed_at=now() WHERE id=$1`, in.PreviewID); err != nil {
 		return IdempotentResult{}, err
 	}

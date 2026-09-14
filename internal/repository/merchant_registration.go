@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-func (r *Repository) CreateDemoMerchant(ctx context.Context, key string, fingerprint []byte, email, passwordHash, ownerName, brandName, branchName string, branchAddress *string, build func(model.User, model.MerchantContext) ([]byte, error)) (IdempotentResult, error) {
+func (r *Repository) CreateDemoMerchant(ctx context.Context, key string, fingerprint []byte, email, passwordHash, ownerName, brandName, branchName string, branchAddress *string, programType string, build func(model.User, model.MerchantContext) ([]byte, error)) (IdempotentResult, error) {
 	tx, err := r.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return IdempotentResult{}, err
@@ -29,7 +29,7 @@ func (r *Repository) CreateDemoMerchant(ctx context.Context, key string, fingerp
 	if err != nil {
 		return IdempotentResult{}, normalize(err)
 	}
-	var brandID, membershipID, branchID, programID, benefitID int64
+	var brandID, membershipID, branchID, programID int64
 	var started time.Time
 	if err = tx.QueryRow(ctx, `INSERT INTO marcas(nombre) VALUES($1) RETURNING id`, brandName).Scan(&brandID); err != nil {
 		return IdempotentResult{}, err
@@ -43,16 +43,19 @@ func (r *Repository) CreateDemoMerchant(ctx context.Context, key string, fingerp
 	if _, err = tx.Exec(ctx, `INSERT INTO membresias_sucursales(membresia_id,sucursal_id) VALUES($1,$2)`, membershipID, branchID); err != nil {
 		return IdempotentResult{}, err
 	}
-	if err = tx.QueryRow(ctx, `INSERT INTO programas_fidelidad(marca_id,tipo,sellos_por_acumulacion) VALUES($1,'SELLOS',1) RETURNING id`, brandID).Scan(&programID); err != nil {
+	var stampsPerAccumulation *int64
+	if programType == "SELLOS" {
+		one := int64(1)
+		stampsPerAccumulation = &one
+	}
+	if err = tx.QueryRow(ctx, `INSERT INTO programas_fidelidad(marca_id,tipo,sellos_por_acumulacion) VALUES($1,$2,$3) RETURNING id`, brandID, programType, stampsPerAccumulation).Scan(&programID); err != nil {
 		return IdempotentResult{}, err
 	}
-	if err = tx.QueryRow(ctx, `INSERT INTO beneficios(programa_id,nombre,requisito_sellos) VALUES($1,'Beneficio de prueba',5) RETURNING id`, programID).Scan(&benefitID); err != nil {
+	demoKind := programType + "_FREE_TRIAL"
+	if err = tx.QueryRow(ctx, `INSERT INTO accesos_demo(marca_id,tipo,precio_minor,moneda,cobro_automatico) VALUES($1,$2,0,'ARS',false) RETURNING started_at`, brandID, demoKind).Scan(&started); err != nil {
 		return IdempotentResult{}, err
 	}
-	if err = tx.QueryRow(ctx, `INSERT INTO accesos_demo(marca_id,tipo,precio_minor,moneda,cobro_automatico) VALUES($1,'SELLOS_FREE_TRIAL',0,'ARS',false) RETURNING started_at`, brandID).Scan(&started); err != nil {
-		return IdempotentResult{}, err
-	}
-	merchant := model.MerchantContext{BrandID: brandID, BrandName: brandName, Role: "PROPIETARIO", Branch: model.Branch{ID: branchID, BrandID: brandID, Name: branchName, Address: branchAddress, Active: true}, Program: model.Program{ID: programID, BrandID: brandID, Type: "SELLOS", StampsPerAccumulation: 1, Active: true}, Benefit: model.Benefit{ID: benefitID, ProgramID: programID, Name: "Beneficio de prueba", RequiredStamps: 5, Active: true}, DemoAccess: model.DemoAccess{Kind: "SELLOS_FREE_TRIAL", PriceMinor: 0, Currency: "ARS", AutomaticCharge: false, Active: true, StartedAt: started}}
+	merchant := model.MerchantContext{BrandID: brandID, BrandName: brandName, Role: "PROPIETARIO", Branch: model.Branch{ID: branchID, BrandID: brandID, Name: branchName, Address: branchAddress, Active: true}, Program: model.Program{ID: programID, BrandID: brandID, Type: programType, StampsPerAccumulation: stampsPerAccumulation, Active: true}, Benefits: []model.Benefit{}, DemoAccess: model.DemoAccess{Kind: demoKind, PriceMinor: 0, Currency: "ARS", AutomaticCharge: false, Active: true, StartedAt: started}}
 	body, err := build(u, merchant)
 	if err != nil {
 		return IdempotentResult{}, err

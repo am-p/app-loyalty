@@ -13,14 +13,14 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-func (s *Service) RegisterDemoMerchant(ctx context.Context, key, accessCode, requestID string, req model.RegisterDemoMerchantRequest) (repository.IdempotentResult, error) {
+func (s *Service) RegisterDemoMerchant(ctx context.Context, key, requestID string, req model.RegisterDemoMerchantRequest) (repository.IdempotentResult, error) {
 	if !s.Config.DemoSignupEnabled {
 		return repository.IdempotentResult{}, ErrDemoDisabled
 	}
-	if len(accessCode) < 12 || len(accessCode) > 128 {
+	if len(req.AccessCode) < 12 || len(req.AccessCode) > 128 {
 		return repository.IdempotentResult{}, ErrInvalidRequest
 	}
-	if bcrypt.CompareHashAndPassword([]byte(s.Config.DemoAccessCodeHash), []byte(accessCode)) != nil {
+	if bcrypt.CompareHashAndPassword([]byte(s.Config.DemoAccessCodeHash), []byte(req.AccessCode)) != nil {
 		return repository.IdempotentResult{}, ErrDemoAccess
 	}
 	if _, err := uuid.Parse(key); err != nil {
@@ -49,6 +49,10 @@ func (s *Service) RegisterDemoMerchant(ctx context.Context, key, accessCode, req
 		}
 		req.BranchAddress = &v
 	}
+	programType, err := normalizeProgramType(req.ProgramType)
+	if err != nil {
+		return repository.IdempotentResult{}, ErrInvalidRequest
+	}
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
 		return repository.IdempotentResult{}, err
@@ -58,11 +62,12 @@ func (s *Service) RegisterDemoMerchant(ctx context.Context, key, accessCode, req
 	fingerprint := KeyedFingerprint(s.Config.QRPepper, struct {
 		Email, Password, OwnerName, BrandName, BranchName string
 		BranchAddress                                     *string
-	}{email, req.Password, owner, brand, branch, req.BranchAddress})
+		ProgramType                                       string
+	}{email, req.Password, owner, brand, branch, req.BranchAddress, programType})
 	var result repository.IdempotentResult
 	err = retry(ctx, func() error {
 		var e error
-		result, e = s.Repo.CreateDemoMerchant(ctx, key, fingerprint, email, string(passwordHash), owner, brand, branch, req.BranchAddress, func(u model.User, m model.MerchantContext) ([]byte, error) {
+		result, e = s.Repo.CreateDemoMerchant(ctx, key, fingerprint, email, string(passwordHash), owner, brand, branch, req.BranchAddress, programType, func(u model.User, m model.MerchantContext) ([]byte, error) {
 			token, e := s.Tokens.Generate(u.ID, u.AccountType)
 			if e != nil {
 				return nil, e
@@ -72,6 +77,14 @@ func (s *Service) RegisterDemoMerchant(ctx context.Context, key, accessCode, req
 		return e
 	})
 	return result, err
+}
+
+func normalizeProgramType(value string) (string, error) {
+	value = strings.ToUpper(strings.TrimSpace(value))
+	if value != "SELLOS" && value != "PUNTOS" {
+		return "", ErrInvalidRequest
+	}
+	return value, nil
 }
 
 func (s *Service) ListBrands(ctx context.Context, actorID int64) ([]model.MerchantContext, error) {

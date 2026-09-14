@@ -1,12 +1,12 @@
 openapi: 3.1.0
 info:
-  title: Puntazo Staging API · Sellos
-  version: 0.2.0-contract
+  title: Puntazo API · programa gratuito
+  version: 0.3.0-contract
   description: |
-    Contrato congelado para el staging real de Puntazo basado exclusivamente en Sellos.
+    Contrato de lanzamiento gratuito para programas Sellos y Puntos.
     Cada operación marcada IMPLEMENTED cuenta con código, persistencia, autorización
     y pruebas de contrato/integración dentro del repositorio aislado de preview.
-  x-puntazo-slice: DEMO-01-SELLOS
+  x-puntazo-slice: FREE-LAUNCH-SELLOS-PUNTOS
   x-puntazo-authority: ACORDADO_PARA_DEMO
   x-puntazo-approved-decisions: [PC-04, PC-09, PC-10, PC-11, PC-13, PC-14]
   x-puntazo-partial-decisions: [PC-12]
@@ -90,12 +90,11 @@ paths:
     post:
       tags: [Demo]
       operationId: registerDemoMerchant
-      summary: Alta atómica e idempotente de Comercio Sellos · prueba gratuita
+      summary: Alta atómica e idempotente de un propietario con programa Sellos o Puntos
       security: []
       x-puntazo-implementation: IMPLEMENTED
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
-        - $ref: '#/components/parameters/DemoAccessCode'
       requestBody:
         required: true
         content:
@@ -103,7 +102,7 @@ paths:
             schema: { $ref: '#/components/schemas/RegisterDemoMerchantRequest' }
       responses:
         '201':
-          description: Usuario, marca, propietario, sucursal, programa, beneficio y acceso de prueba creados
+          description: Usuario, marca, propietario, sucursal y programa creados; onboarding continúa sin beneficio
           headers:
             Idempotent-Replayed: { $ref: '#/components/headers/IdempotentReplayed' }
           content:
@@ -377,12 +376,6 @@ components:
       in: path
       required: true
       schema: { type: string, format: uuid }
-    DemoAccessCode:
-      name: X-Demo-Access-Code
-      in: header
-      required: true
-      description: Se compara contra un hash; nunca se persiste ni registra en claro
-      schema: { type: string, minLength: 12, maxLength: 128 }
     BrandId:
       name: brand_id
       in: path
@@ -536,7 +529,7 @@ components:
     RegisterDemoMerchantRequest:
       type: object
       additionalProperties: false
-      required: [email, password, owner_name, brand_name, branch_name]
+      required: [email, password, owner_name, brand_name, branch_name, program_type, access_code]
       properties:
         email: { type: string, format: email, maxLength: 254 }
         password:
@@ -549,6 +542,12 @@ components:
         brand_name: { type: string, minLength: 1, maxLength: 120 }
         branch_name: { type: string, minLength: 1, maxLength: 120 }
         branch_address: { type: string, maxLength: 240 }
+        program_type: { type: string, enum: [SELLOS, PUNTOS] }
+        access_code:
+          type: string
+          minLength: 12
+          maxLength: 128
+          description: Se compara contra bcrypt y nunca se persiste ni registra en claro
     LoginRequest:
       type: object
       additionalProperties: false
@@ -578,7 +577,7 @@ components:
       additionalProperties: false
       required: [kind, price_minor, currency, automatic_charge, active, started_at]
       properties:
-        kind: { type: string, const: SELLOS_FREE_TRIAL }
+        kind: { type: string, enum: [SELLOS_FREE_TRIAL, PUNTOS_FREE_TRIAL] }
         price_minor: { type: integer, const: 0 }
         currency: { type: string, const: ARS }
         automatic_charge: { type: boolean, const: false }
@@ -597,27 +596,28 @@ components:
     Program:
       type: object
       additionalProperties: false
-      required: [id, brand_id, type, stamps_per_accumulation, active]
+      required: [id, brand_id, type, active]
       properties:
         id: { type: integer, format: int64 }
         brand_id: { type: integer, format: int64 }
-        type: { type: string, const: SELLOS }
+        type: { type: string, enum: [SELLOS, PUNTOS] }
         stamps_per_accumulation: { type: integer, const: 1 }
         active: { type: boolean }
     Benefit:
       type: object
       additionalProperties: false
-      required: [id, program_id, name, required_stamps, active]
+      required: [id, program_id, name, active]
       properties:
         id: { type: integer, format: int64 }
         program_id: { type: integer, format: int64 }
         name: { type: string }
-        required_stamps: { type: integer, minimum: 1 }
+        required_stamps: { type: integer, minimum: 1, maximum: 10000000 }
+        required_points: { type: integer, minimum: 1, maximum: 10000000 }
         active: { type: boolean }
     MerchantContext:
       type: object
       additionalProperties: false
-      required: [brand_id, brand_name, role, branch, program, benefit, demo_access]
+      required: [brand_id, brand_name, role, branch, program, benefits, demo_access]
       properties:
         brand_id: { type: integer, format: int64 }
         brand_name: { type: string }
@@ -625,6 +625,9 @@ components:
         branch: { $ref: '#/components/schemas/Branch' }
         program: { $ref: '#/components/schemas/Program' }
         benefit: { $ref: '#/components/schemas/Benefit' }
+        benefits:
+          type: array
+          items: { $ref: '#/components/schemas/Benefit' }
         demo_access: { $ref: '#/components/schemas/DemoAccess' }
     MerchantContextEnvelope:
       type: object
@@ -645,11 +648,12 @@ components:
     DemoMerchantData:
       type: object
       additionalProperties: false
-      required: [session, user, merchant]
+      required: [session, user, merchant, onboarding_complete]
       properties:
         session: { $ref: '#/components/schemas/Session' }
         user: { $ref: '#/components/schemas/User' }
         merchant: { $ref: '#/components/schemas/MerchantContext' }
+        onboarding_complete: { type: boolean, const: false }
     DemoMerchantEnvelope:
       type: object
       additionalProperties: false
@@ -679,12 +683,14 @@ components:
     Card:
       type: object
       additionalProperties: false
-      required: [id, brand_id, brand_name, balance_stamps, benefit]
+      required: [id, brand_id, brand_name, program_type, balance_stamps, balance_points, benefit]
       properties:
         id: { type: integer, format: int64 }
         brand_id: { type: integer, format: int64 }
         brand_name: { type: string }
+        program_type: { type: string, enum: [SELLOS, PUNTOS] }
         balance_stamps: { type: integer, format: int64, minimum: 0 }
+        balance_points: { type: integer, format: int64, minimum: 0 }
         benefit: { $ref: '#/components/schemas/Benefit' }
     Pagination:
       type: object
@@ -708,13 +714,15 @@ components:
     BrandCustomer:
       type: object
       additionalProperties: false
-      required: [customer_id, card_id, name, email, balance_stamps, movements_count, last_movement_at, joined_at]
+      required: [customer_id, card_id, name, email, program_type, balance_stamps, balance_points, movements_count, last_movement_at, joined_at]
       properties:
         customer_id: { type: integer, format: int64 }
         card_id: { type: integer, format: int64 }
         name: { type: string }
         email: { type: string, format: email }
+        program_type: { type: string, enum: [SELLOS, PUNTOS] }
         balance_stamps: { type: integer, format: int64, minimum: 0 }
+        balance_points: { type: integer, format: int64, minimum: 0 }
         movements_count: { type: integer, format: int64, minimum: 0 }
         last_movement_at: { type: [string, 'null'], format: date-time }
         joined_at: { $ref: '#/components/schemas/Timestamp' }
@@ -731,14 +739,18 @@ components:
     OperationalSummary:
       type: object
       additionalProperties: false
-      required: [active_customers, current_stamp_balance, accumulations, redemptions, stamps_issued, stamps_redeemed, last_movement_at]
+      required: [active_customers, program_type, current_stamp_balance, current_point_balance, accumulations, redemptions, stamps_issued, stamps_redeemed, points_issued, points_redeemed, last_movement_at]
       properties:
         active_customers: { type: integer, format: int64, minimum: 0 }
+        program_type: { type: string, enum: [SELLOS, PUNTOS] }
         current_stamp_balance: { type: integer, format: int64, minimum: 0 }
+        current_point_balance: { type: integer, format: int64, minimum: 0 }
         accumulations: { type: integer, format: int64, minimum: 0 }
         redemptions: { type: integer, format: int64, minimum: 0 }
         stamps_issued: { type: integer, format: int64, minimum: 0 }
         stamps_redeemed: { type: integer, format: int64, minimum: 0 }
+        points_issued: { type: integer, format: int64, minimum: 0 }
+        points_redeemed: { type: integer, format: int64, minimum: 0 }
         last_movement_at: { type: [string, 'null'], format: date-time }
     OperationalSummaryEnvelope:
       type: object
@@ -759,6 +771,11 @@ components:
             operation: { type: string, const: ACUMULACION }
             qr_token: { type: string, minLength: 32, maxLength: 256 }
             branch_id: { type: integer, format: int64, minimum: 1 }
+            cantidad_puntos:
+              type: integer
+              minimum: 1
+              maximum: 100000
+              description: Obligatoria para PUNTOS; debe omitirse para SELLOS, donde el servidor fija 1
         - type: object
           additionalProperties: false
           required: [operation, customer_code, branch_id]
@@ -766,6 +783,11 @@ components:
             operation: { type: string, const: ACUMULACION }
             customer_code: { $ref: '#/components/schemas/CustomerCode' }
             branch_id: { type: integer, format: int64, minimum: 1 }
+            cantidad_puntos:
+              type: integer
+              minimum: 1
+              maximum: 100000
+              description: Obligatoria para PUNTOS; debe omitirse para SELLOS, donde el servidor fija 1
         - type: object
           additionalProperties: false
           required: [operation, qr_token, branch_id, benefit_id]
@@ -790,11 +812,12 @@ components:
     Preview:
       type: object
       additionalProperties: false
-      required: [id, expires_at, operation, customer, card_id, balance_before, amount, balance_after]
+      required: [id, expires_at, operation, program_type, customer, card_id, balance_before, amount, balance_after]
       properties:
         id: { type: string, format: uuid }
         expires_at: { $ref: '#/components/schemas/Timestamp' }
         operation: { $ref: '#/components/schemas/MovementOperation' }
+        program_type: { type: string, enum: [SELLOS, PUNTOS] }
         customer:
           type: object
           additionalProperties: false
@@ -851,7 +874,7 @@ components:
     Movement:
       type: object
       additionalProperties: false
-      required: [id, operation_id, card_id, branch_id, operation, direction, amount, balance_before, balance_after, occurred_at]
+      required: [id, operation_id, card_id, branch_id, operation, program_type, direction, amount, balance_before, balance_after, occurred_at]
       properties:
         id: { type: integer, format: int64 }
         operation_id: { type: string, format: uuid }
@@ -861,12 +884,14 @@ components:
         branch_id: { type: integer, format: int64 }
         branch_name: { type: string }
         operation: { $ref: '#/components/schemas/MovementOperation' }
+        program_type: { type: string, enum: [SELLOS, PUNTOS] }
         direction: { type: string, enum: [CREDITO, DEBITO] }
         amount: { type: integer, format: int64, minimum: 1 }
         balance_before: { type: integer, format: int64, minimum: 0 }
         balance_after: { type: integer, format: int64, minimum: 0 }
         benefit_name_snapshot: { type: [string, 'null'] }
         benefit_required_stamps_snapshot: { type: [integer, 'null'], format: int64 }
+        benefit_required_points_snapshot: { type: [integer, 'null'], format: int64 }
         occurred_at: { $ref: '#/components/schemas/Timestamp' }
     MovementEnvelope:
       type: object

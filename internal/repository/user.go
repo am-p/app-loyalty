@@ -133,5 +133,16 @@ func (r *Repository) GetCurrentUser(ctx context.Context, id int64) (model.Curren
 	if err = rows.Err(); err != nil {
 		return model.CurrentUser{}, err
 	}
-	return model.CurrentUser{User: u, Memberships: memberships, OnboardingComplete: u.AccountType == "CLIENTE_FINAL" || len(memberships) > 0}, nil
+	onboardingComplete := u.AccountType == "CLIENTE_FINAL"
+	if u.AccountType == "PERSONAL_MARCA" && len(memberships) > 0 {
+		if err = r.Pool.QueryRow(ctx, `SELECT EXISTS(
+			SELECT 1 FROM membresias_marca mm
+			JOIN programas_fidelidad p ON p.marca_id=mm.marca_id AND p.activo
+			JOIN beneficios b ON b.programa_id=p.id AND b.activo
+			WHERE mm.usuario_id=$1 AND mm.activo
+		)`, id).Scan(&onboardingComplete); err != nil {
+			return model.CurrentUser{}, err
+		}
+	}
+	return model.CurrentUser{User: u, Memberships: memberships, OnboardingComplete: onboardingComplete}, nil
 }

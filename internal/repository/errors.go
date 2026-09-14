@@ -15,6 +15,7 @@ var (
 	ErrPreviewConsumed       = errors.New("preview consumed")
 	ErrPreviewChanged        = errors.New("preview changed")
 	ErrInsufficientBalance   = errors.New("insufficient balance")
+	ErrInvalidRequest        = errors.New("invalid request")
 )
 
 func normalize(err error) error {
