@@ -107,7 +107,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if _, err = pool.Exec(ctx, string(snapshotMigration)); err != nil {
 		t.Fatalf("migration 0007: %v", err)
 	}
-	if _, err = pool.Exec(ctx, `INSERT INTO usuarios(email,password_hash,nombre,tipo_cuenta) VALUES('legacy-password@example.com','legacy-hash','Legacy password','PERSONAL_MARCA'); INSERT INTO usuarios(email,google_id,nombre,tipo_cuenta,qr_hash) VALUES('legacy-google@example.com','legacy-google','Legacy Google','CLIENTE_FINAL',decode('01','hex'))`); err != nil {
+	if _, err = pool.Exec(ctx, `INSERT INTO usuarios(email,password_hash,nombre,tipo_cuenta) VALUES('legacy-password@example.com','legacy-hash','Legacy password','PERSONAL_MARCA'); INSERT INTO usuarios(email,google_id,nombre,tipo_cuenta,qr_hash) VALUES('legacy-google@example.com','legacy-google','Legacy Google','CLIENTE_FINAL',decode('01','hex')); INSERT INTO sesiones_auth(id,usuario_id,refresh_hash,expires_at,family_id,auth_time) SELECT '00000000-0000-4000-8000-000000000001',id,decode(repeat('02',32),'hex'),now()+interval '30 days','00000000-0000-4000-8000-000000000001',now() FROM usuarios WHERE email='legacy-password@example.com'`); err != nil {
 		t.Fatalf("legacy fixtures: %v", err)
 	}
 	identityMigration, err := os.ReadFile(filepath.Join("..", "..", "migrations", "0008_email_identity.up.sql"))
@@ -153,6 +153,10 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	}
 	if legacyPasswordVerified || !legacyGoogleVerified {
 		t.Fatalf("legacy verification password=%t google=%t", legacyPasswordVerified, legacyGoogleVerified)
+	}
+	var legacySessionRevoked bool
+	if err = pool.QueryRow(ctx, `SELECT revoked_at IS NOT NULL FROM sesiones_auth WHERE id='00000000-0000-4000-8000-000000000001'`).Scan(&legacySessionRevoked); err != nil || !legacySessionRevoked {
+		t.Fatalf("legacy session revoked=%t err=%v", legacySessionRevoked, err)
 	}
 	demoHash, _ := bcrypt.GenerateFromPassword([]byte("demo-access-code"), bcrypt.MinCost)
 	outboxKey := []byte("01234567890123456789012345678901")
