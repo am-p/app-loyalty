@@ -71,7 +71,7 @@ func (s *Service) RegisterDemoMerchant(ctx context.Context, key, requestID strin
 	var result repository.IdempotentResult
 	err = retry(ctx, func() error {
 		var e error
-		result, e = s.Repo.CreateDemoMerchant(ctx, key, fingerprint, email, string(passwordHash), owner, brand, branch, req.BranchAddress, programType, credentials.id, credentials.hash, credentials.expiresAt, func(u model.User, m model.MerchantContext) ([]byte, error) {
+		result, e = s.Repo.CreateDemoMerchant(ctx, key, fingerprint, email, string(passwordHash), owner, brand, branch, req.BranchAddress, programType, credentials.id, credentials.hash, credentials.expiresAt, credentials.authTime, func(u model.User, m model.MerchantContext) ([]byte, error) {
 			merchantSession, e := s.session(u, credentials)
 			if e != nil {
 				return nil, e

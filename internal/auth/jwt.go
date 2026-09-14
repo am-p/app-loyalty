@@ -14,6 +14,7 @@ var ErrInvalidToken = errors.New("invalid token")
 
 type Claims struct {
 	AccountType string `json:"account_type"`
+	AuthTime    int64  `json:"auth_time"`
 	jwt.RegisteredClaims
 }
 type Tokens struct {
@@ -31,8 +32,12 @@ func (t *Tokens) Generate(userID int64, accountType string) (string, error) {
 }
 
 func (t *Tokens) GenerateForSession(userID int64, accountType, sessionID string) (string, error) {
+	return t.GenerateForSessionAt(userID, accountType, sessionID, t.Now().UTC())
+}
+
+func (t *Tokens) GenerateForSessionAt(userID int64, accountType, sessionID string, authTime time.Time) (string, error) {
 	now := t.Now().UTC()
-	claims := Claims{AccountType: accountType, RegisteredClaims: jwt.RegisteredClaims{
+	claims := Claims{AccountType: accountType, AuthTime: authTime.UTC().Unix(), RegisteredClaims: jwt.RegisteredClaims{
 		Subject: strconv.FormatInt(userID, 10), ID: sessionID, IssuedAt: jwt.NewNumericDate(now), ExpiresAt: jwt.NewNumericDate(now.Add(15 * time.Minute)),
 		Issuer: t.Issuer, Audience: []string{"puntazo-app"},
 	}}
@@ -56,7 +61,7 @@ func (t *Tokens) ParseSession(raw string) (int64, string, string, error) {
 		return 0, "", "", ErrInvalidToken
 	}
 	id, err := strconv.ParseInt(claims.Subject, 10, 64)
-	if err != nil || id < 1 || uuid.Validate(claims.ID) != nil || (claims.AccountType != "CLIENTE_FINAL" && claims.AccountType != "PERSONAL_MARCA") {
+	if err != nil || id < 1 || claims.AuthTime < 1 || claims.AuthTime > t.Now().UTC().Unix()+60 || uuid.Validate(claims.ID) != nil || (claims.AccountType != "CLIENTE_FINAL" && claims.AccountType != "PERSONAL_MARCA") {
 		return 0, "", "", ErrInvalidToken
 	}
 	return id, claims.AccountType, claims.ID, nil

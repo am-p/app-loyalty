@@ -23,6 +23,7 @@ type sessionCredentials struct {
 	raw       string
 	hash      []byte
 	expiresAt time.Time
+	authTime  time.Time
 }
 
 func (s *Service) RegisterCustomer(ctx context.Context, req model.RegisterCustomerRequest) (model.AuthData, error) {
@@ -113,18 +114,19 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (model.AuthD
 		return model.AuthData{}, err
 	}
 	oldHash := sha256.Sum256([]byte(refreshToken))
-	u, err := s.Repo.RotateSession(ctx, oldHash[:], credentials.id, credentials.hash, credentials.expiresAt)
+	rotated, err := s.Repo.RotateSession(ctx, oldHash[:], credentials.id, credentials.hash, credentials.expiresAt)
 	if err != nil {
-		if err == repository.ErrNotFound {
+		if err == repository.ErrNotFound || err == repository.ErrSessionReuse {
 			return model.AuthData{}, ErrInvalidCredentials
 		}
 		return model.AuthData{}, err
 	}
-	session, err := s.session(u, credentials)
+	credentials.authTime = rotated.AuthTime
+	session, err := s.session(rotated.User, credentials)
 	if err != nil {
 		return model.AuthData{}, err
 	}
-	return model.AuthData{Session: session, User: u}, nil
+	return model.AuthData{Session: session, User: rotated.User}, nil
 }
 
 func (s *Service) Logout(ctx context.Context, userID int64, sessionID string) error {
@@ -139,14 +141,14 @@ func (s *Service) issueSession(ctx context.Context, u model.User) (model.Session
 	if err != nil {
 		return model.Session{}, err
 	}
-	if err = s.Repo.CreateSession(ctx, credentials.id, u.ID, credentials.hash, credentials.expiresAt); err != nil {
+	if err = s.Repo.CreateSession(ctx, credentials.id, u.ID, credentials.hash, credentials.expiresAt, credentials.authTime); err != nil {
 		return model.Session{}, err
 	}
 	return s.session(u, credentials)
 }
 
 func (s *Service) session(u model.User, credentials sessionCredentials) (model.Session, error) {
-	token, err := s.Tokens.GenerateForSession(u.ID, u.AccountType, credentials.id)
+	token, err := s.Tokens.GenerateForSessionAt(u.ID, u.AccountType, credentials.id, credentials.authTime)
 	if err != nil {
 		return model.Session{}, err
 	}
@@ -160,5 +162,6 @@ func newSessionCredentials() (sessionCredentials, error) {
 	}
 	encoded := base64.RawURLEncoding.EncodeToString(raw)
 	hash := sha256.Sum256([]byte(encoded))
-	return sessionCredentials{id: uuid.NewString(), raw: encoded, hash: hash[:], expiresAt: time.Now().UTC().Add(refreshLifetime)}, nil
+	now := time.Now().UTC()
+	return sessionCredentials{id: uuid.NewString(), raw: encoded, hash: hash[:], expiresAt: now.Add(refreshLifetime), authTime: now}, nil
 }

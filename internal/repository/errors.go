@@ -17,6 +17,7 @@ var (
 	ErrInsufficientBalance   = errors.New("insufficient balance")
 	ErrInvalidRequest        = errors.New("invalid request")
 	ErrForbidden             = errors.New("forbidden")
+	ErrSessionReuse          = errors.New("session refresh reuse")
 )
 
 func normalize(err error) error {

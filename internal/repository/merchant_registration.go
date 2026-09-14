@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-func (r *Repository) CreateDemoMerchant(ctx context.Context, key string, fingerprint []byte, email, passwordHash, ownerName, brandName, branchName string, branchAddress *string, programType, sessionID string, refreshHash []byte, sessionExpiresAt time.Time, build func(model.User, model.MerchantContext) ([]byte, error)) (IdempotentResult, error) {
+func (r *Repository) CreateDemoMerchant(ctx context.Context, key string, fingerprint []byte, email, passwordHash, ownerName, brandName, branchName string, branchAddress *string, programType, sessionID string, refreshHash []byte, sessionExpiresAt, authTime time.Time, build func(model.User, model.MerchantContext) ([]byte, error)) (IdempotentResult, error) {
 	tx, err := r.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return IdempotentResult{}, err
@@ -56,7 +56,7 @@ func (r *Repository) CreateDemoMerchant(ctx context.Context, key string, fingerp
 		return IdempotentResult{}, err
 	}
 	merchant := model.MerchantContext{BrandID: brandID, BrandName: brandName, Role: "PROPIETARIO", Branch: model.Branch{ID: branchID, BrandID: brandID, Name: branchName, Address: branchAddress, Active: true}, Program: model.Program{ID: programID, BrandID: brandID, Type: programType, StampsPerAccumulation: stampsPerAccumulation, Active: true}, Benefits: []model.Benefit{}, DemoAccess: model.DemoAccess{Kind: demoKind, PriceMinor: 0, Currency: "ARS", AutomaticCharge: false, Active: true, StartedAt: started}}
-	if _, err = tx.Exec(ctx, `INSERT INTO sesiones_auth(id,usuario_id,refresh_hash,expires_at) VALUES($1,$2,$3,$4)`, sessionID, u.ID, refreshHash, sessionExpiresAt); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO sesiones_auth(id,usuario_id,refresh_hash,expires_at,family_id,auth_time) VALUES($1,$2,$3,$4,$1,$5)`, sessionID, u.ID, refreshHash, sessionExpiresAt, authTime); err != nil {
 		return IdempotentResult{}, err
 	}
 	body, err := build(u, merchant)
