@@ -107,6 +107,9 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if _, err = pool.Exec(ctx, string(snapshotMigration)); err != nil {
 		t.Fatalf("migration 0007: %v", err)
 	}
+	if _, err = pool.Exec(ctx, `INSERT INTO usuarios(email,password_hash,nombre,tipo_cuenta) VALUES('legacy-password@example.com','legacy-hash','Legacy password','PERSONAL_MARCA'); INSERT INTO usuarios(email,google_id,nombre,tipo_cuenta,qr_hash) VALUES('legacy-google@example.com','legacy-google','Legacy Google','CLIENTE_FINAL',decode('01','hex'))`); err != nil {
+		t.Fatalf("legacy fixtures: %v", err)
+	}
 	identityMigration, err := os.ReadFile(filepath.Join("..", "..", "migrations", "0008_email_identity.up.sql"))
 	if err != nil {
 		t.Fatal(err)
@@ -131,9 +134,29 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if _, err = pool.Exec(ctx, `CREATE TABLE schema_migrations(version CHAR(4) PRIMARY KEY,applied_at TIMESTAMPTZ NOT NULL DEFAULT now()); INSERT INTO schema_migrations(version) VALUES('0001'),('0002'),('0003'),('0004'),('0005'),('0006'),('0007'),('0008'),('0009'),('0010')`); err != nil {
 		t.Fatal(err)
 	}
+	legacyFixMigration, err := os.ReadFile(filepath.Join("..", "..", "migrations", "0011_correct_legacy_verification.up.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, string(legacyFixMigration)); err != nil {
+		t.Fatalf("migration 0011: %v", err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES('0011')`); err != nil {
+		t.Fatal(err)
+	}
+	var legacyPasswordVerified, legacyGoogleVerified bool
+	if err = pool.QueryRow(ctx, `SELECT email_verified_at IS NOT NULL FROM usuarios WHERE email='legacy-password@example.com'`).Scan(&legacyPasswordVerified); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT email_verified_at IS NOT NULL FROM usuarios WHERE email='legacy-google@example.com'`).Scan(&legacyGoogleVerified); err != nil {
+		t.Fatal(err)
+	}
+	if legacyPasswordVerified || !legacyGoogleVerified {
+		t.Fatalf("legacy verification password=%t google=%t", legacyPasswordVerified, legacyGoogleVerified)
+	}
 	demoHash, _ := bcrypt.GenerateFromPassword([]byte("demo-access-code"), bcrypt.MinCost)
 	outboxKey := []byte("01234567890123456789012345678901")
-	cfg := config.Config{JWTSecret: "jwt-secret-0123456789012345678901", JWTIssuer: "puntazo", QRPepper: "qr-pepper-01234567890123456789012", DemoAccessCodeHash: string(demoHash), DemoSignupEnabled: true, ExpectedSchemaVersion: "0010", PublicAppURL: "https://app.puntazo.test", OutboxEncryptionKey: outboxKey}
+	cfg := config.Config{JWTSecret: "jwt-secret-0123456789012345678901", JWTIssuer: "puntazo", QRPepper: "qr-pepper-01234567890123456789012", DemoAccessCodeHash: string(demoHash), DemoSignupEnabled: true, ExpectedSchemaVersion: "0011", PublicAppURL: "https://app.puntazo.test", OutboxEncryptionKey: outboxKey}
 	repo := repository.New(pool, outboxKey)
 	tokens := auth.NewTokens(cfg.JWTSecret, cfg.JWTIssuer)
 	svc := service.New(repo, tokens, cfg)
@@ -699,7 +722,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if err = repo.MarkEmailFailed(ctx, claimedEmails[1].ID, claimedEmails[1].LeaseOwner, claimedEmails[1].Attempts, errors.New("temporary smtp failure")); err != nil {
 		t.Fatal(err)
 	}
-	if err = repo.CheckSchema(ctx, "0010"); err != nil {
+	if err = repo.CheckSchema(ctx, "0011"); err != nil {
 		t.Fatal(err)
 	}
 	if err = repo.CheckSchema(ctx, "9999"); err == nil {
