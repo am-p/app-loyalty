@@ -172,7 +172,7 @@ func (r *Repository) ResetPassword(ctx context.Context, tokenHash []byte, passwo
 }
 
 func (r *Repository) ClaimEmails(ctx context.Context, limit int) ([]model.OutboxEmail, error) {
-	if _, err := r.Pool.Exec(ctx, `UPDATE email_outbox SET estado='FAILED',token_ciphertext=NULL,token_nonce=NULL,token_expires_at=NULL,ultimo_error='identity token expired' WHERE estado='PENDING' AND token_expires_at<=now()`); err != nil {
+	if _, err := r.Pool.Exec(ctx, `UPDATE email_outbox SET estado='FAILED',token_ciphertext=NULL,token_nonce=NULL,token_expires_at=NULL,lease_until=NULL,lease_owner=NULL,ultimo_error='identity token expired' WHERE estado IN ('PENDING','SENDING') AND token_expires_at<=now()`); err != nil {
 		return nil, err
 	}
 	leaseOwner := uuid.NewString()
