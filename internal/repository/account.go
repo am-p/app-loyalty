@@ -120,9 +120,13 @@ func (r *Repository) AnonymizeAccount(ctx context.Context, id int64, expectedVer
 	if err = tx.QueryRow(ctx, `SELECT now()`).Scan(&deletedAt); err != nil {
 		return time.Time{}, err
 	}
+	if _, err = tx.Exec(ctx, `UPDATE membresias_sucursales SET activo=false WHERE membresia_id IN (SELECT id FROM membresias_marca WHERE usuario_id=$1)`, id); err != nil {
+		return time.Time{}, err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE membresias_marca SET activo=false WHERE usuario_id=$1`, id); err != nil {
+		return time.Time{}, err
+	}
 	statements := []string{
-		`UPDATE membresias_sucursales SET activo=false WHERE membresia_id IN (SELECT id FROM membresias_marca WHERE usuario_id=$1)`,
-		`UPDATE membresias_marca SET activo=false WHERE usuario_id=$1`,
 		`UPDATE tarjetas SET activo=false,deleted_at=COALESCE(deleted_at,$2),version=version+1 WHERE usuario_id=$1 AND activo`,
 		`UPDATE previews_movimiento SET expires_at=LEAST(expires_at,$2) WHERE (actor_id=$1 OR cliente_id=$1) AND consumed_at IS NULL`,
 		`UPDATE sesiones_auth SET revoked_at=COALESCE(revoked_at,$2) WHERE usuario_id=$1`,
