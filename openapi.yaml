@@ -680,6 +680,58 @@ paths:
               schema: { $ref: '#/components/schemas/OperationalSummaryEnvelope' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /marcas/{brand_id}/imagenes:
+    get:
+      tags: [Marcas]
+      operationId: listBrandImages
+      summary: Lista las imágenes privadas activas de la marca con URLs firmadas
+      description: Sólo propietarios y administradores. Las URLs vencen y deben refrescarse volviendo a listar.
+      x-puntazo-implementation: IMPLEMENTED
+      parameters: [{ $ref: '#/components/parameters/BrandId' }]
+      responses:
+        '200': { description: Imágenes activas, content: { application/json: { schema: { $ref: '#/components/schemas/BrandImageListEnvelope' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/DependencyUnavailable' }
+    post:
+      tags: [Marcas]
+      operationId: uploadBrandImage
+      summary: Normaliza y sube una imagen privada de marca o beneficio
+      description: JPEG y PNG hasta 5 MiB. WebP queda rechazado hasta disponer de reencode seguro. Reemplaza atómicamente la imagen activa del mismo slot después del upload.
+      x-puntazo-implementation: IMPLEMENTED
+      parameters: [{ $ref: '#/components/parameters/BrandId' }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [tipo, archivo]
+              properties:
+                tipo: { type: string, enum: [LOGO, ICONO, BENEFICIO] }
+                benefit_id: { type: integer, format: int64, minimum: 1, description: Obligatorio sólo para BENEFICIO }
+                archivo: { type: string, format: binary }
+      responses:
+        '201': { description: Imagen activa, headers: { ETag: { schema: { type: string } } }, content: { application/json: { schema: { $ref: '#/components/schemas/BrandImageEnvelope' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413': { description: Archivo mayor a 5 MiB, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '415': { description: Tipo de imagen no soportado, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '503': { $ref: '#/components/responses/DependencyUnavailable' }
+  /marcas/{brand_id}/imagenes/{image_id}:
+    delete:
+      tags: [Marcas]
+      operationId: deleteBrandImage
+      summary: Programa la eliminación irreversible de una imagen dentro de 24 horas
+      x-puntazo-implementation: IMPLEMENTED
+      parameters:
+        - $ref: '#/components/parameters/BrandId'
+        - $ref: '#/components/parameters/ImageId'
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '204': { description: Imagen retirada del listado y programada para borrado físico }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { description: Versión desactualizada, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
   /clientes/me:
     get:
       tags: [Clientes]
@@ -846,6 +898,11 @@ components:
       in: path
       required: true
       schema: { type: integer, format: int64, minimum: 1 }
+    ImageId:
+      name: image_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
     IfMatch:
       name: If-Match
       in: header
@@ -929,7 +986,7 @@ components:
           properties:
             code:
               type: string
-              enum: [INVALID_REQUEST, IDENTITY_TOKEN_INVALID, INVITATION_INVALID, INVITATION_EMAIL_MISMATCH, SELF_ROLE_CHANGE_FORBIDDEN, EMAIL_VERIFICATION_REQUIRED, UNAUTHENTICATED, RECENT_AUTH_REQUIRED, FORBIDDEN, NOT_FOUND, EMAIL_EXISTS, RESOURCE_CONFLICT, PROGRAM_TYPE_HAS_BENEFITS, PROGRAM_TYPE_IMMUTABLE, IDEMPOTENCY_CONFLICT, IDEMPOTENCY_IN_PROGRESS, PREVIEW_EXPIRED, PREVIEW_CONSUMED, PREVIEW_CHANGED, PRECONDITION_FAILED, OWNERSHIP_TRANSFER_REQUIRED, INSUFFICIENT_BALANCE, DEMO_SIGNUP_DISABLED, DEMO_ACCESS_DENIED, RATE_LIMITED, DEPENDENCY_UNAVAILABLE, INTERNAL_ERROR]
+              enum: [INVALID_REQUEST, IDENTITY_TOKEN_INVALID, INVITATION_INVALID, INVITATION_EMAIL_MISMATCH, SELF_ROLE_CHANGE_FORBIDDEN, EMAIL_VERIFICATION_REQUIRED, UNAUTHENTICATED, RECENT_AUTH_REQUIRED, FORBIDDEN, NOT_FOUND, EMAIL_EXISTS, RESOURCE_CONFLICT, PROGRAM_TYPE_HAS_BENEFITS, PROGRAM_TYPE_IMMUTABLE, IDEMPOTENCY_CONFLICT, IDEMPOTENCY_IN_PROGRESS, PREVIEW_EXPIRED, PREVIEW_CONSUMED, PREVIEW_CHANGED, PRECONDITION_FAILED, OWNERSHIP_TRANSFER_REQUIRED, INSUFFICIENT_BALANCE, DEMO_SIGNUP_DISABLED, DEMO_ACCESS_DENIED, MEDIA_TOO_LARGE, MEDIA_TYPE_UNSUPPORTED, MEDIA_STORAGE_UNAVAILABLE, RATE_LIMITED, DEPENDENCY_UNAVAILABLE, INTERNAL_ERROR]
             message: { type: string }
             details: { type: object, additionalProperties: true }
         request_id: { $ref: '#/components/schemas/RequestId' }
@@ -1332,6 +1389,40 @@ components:
         deleted_at: { type: [string, 'null'], format: date-time }
         created_at: { $ref: '#/components/schemas/Timestamp' }
         updated_at: { $ref: '#/components/schemas/Timestamp' }
+    BrandImage:
+      type: object
+      additionalProperties: false
+      required: [id, brand_id, tipo, mime_type, byte_size, sha256, width, height, estado, version, url, url_expires_at, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        brand_id: { type: integer, format: int64 }
+        tipo: { type: string, enum: [LOGO, ICONO, BENEFICIO] }
+        benefit_id: { type: integer, format: int64, minimum: 1 }
+        mime_type: { type: string, enum: [image/jpeg, image/png] }
+        byte_size: { type: integer, format: int64, minimum: 1, maximum: 5242880 }
+        sha256: { type: string, pattern: '^[0-9a-f]{64}$' }
+        width: { type: integer, minimum: 1, maximum: 4096 }
+        height: { type: integer, minimum: 1, maximum: 4096 }
+        estado: { type: string, const: ACTIVA }
+        version: { type: integer, minimum: 1 }
+        url: { type: string, format: uri }
+        url_expires_at: { $ref: '#/components/schemas/Timestamp' }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+    BrandImageEnvelope:
+      type: object
+      additionalProperties: false
+      required: [data, request_id]
+      properties:
+        data: { $ref: '#/components/schemas/BrandImage' }
+        request_id: { $ref: '#/components/schemas/RequestId' }
+    BrandImageListEnvelope:
+      type: object
+      additionalProperties: false
+      required: [data, request_id]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/BrandImage' } }
+        request_id: { $ref: '#/components/schemas/RequestId' }
     CreateBenefitRequest:
       oneOf:
         - type: object
