@@ -136,7 +136,7 @@ func Load() (Config, error) {
 	}
 	if c.MediaProvider == "s3" {
 		endpoint, endpointErr := url.Parse(c.S3Endpoint)
-		if endpointErr != nil || endpoint.Host == "" || (endpoint.Scheme != "http" && endpoint.Scheme != "https") || c.S3Bucket == "" || c.S3Region == "" || c.S3AccessKeyID == "" || c.S3SecretAccessKey == "" {
+		if endpointErr != nil || endpoint.Host == "" || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" || (endpoint.Scheme != "http" && endpoint.Scheme != "https") || c.S3Bucket == "" || c.S3Region == "" || c.S3AccessKeyID == "" || c.S3SecretAccessKey == "" {
 			return Config{}, errors.New("valid S3 endpoint, region, bucket and credentials are required")
 		}
 		if production && endpoint.Scheme != "https" {
@@ -145,6 +145,9 @@ func Load() (Config, error) {
 	}
 	if c.MediaURLTTL < time.Minute || c.MediaURLTTL > 15*time.Minute {
 		return Config{}, errors.New("MEDIA_URL_TTL_SECONDS must be between 60 and 900")
+	}
+	if c.MediaCleanupInterval < 5*time.Second || c.MediaCleanupInterval > time.Hour {
+		return Config{}, errors.New("MEDIA_CLEANUP_INTERVAL_SECONDS must be between 5 and 3600")
 	}
 	return c, nil
 }

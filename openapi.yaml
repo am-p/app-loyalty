@@ -717,6 +717,7 @@ paths:
         '413': { description: Archivo mayor a 5 MiB, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
         '415': { description: Tipo de imagen no soportado, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
         '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/RateLimited' }
         '503': { $ref: '#/components/responses/DependencyUnavailable' }
   /marcas/{brand_id}/imagenes/{image_id}:
     delete:

@@ -21,6 +21,8 @@ type S3 struct {
 	bucket    string
 }
 
+const operationTimeout = 10 * time.Second
+
 func NewS3(ctx context.Context, cfg config.Config) (*S3, error) {
 	awsCfg, err := awsconfig.LoadDefaultConfig(ctx,
 		awsconfig.WithRegion(cfg.S3Region),
@@ -37,6 +39,8 @@ func NewS3(ctx context.Context, cfg config.Config) (*S3, error) {
 }
 
 func (s *S3) Put(ctx context.Context, key, mime string, body, digest []byte) error {
+	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
+	defer cancel()
 	_, err := s.client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:         aws.String(s.bucket),
 		Key:            aws.String(key),
@@ -52,6 +56,8 @@ func (s *S3) Put(ctx context.Context, key, mime string, body, digest []byte) err
 }
 
 func (s *S3) Delete(ctx context.Context, key string) error {
+	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
+	defer cancel()
 	_, err := s.client.DeleteObject(ctx, &s3.DeleteObjectInput{Bucket: aws.String(s.bucket), Key: aws.String(key)})
 	if err != nil {
 		return fmt.Errorf("delete private media object: %w", err)
@@ -60,6 +66,8 @@ func (s *S3) Delete(ctx context.Context, key string) error {
 }
 
 func (s *S3) SignedGet(ctx context.Context, key string, ttl time.Duration) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
+	defer cancel()
 	result, err := s.presigner.PresignGetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(s.bucket), Key: aws.String(key)}, s3.WithPresignExpires(ttl))
 	if err != nil {
 		return "", fmt.Errorf("sign private media object: %w", err)

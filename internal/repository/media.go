@@ -8,6 +8,7 @@ import (
 	"clientesFrecuentes/internal/model"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func scanBrandImage(row rowScanner, item *model.BrandImage) error {
@@ -54,6 +55,10 @@ func (r *Repository) ReserveBrandImage(ctx context.Context, actorID, brandID int
 		_ = tx.QueryRow(ctx, `SELECT id FROM archivos_marca WHERE marca_id=$1 AND tipo=$2 AND estado='ACTIVA' FOR UPDATE`, brandID, item.Type).Scan(&replaces)
 	}
 	err = scanBrandImage(tx.QueryRow(ctx, `INSERT INTO archivos_marca(id,marca_id,tipo,beneficio_id,programa_id,object_key,mime_type,byte_size,sha256,width,height,estado,replaces_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'UPLOAD_PENDING',$12) RETURNING id,marca_id,tipo,beneficio_id,object_key,mime_type,byte_size,sha256,width,height,estado,version,created_at,updated_at`, item.ID, brandID, item.Type, item.BenefitID, programID, item.ObjectKey, item.MIMEType, item.ByteSize, digest, item.Width, item.Height, replaces), &item)
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		return item, ErrConflict
+	}
 	if err != nil {
 		return item, err
 	}

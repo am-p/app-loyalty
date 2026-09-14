@@ -1,9 +1,13 @@
 package handler
 
 import (
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
 
 	"clientesFrecuentes/internal/model"
 	"clientesFrecuentes/internal/service"
@@ -40,9 +44,21 @@ func (h *Handler) UploadBrandImage(c *gin.Context) {
 		writeErr(c, err)
 		return
 	}
+	if !h.limit(c, fmt.Sprintf("media-upload:%d:%d", a.ID, brandID), 20, time.Minute) {
+		return
+	}
+	if !strings.HasPrefix(c.GetHeader("Content-Type"), "multipart/form-data") {
+		writeErr(c, service.ErrMediaType)
+		return
+	}
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, (5<<20)+(64<<10))
 	if err = c.Request.ParseMultipartForm(64 << 10); err != nil {
-		writeErr(c, service.ErrMediaTooLarge)
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			writeErr(c, service.ErrMediaTooLarge)
+		} else {
+			writeErr(c, service.ErrInvalidRequest)
+		}
 		return
 	}
 	defer c.Request.MultipartForm.RemoveAll()
