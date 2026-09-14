@@ -1,0 +1,6 @@
+DROP INDEX email_outbox_retention_idx;
+DROP INDEX tokens_identidad_email_retention_idx;
+DROP INDEX sesiones_auth_retention_idx;
+DROP INDEX solicitudes_idempotentes_retention_idx;
+DROP INDEX previews_movimiento_retention_idx;
+ALTER TABLE email_outbox DROP COLUMN redacted_at;

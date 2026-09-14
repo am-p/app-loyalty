@@ -188,6 +188,16 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if _, err = pool.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES('0015')`); err != nil {
 		t.Fatal(err)
 	}
+	retentionMigration, err := os.ReadFile(filepath.Join("..", "..", "migrations", "0016_operational_retention.up.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, string(retentionMigration)); err != nil {
+		t.Fatalf("migration 0016: %v", err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES('0016')`); err != nil {
+		t.Fatal(err)
+	}
 	var legacyPasswordVerified, legacyGoogleVerified bool
 	if err = pool.QueryRow(ctx, `SELECT email_verified_at IS NOT NULL FROM usuarios WHERE email='legacy-password@example.com'`).Scan(&legacyPasswordVerified); err != nil {
 		t.Fatal(err)
@@ -204,7 +214,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	}
 	demoHash, _ := bcrypt.GenerateFromPassword([]byte("demo-access-code"), bcrypt.MinCost)
 	outboxKey := []byte("01234567890123456789012345678901")
-	cfg := config.Config{JWTSecret: "jwt-secret-0123456789012345678901", JWTIssuer: "puntazo", QRPepper: "qr-pepper-01234567890123456789012", DemoAccessCodeHash: string(demoHash), DemoSignupEnabled: true, ExpectedSchemaVersion: "0015", PublicAppURL: "https://app.puntazo.test", OutboxEncryptionKey: outboxKey, MediaURLTTL: 5 * time.Minute}
+	cfg := config.Config{JWTSecret: "jwt-secret-0123456789012345678901", JWTIssuer: "puntazo", QRPepper: "qr-pepper-01234567890123456789012", DemoAccessCodeHash: string(demoHash), DemoSignupEnabled: true, ExpectedSchemaVersion: "0016", PublicAppURL: "https://app.puntazo.test", OutboxEncryptionKey: outboxKey, MediaURLTTL: 5 * time.Minute}
 	repo := repository.New(pool, outboxKey)
 	tokens := auth.NewTokens(cfg.JWTSecret, cfg.JWTIssuer)
 	media := &fakeMediaStore{objects: map[string][]byte{}}
@@ -1102,7 +1112,48 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if err = repo.MarkEmailFailed(ctx, claimedEmails[1].ID, claimedEmails[1].LeaseOwner, claimedEmails[1].Attempts, errors.New("temporary smtp failure")); err != nil {
 		t.Fatal(err)
 	}
-	if err = repo.CheckSchema(ctx, "0015"); err != nil {
+	retentionNow := time.Now().UTC()
+	oldIdempotency := uuid.NewString()
+	recentIdempotency := uuid.NewString()
+	oldSession := uuid.NewString()
+	oldToken := uuid.NewString()
+	redactEmail := uuid.NewString()
+	deleteEmail := uuid.NewString()
+	retentionTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	retentionStatements := []struct {
+		query string
+		args  []any
+	}{
+		{`UPDATE previews_movimiento SET expires_at=$1 WHERE id=(SELECT id FROM previews_movimiento ORDER BY created_at LIMIT 1)`, []any{retentionNow.Add(-8 * 24 * time.Hour)}},
+		{`INSERT INTO solicitudes_idempotentes(idempotency_key,actor_scope,operacion,fingerprint,estado,response_status,response_body,completed_at,created_at) VALUES($1,'retention:test','TEST',decode(repeat('11',32),'hex'),'COMPLETED',200,'{}',$2,$2),($3,'retention:test','TEST',decode(repeat('12',32),'hex'),'COMPLETED',200,'{}',$4,$4)`, []any{oldIdempotency, retentionNow.Add(-31 * 24 * time.Hour), recentIdempotency, retentionNow}},
+		{`INSERT INTO sesiones_auth(id,usuario_id,refresh_hash,expires_at,revoked_at,created_at,family_id,auth_time) VALUES($1,$2,decode(repeat('13',32),'hex'),$3,$3,$4,$1,$4)`, []any{oldSession, customer.ID, retentionNow.Add(-31 * 24 * time.Hour), retentionNow.Add(-32 * 24 * time.Hour)}},
+		{`INSERT INTO tokens_identidad_email(id,usuario_id,proposito,token_hash,expires_at,consumed_at,created_at) VALUES($1,$2,'RESET_PASSWORD',decode(repeat('14',32),'hex'),$3,$3,$4)`, []any{oldToken, customer.ID, retentionNow.Add(-31 * 24 * time.Hour), retentionNow.Add(-32 * 24 * time.Hour)}},
+		{`INSERT INTO email_outbox(id,usuario_id,tipo,destinatario,asunto,estado,intentos,disponible_at,ultimo_error,created_at) VALUES($1,$2,'RESET_PASSWORD','redact@example.com','old','FAILED',1,$3,'secret error',$3),($4,$2,'RESET_PASSWORD','delete@example.com','old','FAILED',1,$5,'secret error',$5)`, []any{redactEmail, customer.ID, retentionNow.Add(-8 * 24 * time.Hour), deleteEmail, retentionNow.Add(-31 * 24 * time.Hour)}},
+	}
+	for _, fixture := range retentionStatements {
+		if _, err = retentionTx.Exec(ctx, fixture.query, fixture.args...); err != nil {
+			_ = retentionTx.Rollback(ctx)
+			t.Fatalf("retention fixtures: %v", err)
+		}
+	}
+	if err = retentionTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	stats, err := repo.ApplyRetention(ctx, repository.RetentionPolicy{Now: retentionNow, BatchSize: 100, PreviewRetention: 7 * 24 * time.Hour, IdempotencyRetention: 30 * 24 * time.Hour, SessionRetention: 30 * 24 * time.Hour, IdentityRetention: 7 * 24 * time.Hour, OutboxRedactAfter: 7 * 24 * time.Hour, OutboxRetention: 30 * 24 * time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.PreviewsDeleted < 1 || stats.IdempotenciesDeleted != 1 || stats.SessionsDeleted != 1 || stats.IdentityTokensDeleted != 1 || stats.OutboxRedacted < 1 || stats.OutboxDeleted != 1 {
+		t.Fatalf("retention stats=%+v", stats)
+	}
+	var recentExists, redacted bool
+	if err = pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM solicitudes_idempotentes WHERE idempotency_key=$1),EXISTS(SELECT 1 FROM email_outbox WHERE id=$2 AND redacted_at IS NOT NULL AND destinatario::text LIKE 'redacted-%@anon.invalid' AND ultimo_error IS NULL)`, recentIdempotency, redactEmail).Scan(&recentExists, &redacted); err != nil || !recentExists || !redacted {
+		t.Fatalf("retention preservation recent=%t redacted=%t err=%v", recentExists, redacted, err)
+	}
+	if err = repo.CheckSchema(ctx, "0016"); err != nil {
 		t.Fatal(err)
 	}
 	if err = repo.CheckSchema(ctx, "9999"); err == nil {

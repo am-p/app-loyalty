@@ -14,7 +14,7 @@ import (
 	"clientesFrecuentes/internal/config"
 	"clientesFrecuentes/internal/handler"
 	"clientesFrecuentes/internal/mailer"
-	"clientesFrecuentes/internal/mediaworker"
+	"clientesFrecuentes/internal/maintenance"
 	"clientesFrecuentes/internal/middleware"
 	"clientesFrecuentes/internal/repository"
 	"clientesFrecuentes/internal/service"
@@ -59,8 +59,8 @@ func main() {
 			logger.Error("media storage failed", "error", err)
 			os.Exit(1)
 		}
-		go (mediaworker.Worker{Repo: repo, Store: mediaStore, Logger: logger, Interval: cfg.MediaCleanupInterval}).Run(workerCtx)
 	}
+	go (maintenance.Worker{Repo: repo, Store: mediaStore, Logger: logger, Config: cfg}).Run(workerCtx)
 	svc := service.New(repo, tokens, cfg, mediaStore)
 	h := &handler.Handler{Service: svc, Repo: repo, Limiter: middleware.NewRateLimiter(), Logger: logger, TrustedProxyCount: cfg.TrustedProxyCount}
 	router := newRouter(h, tokens, logger)
