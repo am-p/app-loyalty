@@ -164,3 +164,16 @@ func (h *Handler) UpdateMe(c *gin.Context) {
 	c.Header("ETag", accountETag(data.User.Version))
 	c.JSON(http.StatusOK, web.Envelope[model.CurrentUser]{Data: data, RequestID: web.RequestID(c)})
 }
+
+func (h *Handler) ExportMe(c *gin.Context) {
+	a, ok := actor(c)
+	if !ok {
+		return
+	}
+	data, err := h.Service.ExportCurrentUser(c.Request.Context(), a.ID)
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, web.Envelope[model.AccountExport]{Data: data, RequestID: web.RequestID(c)})
+}

@@ -91,6 +91,23 @@ type CurrentUser struct {
 	Memberships        []Membership `json:"memberships"`
 	OnboardingComplete bool         `json:"onboarding_complete"`
 }
+type AccountExportCard struct {
+	ID            int64     `json:"id"`
+	BrandID       int64     `json:"brand_id"`
+	BrandName     string    `json:"brand_name"`
+	BalanceStamps int64     `json:"balance_stamps"`
+	BalancePoints int64     `json:"balance_points"`
+	Active        bool      `json:"active"`
+	Version       int       `json:"version"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+type AccountExport struct {
+	ExportedAt  time.Time           `json:"exported_at"`
+	User        User                `json:"usuario"`
+	Memberships []Membership        `json:"membresias"`
+	Cards       []AccountExportCard `json:"tarjetas"`
+	Movements   []Movement          `json:"movimientos"`
+}
 type Customer struct {
 	ID      int64  `json:"id"`
 	Email   string `json:"email"`

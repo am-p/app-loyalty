@@ -30,6 +30,10 @@ func (s *Service) UpdateCurrentUser(ctx context.Context, actorID int64, expected
 	return s.Repo.UpdateAccount(ctx, actorID, expectedVersion, req)
 }
 
+func (s *Service) ExportCurrentUser(ctx context.Context, actorID int64) (model.AccountExport, error) {
+	return s.Repo.ExportAccount(ctx, actorID)
+}
+
 func normalizeOptional(value **string, limit int) bool {
 	if *value == nil {
 		return true

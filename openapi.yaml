@@ -284,6 +284,19 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+  /me/export:
+    get:
+      tags: [Cuenta]
+      operationId: exportCurrentUserData
+      summary: Exporta perfil, membresías, tarjetas propias y movimientos del actor
+      x-puntazo-implementation: IMPLEMENTED
+      responses:
+        '200':
+          description: Exportación JSON consistente de los datos autorizados
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AccountExportEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
   /marcas:
     get:
       tags: [Marcas]
@@ -824,6 +837,42 @@ components:
       required: [data, request_id]
       properties:
         data: { $ref: '#/components/schemas/CurrentUser' }
+        request_id: { $ref: '#/components/schemas/RequestId' }
+    AccountExportCard:
+      type: object
+      additionalProperties: false
+      required: [id, brand_id, brand_name, balance_stamps, balance_points, active, version, created_at]
+      properties:
+        id: { type: integer, format: int64 }
+        brand_id: { type: integer, format: int64 }
+        brand_name: { type: string }
+        balance_stamps: { type: integer, format: int64, minimum: 0 }
+        balance_points: { type: integer, format: int64, minimum: 0 }
+        active: { type: boolean }
+        version: { type: integer, minimum: 1 }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+    AccountExport:
+      type: object
+      additionalProperties: false
+      required: [exported_at, usuario, membresias, tarjetas, movimientos]
+      properties:
+        exported_at: { $ref: '#/components/schemas/Timestamp' }
+        usuario: { $ref: '#/components/schemas/User' }
+        membresias:
+          type: array
+          items: { $ref: '#/components/schemas/Membership' }
+        tarjetas:
+          type: array
+          items: { $ref: '#/components/schemas/AccountExportCard' }
+        movimientos:
+          type: array
+          items: { $ref: '#/components/schemas/Movement' }
+    AccountExportEnvelope:
+      type: object
+      additionalProperties: false
+      required: [data, request_id]
+      properties:
+        data: { $ref: '#/components/schemas/AccountExport' }
         request_id: { $ref: '#/components/schemas/RequestId' }
     DemoAccess:
       type: object

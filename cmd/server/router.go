@@ -25,6 +25,7 @@ func newRouter(h *handler.Handler, tokens *auth.Tokens, logger *slog.Logger) *gi
 	authenticated.Use(middleware.RequireAuth(tokens, h.Repo))
 	authenticated.GET("/me", h.Me)
 	authenticated.PATCH("/me", h.UpdateMe)
+	authenticated.GET("/me/export", h.ExportMe)
 	authenticated.POST("/auth/logout", h.Logout)
 	registerMerchantRoutes(authenticated, h)
 	registerCustomerRoutes(authenticated, h)
