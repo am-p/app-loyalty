@@ -456,9 +456,31 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	confirmKey := uuid.NewString()
-	confirmed, err := svc.ConfirmAccumulation(ctx, merchant.User.ID, confirmKey, uuid.NewString(), confirmReq)
-	if err != nil {
-		t.Fatal(err)
+	var confirmed repository.IdempotentResult
+	var wg sync.WaitGroup
+	programMovementErrs := make(chan error, 2)
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		_, updateErr := svc.UpdateProgram(ctx, merchant.User.ID, merchant.Merchant.BrandID, merchant.Merchant.Program.Version, model.UpdateProgramRequest{Type: "SELLOS", UnitName: "sellos actualizados", Active: true})
+		programMovementErrs <- updateErr
+	}()
+	go func() {
+		defer wg.Done()
+		var confirmErr error
+		confirmed, confirmErr = svc.ConfirmAccumulation(ctx, merchant.User.ID, confirmKey, uuid.NewString(), confirmReq)
+		programMovementErrs <- confirmErr
+	}()
+	wg.Wait()
+	close(programMovementErrs)
+	for operationErr := range programMovementErrs {
+		if operationErr != nil {
+			t.Fatalf("program/first movement serialization: %v", operationErr)
+		}
+	}
+	var firstMovementCount int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM historial_movimientos WHERE marca_id=$1`, merchant.Merchant.BrandID).Scan(&firstMovementCount); err != nil || firstMovementCount != 1 {
+		t.Fatalf("first movement count=%d err=%v", firstMovementCount, err)
 	}
 	if _, err = pool.Exec(ctx, `UPDATE marcas SET nombre='Brand renombrada' WHERE id=$1`, merchant.Merchant.BrandID); err != nil {
 		t.Fatal(err)
@@ -545,7 +567,6 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	p1, _ := svc.Preview(ctx, merchant.User.ID, redemptionReq)
 	p2, _ := svc.Preview(ctx, merchant.User.ID, redemptionReq)
 	errs := make(chan error, 2)
-	var wg sync.WaitGroup
 	for _, p := range []model.Preview{p1, p2} {
 		wg.Add(1)
 		go func(p model.Preview) {
