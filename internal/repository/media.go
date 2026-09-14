@@ -88,7 +88,7 @@ func (r *Repository) ActivateBrandImage(ctx context.Context, actorID int64, id s
 	defer tx.Rollback(ctx)
 	var brandID int64
 	var replaces *string
-	if err = tx.QueryRow(ctx, `SELECT a.marca_id,a.replaces_id FROM archivos_marca a JOIN membresias_marca mm ON mm.marca_id=a.marca_id AND mm.usuario_id=$1 AND mm.activo AND mm.rol IN ('PROPIETARIO','ADMINISTRADOR') JOIN marcas m ON m.id=a.marca_id WHERE a.id=$2 AND a.estado='UPLOAD_PENDING' FOR UPDATE OF m`, actorID, id).Scan(&brandID, &replaces); errors.Is(err, pgx.ErrNoRows) {
+	if err = tx.QueryRow(ctx, `SELECT a.marca_id,a.replaces_id FROM archivos_marca a JOIN membresias_marca mm ON mm.marca_id=a.marca_id AND mm.usuario_id=$1 AND mm.activo AND mm.rol IN ('PROPIETARIO','ADMINISTRADOR') JOIN marcas m ON m.id=a.marca_id AND m.activo WHERE a.id=$2 AND a.estado='UPLOAD_PENDING' FOR UPDATE OF m`, actorID, id).Scan(&brandID, &replaces); errors.Is(err, pgx.ErrNoRows) {
 		return model.BrandImage{}, ErrNotFound
 	} else if err != nil {
 		return model.BrandImage{}, err
@@ -107,7 +107,7 @@ func (r *Repository) ActivateBrandImage(ctx context.Context, actorID int64, id s
 }
 
 func (r *Repository) FailBrandImage(ctx context.Context, id string, failure string) {
-	_, _ = r.Pool.Exec(ctx, `UPDATE archivos_marca SET estado='UPLOAD_FAILED',last_error=left($2,1000),updated_at=now() WHERE id=$1 AND estado='UPLOAD_PENDING'`, id, failure)
+	_, _ = r.Pool.Exec(ctx, `UPDATE archivos_marca SET estado='UPLOAD_FAILED',delete_after=now(),last_error=left($2,1000),updated_at=now() WHERE id=$1 AND estado='UPLOAD_PENDING'`, id, failure)
 }
 
 func (r *Repository) ListBrandImages(ctx context.Context, actorID, brandID int64) ([]model.BrandImage, error) {
@@ -152,10 +152,10 @@ func (r *Repository) DeleteBrandImage(ctx context.Context, actorID, brandID int6
 	return ErrNotFound
 }
 
-type MediaDeletion struct{ ID, ObjectKey string }
+type MediaDeletion struct{ ID, ObjectKey, Status string }
 
-func (r *Repository) DueBrandMedia(ctx context.Context, limit int) ([]MediaDeletion, error) {
-	rows, err := r.Pool.Query(ctx, `UPDATE archivos_marca SET delete_after=now()+interval '5 minutes',updated_at=now() WHERE id IN(SELECT id FROM archivos_marca WHERE estado='DELETE_PENDING' AND delete_after<=now() ORDER BY delete_after LIMIT $1 FOR UPDATE SKIP LOCKED) RETURNING id,object_key`, limit)
+func (r *Repository) DueBrandMedia(ctx context.Context, limit int, leaseOwner string) ([]MediaDeletion, error) {
+	rows, err := r.Pool.Query(ctx, `UPDATE archivos_marca SET lease_owner=$2,lease_until=now()+interval '5 minutes',updated_at=now() WHERE id IN(SELECT id FROM archivos_marca WHERE (lease_until IS NULL OR lease_until<now()) AND COALESCE(delete_after,now())<=now() AND ((estado='DELETE_PENDING' AND delete_after<=now()) OR estado='UPLOAD_FAILED' OR (estado='UPLOAD_PENDING' AND created_at<now()-interval '15 minutes')) ORDER BY COALESCE(delete_after,created_at),id LIMIT $1 FOR UPDATE SKIP LOCKED) RETURNING id,object_key,estado`, limit, leaseOwner)
 	if err != nil {
 		return nil, err
 	}
@@ -163,18 +163,26 @@ func (r *Repository) DueBrandMedia(ctx context.Context, limit int) ([]MediaDelet
 	out := []MediaDeletion{}
 	for rows.Next() {
 		var x MediaDeletion
-		if err = rows.Scan(&x.ID, &x.ObjectKey); err != nil {
+		if err = rows.Scan(&x.ID, &x.ObjectKey, &x.Status); err != nil {
 			return nil, err
 		}
 		out = append(out, x)
 	}
 	return out, rows.Err()
 }
-func (r *Repository) CompleteBrandMediaDeletion(ctx context.Context, id string, errText string) error {
+func (r *Repository) CompleteBrandMediaDeletion(ctx context.Context, id, leaseOwner, errText string) error {
+	var tag pgconn.CommandTag
+	var err error
 	if errText != "" {
-		_, err := r.Pool.Exec(ctx, `UPDATE archivos_marca SET delete_after=now()+interval '1 hour',last_error=left($2,1000),updated_at=now() WHERE id=$1 AND estado='DELETE_PENDING'`, id, errText)
+		tag, err = r.Pool.Exec(ctx, `UPDATE archivos_marca SET delete_after=now()+interval '1 hour',lease_owner=NULL,lease_until=NULL,last_error=left($3,1000),updated_at=now() WHERE id=$1 AND lease_owner=$2 AND estado IN ('DELETE_PENDING','UPLOAD_PENDING','UPLOAD_FAILED')`, id, leaseOwner, errText)
+	} else {
+		tag, err = r.Pool.Exec(ctx, `UPDATE archivos_marca SET estado='DELETED',delete_after=NULL,object_key='deleted/'||id::text,lease_owner=NULL,lease_until=NULL,last_error=NULL,deleted_at=now(),updated_at=now() WHERE id=$1 AND lease_owner=$2 AND estado IN ('DELETE_PENDING','UPLOAD_PENDING','UPLOAD_FAILED')`, id, leaseOwner)
+	}
+	if err != nil {
 		return err
 	}
-	_, err := r.Pool.Exec(ctx, `UPDATE archivos_marca SET estado='DELETED',delete_after=NULL,object_key='deleted/'||id::text,last_error=NULL,deleted_at=now(),updated_at=now() WHERE id=$1 AND estado='DELETE_PENDING'`, id)
-	return err
+	if tag.RowsAffected() != 1 {
+		return ErrConflict
+	}
+	return nil
 }

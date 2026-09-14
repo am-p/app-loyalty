@@ -7,6 +7,7 @@ import (
 
 	"clientesFrecuentes/internal/config"
 	"clientesFrecuentes/internal/repository"
+	"github.com/google/uuid"
 )
 
 type Store interface {
@@ -18,15 +19,19 @@ type Observer interface {
 }
 
 type Worker struct {
-	Repo     *repository.Repository
-	Store    Store
-	Logger   *slog.Logger
-	Config   config.Config
-	Observer Observer
-	Now      func() time.Time
+	Repo       *repository.Repository
+	Store      Store
+	Logger     *slog.Logger
+	Config     config.Config
+	Observer   Observer
+	Now        func() time.Time
+	LeaseOwner string
 }
 
 func (w Worker) Run(ctx context.Context) {
+	if w.LeaseOwner == "" {
+		w.LeaseOwner = uuid.NewString()
+	}
 	retentionTicker := time.NewTicker(w.Config.RetentionInterval)
 	defer retentionTicker.Stop()
 	mediaTicker := time.NewTicker(w.Config.MediaCleanupInterval)
@@ -65,7 +70,11 @@ func (w Worker) RunMediaCleanup(ctx context.Context) {
 		return
 	}
 	started := time.Now()
-	items, err := w.Repo.DueBrandMedia(ctx, w.Config.RetentionBatchSize)
+	leaseOwner := w.LeaseOwner
+	if leaseOwner == "" {
+		leaseOwner = uuid.NewString()
+	}
+	items, err := w.Repo.DueBrandMedia(ctx, w.Config.RetentionBatchSize, leaseOwner)
 	if err != nil {
 		w.Logger.Error("media cleanup claim failed", "error", err)
 		if w.Observer != nil {
@@ -74,19 +83,23 @@ func (w Worker) RunMediaCleanup(ctx context.Context) {
 		return
 	}
 	var completed int64
+	var batchErr error
 	for _, item := range items {
 		failure := ""
-		if err = w.Store.Delete(ctx, item.ObjectKey); err != nil {
-			failure = err.Error()
+		deleteErr := w.Store.Delete(ctx, item.ObjectKey)
+		if deleteErr != nil {
+			failure = deleteErr.Error()
+			batchErr = deleteErr
+			w.Logger.Warn("media object deletion failed", "image_id", item.ID, "status", item.Status, "error", deleteErr)
 		}
-		if completionErr := w.Repo.CompleteBrandMediaDeletion(ctx, item.ID, failure); completionErr != nil {
+		if completionErr := w.Repo.CompleteBrandMediaDeletion(ctx, item.ID, leaseOwner, failure); completionErr != nil {
 			w.Logger.Error("media cleanup completion failed", "image_id", item.ID, "error", completionErr)
-			err = completionErr
+			batchErr = completionErr
 		} else if failure == "" {
 			completed++
 		}
 	}
 	if w.Observer != nil {
-		w.Observer.ObserveRetention("media", completed, time.Since(started), err)
+		w.Observer.ObserveRetention("media", completed, time.Since(started), batchErr)
 	}
 }

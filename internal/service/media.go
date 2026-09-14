@@ -9,6 +9,7 @@ import (
 	"image/jpeg"
 	"image/png"
 	"strings"
+	"time"
 
 	"clientesFrecuentes/internal/model"
 
@@ -115,18 +116,24 @@ func (s *Service) UploadBrandImage(ctx context.Context, actorID, brandID int64, 
 	if err != nil {
 		return item, err
 	}
+	compensationCtx, cancelCompensation := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancelCompensation()
 	if err = s.Media.Put(ctx, item.ObjectKey, mime, body, digest); err != nil {
-		s.Repo.FailBrandImage(ctx, id, err.Error())
+		s.Repo.FailBrandImage(compensationCtx, id, err.Error())
 		return model.BrandImage{}, ErrMediaUnavailable
 	}
 	objectKey := item.ObjectKey
 	item, err = s.Repo.ActivateBrandImage(ctx, actorID, id)
 	if err != nil {
-		_ = s.Media.Delete(ctx, objectKey)
-		s.Repo.FailBrandImage(ctx, id, err.Error())
+		_ = s.Media.Delete(compensationCtx, objectKey)
+		s.Repo.FailBrandImage(compensationCtx, id, err.Error())
 		return model.BrandImage{}, err
 	}
-	return s.signBrandImage(ctx, item)
+	signed, signErr := s.signBrandImage(ctx, item)
+	if signErr != nil {
+		return item, nil
+	}
+	return signed, nil
 }
 
 func (s *Service) BrandImages(ctx context.Context, actorID, brandID int64) ([]model.BrandImage, error) {
