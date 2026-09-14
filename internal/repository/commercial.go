@@ -60,6 +60,12 @@ func (r *Repository) DeleteBrand(ctx context.Context, actorID, brandID int64, ve
 	if tag.RowsAffected() != 1 {
 		return ErrPreconditionFailed
 	}
+	if _, err = tx.Exec(ctx, `UPDATE email_outbox SET estado='FAILED',ultimo_error='brand deleted',token_ciphertext=NULL,token_nonce=NULL,token_expires_at=NULL,lease_until=NULL,lease_owner=NULL WHERE invitation_id IN(SELECT id FROM invitaciones_marca WHERE marca_id=$1 AND estado='PENDIENTE') AND estado IN('PENDING','SENDING')`, brandID); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE invitaciones_marca SET estado='REVOCADA',version=version+1,updated_at=now() WHERE marca_id=$1 AND estado='PENDIENTE'`, brandID); err != nil {
+		return err
+	}
 	for _, q := range []string{`UPDATE sucursales SET activo=false,deleted_at=COALESCE(deleted_at,now()),version=version+1,updated_at=now() WHERE marca_id=$1 AND activo`, `UPDATE programas_fidelidad SET activo=false,version=version+1,updated_at=now() WHERE marca_id=$1 AND activo`, `UPDATE beneficios SET activo=false,deleted_at=COALESCE(deleted_at,now()),version=version+1,updated_at=now() WHERE programa_id IN(SELECT id FROM programas_fidelidad WHERE marca_id=$1) AND activo`, `UPDATE tarjetas SET activo=false,deleted_at=COALESCE(deleted_at,now()),version=version+1 WHERE marca_id=$1 AND activo`, `UPDATE archivos_marca SET estado='DELETE_PENDING',delete_after=now()+interval '24 hours',lease_owner=NULL,lease_until=NULL,version=version+1,updated_at=now() WHERE marca_id=$1 AND estado IN ('ACTIVA','UPLOAD_PENDING','UPLOAD_FAILED')`, `UPDATE membresias_marca SET activo=false WHERE marca_id=$1`, `UPDATE accesos_demo SET activo=false WHERE marca_id=$1`} {
 		if _, err = tx.Exec(ctx, q, brandID); err != nil {
 			return err

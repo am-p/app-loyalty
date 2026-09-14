@@ -149,6 +149,9 @@ func (s *Service) UpdateStaff(ctx context.Context, actorID, brandID, membershipI
 		if req.Role != nil && *req.Role == "OPERADOR" && len(*req.BranchIDs) == 0 {
 			return model.StaffMember{}, ErrInvalidRequest
 		}
+		if req.Role != nil && *req.Role == "ADMINISTRADOR" && len(*req.BranchIDs) != 0 {
+			return model.StaffMember{}, ErrInvalidRequest
+		}
 	}
 	var result model.StaffMember
 	err := retry(ctx, func() error {

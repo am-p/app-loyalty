@@ -247,7 +247,7 @@ func (r *Repository) AcceptInvitation(ctx context.Context, actorID int64, hash [
 	var id uuid.UUID
 	var brandID int64
 	var invitedEmail, actorEmail, role, accountType string
-	err = tx.QueryRow(ctx, `SELECT id,marca_id,email::text,rol FROM invitaciones_marca WHERE token_hash=$1 AND estado='PENDIENTE' AND expires_at>$2 FOR UPDATE`, hash, now).Scan(&id, &brandID, &invitedEmail, &role)
+	err = tx.QueryRow(ctx, `SELECT i.id,i.marca_id,i.email::text,i.rol FROM invitaciones_marca i JOIN marcas m ON m.id=i.marca_id AND m.activo AND m.deleted_at IS NULL WHERE i.token_hash=$1 AND i.estado='PENDIENTE' AND i.expires_at>$2 FOR UPDATE OF i,m`, hash, now).Scan(&id, &brandID, &invitedEmail, &role)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.StaffMember{}, ErrInvitationInvalid
 	}
@@ -363,7 +363,14 @@ func (r *Repository) UpdateStaff(ctx context.Context, actorID, brandID, membersh
 	if tag.RowsAffected() != 1 {
 		return model.StaffMember{}, ErrPreconditionFailed
 	}
-	if req.BranchIDs != nil {
+	if role == "ADMINISTRADOR" {
+		if req.BranchIDs != nil && len(*req.BranchIDs) != 0 {
+			return model.StaffMember{}, ErrInvalidRequest
+		}
+		if _, err = tx.Exec(ctx, `UPDATE membresias_sucursales SET activo=false WHERE membresia_id=$1 AND activo`, membershipID); err != nil {
+			return model.StaffMember{}, err
+		}
+	} else if req.BranchIDs != nil {
 		if err = validateInvitationBranches(ctx, tx, brandID, *req.BranchIDs); err != nil {
 			return model.StaffMember{}, err
 		}
