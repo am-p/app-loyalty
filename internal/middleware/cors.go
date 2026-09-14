@@ -11,9 +11,9 @@ import (
 
 func CORS() gin.HandlerFunc {
 	config := cors.Config{
-		AllowMethods:     []string{"GET", "POST", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "Idempotency-Key", "X-Demo-Access-Code", "X-Request-ID"},
-		ExposeHeaders:    []string{"Idempotent-Replayed", "Retry-After", "X-Request-ID"},
+		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "If-Match", "Idempotency-Key", "X-Demo-Access-Code", "X-Request-ID"},
+		ExposeHeaders:    []string{"ETag", "Idempotent-Replayed", "Retry-After", "X-Request-ID"},
 		AllowCredentials: false,
 		MaxAge:           12 * time.Hour,
 	}

@@ -1,0 +1,63 @@
+package middleware
+
+import (
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/gin-gonic/gin"
+)
+
+func TestCORSPreflightAllowsVersionedMutations(t *testing.T) {
+	t.Setenv("CORS_ORIGINS", "https://app.puntazo.test")
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(CORS())
+	router.PATCH("/resource", func(c *gin.Context) {
+		c.Header("ETag", `"7"`)
+		c.Status(http.StatusNoContent)
+	})
+
+	request := httptest.NewRequest(http.MethodOptions, "/resource", nil)
+	request.Header.Set("Origin", "https://app.puntazo.test")
+	request.Header.Set("Access-Control-Request-Method", http.MethodPatch)
+	request.Header.Set("Access-Control-Request-Headers", "authorization,content-type,if-match,idempotency-key")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("preflight status=%d body=%s", response.Code, response.Body.String())
+	}
+	if got := response.Header().Get("Access-Control-Allow-Origin"); got != "https://app.puntazo.test" {
+		t.Fatalf("allow origin=%q", got)
+	}
+	allowMethods := response.Header().Get("Access-Control-Allow-Methods")
+	if !strings.Contains(allowMethods, http.MethodPatch) || !strings.Contains(allowMethods, http.MethodDelete) {
+		t.Fatalf("allow methods=%q", allowMethods)
+	}
+	allowHeaders := strings.ToLower(response.Header().Get("Access-Control-Allow-Headers"))
+	for _, required := range []string{"authorization", "content-type", "if-match", "idempotency-key"} {
+		if !strings.Contains(allowHeaders, required) {
+			t.Fatalf("allow headers=%q missing=%q", allowHeaders, required)
+		}
+	}
+}
+
+func TestCORSExposesETag(t *testing.T) {
+	t.Setenv("CORS_ORIGINS", "https://app.puntazo.test")
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(CORS())
+	router.GET("/resource", func(c *gin.Context) {
+		c.Header("ETag", `"7"`)
+		c.Status(http.StatusNoContent)
+	})
+	request := httptest.NewRequest(http.MethodGet, "/resource", nil)
+	request.Header.Set("Origin", "https://app.puntazo.test")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if exposed := strings.ToLower(response.Header().Get("Access-Control-Expose-Headers")); !strings.Contains(exposed, "etag") {
+		t.Fatalf("exposed headers=%q", exposed)
+	}
+}
