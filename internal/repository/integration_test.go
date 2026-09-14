@@ -144,6 +144,16 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if _, err = pool.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES('0011')`); err != nil {
 		t.Fatal(err)
 	}
+	commercialMigration, err := os.ReadFile(filepath.Join("..", "..", "migrations", "0012_commercial_editing.up.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, string(commercialMigration)); err != nil {
+		t.Fatalf("migration 0012: %v", err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES('0012')`); err != nil {
+		t.Fatal(err)
+	}
 	var legacyPasswordVerified, legacyGoogleVerified bool
 	if err = pool.QueryRow(ctx, `SELECT email_verified_at IS NOT NULL FROM usuarios WHERE email='legacy-password@example.com'`).Scan(&legacyPasswordVerified); err != nil {
 		t.Fatal(err)
@@ -160,7 +170,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	}
 	demoHash, _ := bcrypt.GenerateFromPassword([]byte("demo-access-code"), bcrypt.MinCost)
 	outboxKey := []byte("01234567890123456789012345678901")
-	cfg := config.Config{JWTSecret: "jwt-secret-0123456789012345678901", JWTIssuer: "puntazo", QRPepper: "qr-pepper-01234567890123456789012", DemoAccessCodeHash: string(demoHash), DemoSignupEnabled: true, ExpectedSchemaVersion: "0011", PublicAppURL: "https://app.puntazo.test", OutboxEncryptionKey: outboxKey}
+	cfg := config.Config{JWTSecret: "jwt-secret-0123456789012345678901", JWTIssuer: "puntazo", QRPepper: "qr-pepper-01234567890123456789012", DemoAccessCodeHash: string(demoHash), DemoSignupEnabled: true, ExpectedSchemaVersion: "0012", PublicAppURL: "https://app.puntazo.test", OutboxEncryptionKey: outboxKey}
 	repo := repository.New(pool, outboxKey)
 	tokens := auth.NewTokens(cfg.JWTSecret, cfg.JWTIssuer)
 	svc := service.New(repo, tokens, cfg)
@@ -637,6 +647,67 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if _, err = pool.Exec(ctx, `UPDATE membresias_marca SET activo=true WHERE usuario_id=$1 AND marca_id=$2`, merchant.User.ID, merchant.Merchant.BrandID); err != nil {
 		t.Fatal(err)
 	}
+	brandNameA, brandNameB := "Marca editada A", "Marca editada B"
+	brandEditErrs := make(chan error, 2)
+	for _, name := range []*string{&brandNameA, &brandNameB} {
+		wg.Add(1)
+		go func(name *string) {
+			defer wg.Done()
+			_, updateErr := svc.UpdateBrand(ctx, merchant.User.ID, merchant.Merchant.BrandID, 1, model.UpdateBrandRequest{Name: name})
+			brandEditErrs <- updateErr
+		}(name)
+	}
+	wg.Wait()
+	close(brandEditErrs)
+	brandUpdates := 0
+	for updateErr := range brandEditErrs {
+		if updateErr == nil {
+			brandUpdates++
+		} else if !errors.Is(updateErr, repository.ErrPreconditionFailed) {
+			t.Fatal(updateErr)
+		}
+	}
+	if brandUpdates != 1 {
+		t.Fatalf("concurrent brand updates=%d", brandUpdates)
+	}
+	commercialBrand, err := svc.Brand(ctx, merchant.User.ID, merchant.Merchant.BrandID)
+	if err != nil || commercialBrand.BrandVersion != 2 {
+		t.Fatalf("brand edit=%+v err=%v", commercialBrand, err)
+	}
+	newBranch, err := svc.CreateBranch(ctx, merchant.User.ID, merchant.Merchant.BrandID, model.CreateBranchRequest{Name: "Secundaria"})
+	if err != nil || newBranch.Primary {
+		t.Fatalf("create branch=%+v err=%v", newBranch, err)
+	}
+	makePrimary := true
+	newBranch, err = svc.UpdateBranch(ctx, merchant.User.ID, merchant.Merchant.BrandID, newBranch.ID, newBranch.Version, model.UpdateBranchRequest{Name: "Secundaria", Primary: &makePrimary})
+	if err != nil || !newBranch.Primary {
+		t.Fatalf("promote branch=%+v err=%v", newBranch, err)
+	}
+	oldBranch, err := svc.Branch(ctx, merchant.User.ID, merchant.Merchant.BrandID, merchant.Merchant.Branch.ID)
+	if err != nil || oldBranch.Primary {
+		t.Fatalf("old primary=%+v err=%v", oldBranch, err)
+	}
+	if err = svc.DeleteBranch(ctx, merchant.User.ID, merchant.Merchant.BrandID, oldBranch.ID, oldBranch.Version); err != nil {
+		t.Fatal(err)
+	}
+	if err = svc.DeleteBranch(ctx, merchant.User.ID, merchant.Merchant.BrandID, newBranch.ID, newBranch.Version); !errors.Is(err, repository.ErrConflict) {
+		t.Fatalf("deleted primary branch: %v", err)
+	}
+	if _, err = svc.UpdateProgram(ctx, merchant.User.ID, merchant.Merchant.BrandID, commercialBrand.Program.Version, model.UpdateProgramRequest{Type: "PUNTOS", UnitName: "puntos", Active: true}); !errors.Is(err, repository.ErrProgramTypeImmutable) {
+		t.Fatalf("program type mutation=%v", err)
+	}
+	benefitCurrent, err := svc.Benefit(ctx, merchant.User.ID, merchant.Merchant.BrandID, benefit.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	benefitCurrent, err = svc.ReplaceBenefit(ctx, merchant.User.ID, merchant.Merchant.BrandID, benefit.ID, benefitCurrent.Version, model.ReplaceBenefitRequest{Name: "Premio archivado", Description: "Histórico", Requirement: 5, Active: false})
+	if err != nil || benefitCurrent.Active {
+		t.Fatalf("deactivate benefit=%+v err=%v", benefitCurrent, err)
+	}
+	benefitCurrent, err = svc.ReplaceBenefit(ctx, merchant.User.ID, merchant.Merchant.BrandID, benefit.ID, benefitCurrent.Version, model.ReplaceBenefitRequest{Name: "Premio activo", Description: "Restaurado", Requirement: 6, Active: true})
+	if err != nil || !benefitCurrent.Active || benefitCurrent.DeletedAt != nil {
+		t.Fatalf("reactivate benefit=%+v err=%v", benefitCurrent, err)
+	}
 	current, err := svc.CurrentUser(ctx, customer.ID)
 	if err != nil || current.User.Version != 1 {
 		t.Fatalf("current account=%+v err=%v", current, err)
@@ -726,7 +797,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if err = repo.MarkEmailFailed(ctx, claimedEmails[1].ID, claimedEmails[1].LeaseOwner, claimedEmails[1].Attempts, errors.New("temporary smtp failure")); err != nil {
 		t.Fatal(err)
 	}
-	if err = repo.CheckSchema(ctx, "0011"); err != nil {
+	if err = repo.CheckSchema(ctx, "0012"); err != nil {
 		t.Fatal(err)
 	}
 	if err = repo.CheckSchema(ctx, "9999"); err == nil {
