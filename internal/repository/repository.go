@@ -7,8 +7,15 @@ import (
 )
 
 type Repository struct {
-	Pool *pgxpool.Pool
-	Now  func() time.Time
+	Pool            *pgxpool.Pool
+	Now             func() time.Time
+	OutboxCipherKey []byte
 }
 
-func New(pool *pgxpool.Pool) *Repository { return &Repository{Pool: pool, Now: time.Now} }
+func New(pool *pgxpool.Pool, outboxCipherKey ...[]byte) *Repository {
+	repository := &Repository{Pool: pool, Now: time.Now}
+	if len(outboxCipherKey) > 0 {
+		repository.OutboxCipherKey = append([]byte(nil), outboxCipherKey[0]...)
+	}
+	return repository
+}

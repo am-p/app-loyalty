@@ -15,4 +15,7 @@ const (
 	merchantEmailWindow    = 30 * time.Minute
 	movementAttempts       = 60
 	movementWindow         = time.Minute
+	mediaActorAttempts     = 20
+	mediaIPAttempts        = 40
+	mediaUploadWindow      = time.Minute
 )

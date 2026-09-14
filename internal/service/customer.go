@@ -2,13 +2,80 @@ package service
 
 import (
 	"context"
+	"net/url"
+	"strings"
+	"time"
 
 	"clientesFrecuentes/internal/model"
 	"clientesFrecuentes/internal/web"
+
+	"github.com/google/uuid"
 )
 
 func (s *Service) CurrentUser(ctx context.Context, actorID int64) (model.CurrentUser, error) {
 	return s.Repo.GetCurrentUser(ctx, actorID)
+}
+
+func (s *Service) UpdateCurrentUser(ctx context.Context, actorID int64, expectedVersion int, req model.UpdateAccountRequest) (model.CurrentUser, error) {
+	if expectedVersion < 1 || (!req.Name.Set && !req.LastName.Set && !req.Alias.Set && !req.PhotoURL.Set) {
+		return model.CurrentUser{}, ErrInvalidRequest
+	}
+	if req.Name.Set && (req.Name.Value == nil || !normalizePatch(&req.Name, 120) || *req.Name.Value == "") {
+		return model.CurrentUser{}, ErrInvalidRequest
+	}
+	if !normalizePatch(&req.LastName, 120) || !normalizePatch(&req.Alias, 80) || !normalizePatch(&req.PhotoURL, 2048) {
+		return model.CurrentUser{}, ErrInvalidRequest
+	}
+	if req.PhotoURL.Set && req.PhotoURL.Value != nil && *req.PhotoURL.Value != "" {
+		parsed, err := url.ParseRequestURI(*req.PhotoURL.Value)
+		if err != nil || parsed.Host == "" || (parsed.Scheme != "https" && parsed.Scheme != "http") {
+			return model.CurrentUser{}, ErrInvalidRequest
+		}
+	}
+	return s.Repo.UpdateAccount(ctx, actorID, expectedVersion, req)
+}
+
+func normalizePatch(value *model.OptionalString, limit int) bool {
+	if !value.Set || value.Value == nil {
+		return true
+	}
+	normalized := strings.TrimSpace(*value.Value)
+	if len(normalized) > limit {
+		return false
+	}
+	value.Value = &normalized
+	return true
+}
+
+func (s *Service) ExportCurrentUser(ctx context.Context, actorID int64) (model.AccountExport, error) {
+	return s.Repo.ExportAccount(ctx, actorID)
+}
+
+func (s *Service) AnonymizeCurrentUser(ctx context.Context, actorID int64, authTime time.Time, expectedVersion int, req model.AnonymizeAccountRequest) (model.Anonymization, error) {
+	if req.Confirmation != "ANONIMIZAR" {
+		return model.Anonymization{}, ErrInvalidRequest
+	}
+	now := s.Now().UTC()
+	if authTime.IsZero() || now.Sub(authTime) > 10*time.Minute {
+		return model.Anonymization{}, ErrRecentAuthRequired
+	}
+	deletedAt, err := s.Repo.AnonymizeAccount(ctx, actorID, expectedVersion)
+	if err != nil {
+		return model.Anonymization{}, err
+	}
+	return model.Anonymization{RequestID: uuid.NewString(), Status: "COMPLETADA", AccessRevoked: true, LedgerPreserved: true, RequestedAt: deletedAt}, nil
+}
+
+func normalizeOptional(value **string, limit int) bool {
+	if *value == nil {
+		return true
+	}
+	normalized := strings.TrimSpace(**value)
+	if len(normalized) > limit {
+		return false
+	}
+	*value = &normalized
+	return true
 }
 
 func (s *Service) Customer(ctx context.Context, actorID int64) (model.Customer, error) {

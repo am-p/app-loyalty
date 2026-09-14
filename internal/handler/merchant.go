@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -12,6 +13,10 @@ import (
 )
 
 func (h *Handler) RegisterDemoMerchant(c *gin.Context) {
+	platform, ok := clientPlatform(c)
+	if !ok {
+		return
+	}
 	var req model.RegisterDemoMerchantRequest
 	if decode(c, &req) != nil {
 		writeErr(c, service.ErrInvalidRequest)
@@ -20,7 +25,7 @@ func (h *Handler) RegisterDemoMerchant(c *gin.Context) {
 	if !h.limit(c, "merchant-register:ip:"+h.clientIP(c), merchantIPAttempts, merchantIPWindow) || !h.limit(c, "merchant-register:email:"+strings.ToLower(strings.TrimSpace(req.Email)), merchantEmailAttempts, merchantEmailWindow) {
 		return
 	}
-	result, err := h.Service.RegisterDemoMerchant(c.Request.Context(), c.GetHeader("Idempotency-Key"), c.GetHeader("X-Demo-Access-Code"), web.RequestID(c), req)
+	result, err := h.Service.RegisterDemoMerchant(c.Request.Context(), c.GetHeader("Idempotency-Key"), web.RequestID(c), req)
 	if err != nil {
 		writeErr(c, err)
 		return
@@ -28,16 +33,28 @@ func (h *Handler) RegisterDemoMerchant(c *gin.Context) {
 	if result.Replayed {
 		c.Header("Idempotent-Replayed", "true")
 	}
+	var envelope web.Envelope[model.DemoMerchantData]
+	if err = json.Unmarshal(result.Body, &envelope); err != nil {
+		writeErr(c, err)
+		return
+	}
+	if platform == "web" {
+		if envelope.Data.Session != nil {
+			setRefreshCookie(c, envelope.Data.Session.RefreshToken)
+			envelope.Data.Session.RefreshToken = ""
+		}
+	}
+	result.Body, err = json.Marshal(envelope)
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
 	c.Data(result.Status, "application/json", result.Body)
 }
 
 func (h *Handler) ListBrands(c *gin.Context) {
 	a, ok := actor(c)
 	if !ok {
-		return
-	}
-	if a.AccountType != "PERSONAL_MARCA" {
-		writeErr(c, service.ErrForbidden)
 		return
 	}
 	data, err := h.Service.ListBrands(c.Request.Context(), a.ID)
@@ -63,7 +80,58 @@ func (h *Handler) Brand(c *gin.Context) {
 		writeErr(c, err)
 		return
 	}
+	c.Header("ETag", accountETag(data.BrandVersion))
 	c.JSON(http.StatusOK, web.Envelope[model.MerchantContext]{Data: data, RequestID: web.RequestID(c)})
+}
+
+func (h *Handler) Benefits(c *gin.Context) {
+	a, ok := actor(c)
+	if !ok {
+		return
+	}
+	if a.AccountType != "PERSONAL_MARCA" {
+		writeErr(c, service.ErrForbidden)
+		return
+	}
+	brandID, err := positiveID(c.Param("brand_id"))
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	data, err := h.Service.Benefits(c.Request.Context(), a.ID, brandID)
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, web.Envelope[[]model.Benefit]{Data: data, RequestID: web.RequestID(c)})
+}
+
+func (h *Handler) CreateBenefit(c *gin.Context) {
+	a, ok := actor(c)
+	if !ok {
+		return
+	}
+	if a.AccountType != "PERSONAL_MARCA" {
+		writeErr(c, service.ErrForbidden)
+		return
+	}
+	brandID, err := positiveID(c.Param("brand_id"))
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	var req model.CreateBenefitRequest
+	if decode(c, &req) != nil {
+		writeErr(c, service.ErrInvalidRequest)
+		return
+	}
+	data, err := h.Service.CreateBenefit(c.Request.Context(), a.ID, brandID, req)
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	c.Header("ETag", `"1"`)
+	c.JSON(http.StatusCreated, web.Envelope[model.Benefit]{Data: data, RequestID: web.RequestID(c)})
 }
 
 func (h *Handler) BrandMovements(c *gin.Context) {

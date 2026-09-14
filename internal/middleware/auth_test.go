@@ -20,7 +20,7 @@ type actorStoreStub struct {
 	calls       int
 }
 
-func (s *actorStoreStub) ActiveAccountType(_ context.Context, _ int64) (string, error) {
+func (s *actorStoreStub) ActiveSessionAccountType(_ context.Context, _ int64, _ string, _ int) (string, error) {
 	s.calls++
 	return s.accountType, s.err
 }
@@ -54,6 +54,29 @@ func TestPreviouslyIssuedTokenStopsAfterSuspension(t *testing.T) {
 	assertUnauthenticated(t, w.Body.Bytes())
 	if store.calls != 2 {
 		t.Fatalf("active lookup calls=%d", store.calls)
+	}
+}
+
+func TestDatabaseAccountTypeSupersedesStaleJWTClaim(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	tokens := auth.NewTokens("01234567890123456789012345678901", "puntazo")
+	raw := mustToken(t, tokens, 7, "CLIENTE_FINAL")
+	store := &actorStoreStub{accountType: "PERSONAL_MARCA"}
+	router := gin.New()
+	router.GET("/protected", RequireAuth(tokens, store), func(c *gin.Context) {
+		actor, ok := CurrentActor(c)
+		if !ok || actor.AccountType != "PERSONAL_MARCA" {
+			c.Status(http.StatusInternalServerError)
+			return
+		}
+		c.Status(http.StatusNoContent)
+	})
+	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+	req.Header.Set("Authorization", "Bearer "+raw)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 	}
 }
 
