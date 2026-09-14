@@ -34,7 +34,7 @@ func RequireAuth(tokens *auth.Tokens, actors ActiveActorStore) gin.HandlerFunc {
 			unauthenticated(c)
 			return
 		}
-		userID, accountType, sessionID, authVersion, authTime, err := tokens.ParseSessionContext(raw)
+		userID, _, sessionID, authVersion, authTime, err := tokens.ParseSessionContext(raw)
 		if err != nil {
 			unauthenticated(c)
 			return
@@ -47,7 +47,7 @@ func RequireAuth(tokens *auth.Tokens, actors ActiveActorStore) gin.HandlerFunc {
 			return
 		}
 		activeAccountType, err := actors.ActiveSessionAccountType(c.Request.Context(), userID, sessionID, authVersion)
-		if err != nil || activeAccountType != accountType {
+		if err != nil {
 			unauthenticated(c)
 			return
 		}

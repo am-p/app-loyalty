@@ -57,6 +57,29 @@ func TestPreviouslyIssuedTokenStopsAfterSuspension(t *testing.T) {
 	}
 }
 
+func TestDatabaseAccountTypeSupersedesStaleJWTClaim(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	tokens := auth.NewTokens("01234567890123456789012345678901", "puntazo")
+	raw := mustToken(t, tokens, 7, "CLIENTE_FINAL")
+	store := &actorStoreStub{accountType: "PERSONAL_MARCA"}
+	router := gin.New()
+	router.GET("/protected", RequireAuth(tokens, store), func(c *gin.Context) {
+		actor, ok := CurrentActor(c)
+		if !ok || actor.AccountType != "PERSONAL_MARCA" {
+			c.Status(http.StatusInternalServerError)
+			return
+		}
+		c.Status(http.StatusNoContent)
+	})
+	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+	req.Header.Set("Authorization", "Bearer "+raw)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+}
+
 func TestUnauthenticatedResponseIsUniform(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tokens := auth.NewTokens("01234567890123456789012345678901", "puntazo")
