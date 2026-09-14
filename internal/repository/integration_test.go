@@ -198,6 +198,16 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if _, err = pool.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES('0016')`); err != nil {
 		t.Fatal(err)
 	}
+	reconciliationMigration, err := os.ReadFile(filepath.Join("..", "..", "migrations", "0017_media_reconciliation.up.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, string(reconciliationMigration)); err != nil {
+		t.Fatalf("migration 0017: %v", err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES('0017')`); err != nil {
+		t.Fatal(err)
+	}
 	var legacyPasswordVerified, legacyGoogleVerified bool
 	if err = pool.QueryRow(ctx, `SELECT email_verified_at IS NOT NULL FROM usuarios WHERE email='legacy-password@example.com'`).Scan(&legacyPasswordVerified); err != nil {
 		t.Fatal(err)
@@ -214,7 +224,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	}
 	demoHash, _ := bcrypt.GenerateFromPassword([]byte("demo-access-code"), bcrypt.MinCost)
 	outboxKey := []byte("01234567890123456789012345678901")
-	cfg := config.Config{JWTSecret: "jwt-secret-0123456789012345678901", JWTIssuer: "puntazo", QRPepper: "qr-pepper-01234567890123456789012", DemoAccessCodeHash: string(demoHash), DemoSignupEnabled: true, ExpectedSchemaVersion: "0016", PublicAppURL: "https://app.puntazo.test", OutboxEncryptionKey: outboxKey, MediaURLTTL: 5 * time.Minute}
+	cfg := config.Config{JWTSecret: "jwt-secret-0123456789012345678901", JWTIssuer: "puntazo", QRPepper: "qr-pepper-01234567890123456789012", DemoAccessCodeHash: string(demoHash), DemoSignupEnabled: true, ExpectedSchemaVersion: "0017", PublicAppURL: "https://app.puntazo.test", OutboxEncryptionKey: outboxKey, MediaURLTTL: 5 * time.Minute}
 	repo := repository.New(pool, outboxKey)
 	tokens := auth.NewTokens(cfg.JWTSecret, cfg.JWTIssuer)
 	media := &fakeMediaStore{objects: map[string][]byte{}}
@@ -470,6 +480,48 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	}
 	if err = svc.DeleteBrandImage(ctx, merchant.User.ID, merchant.Merchant.BrandID, secondImage.ID, secondImage.Version); err != nil {
 		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE archivos_marca SET delete_after=now()-interval '1 second' WHERE id=$1`, firstImage.ID); err != nil {
+		t.Fatal(err)
+	}
+	leaseA, leaseB := uuid.NewString(), uuid.NewString()
+	dueMedia, err := repo.DueBrandMedia(ctx, 10, leaseA)
+	if err != nil || len(dueMedia) != 1 || dueMedia[0].ID != firstImage.ID || dueMedia[0].Status != "DELETE_PENDING" {
+		t.Fatalf("media reconciliation claim=%+v err=%v", dueMedia, err)
+	}
+	if otherClaim, claimErr := repo.DueBrandMedia(ctx, 10, leaseB); claimErr != nil || len(otherClaim) != 0 {
+		t.Fatalf("leased media claimed twice=%+v err=%v", otherClaim, claimErr)
+	}
+	if err = repo.CompleteBrandMediaDeletion(ctx, firstImage.ID, leaseB, ""); !errors.Is(err, repository.ErrConflict) {
+		t.Fatalf("foreign lease completed media: %v", err)
+	}
+	if err = repo.CompleteBrandMediaDeletion(ctx, firstImage.ID, leaseA, "temporary object storage failure"); err != nil {
+		t.Fatal(err)
+	}
+	var retryStatus string
+	var retryScheduled, leaseReleased bool
+	if err = pool.QueryRow(ctx, `SELECT estado,delete_after>now(),lease_owner IS NULL AND lease_until IS NULL FROM archivos_marca WHERE id=$1`, firstImage.ID).Scan(&retryStatus, &retryScheduled, &leaseReleased); err != nil || retryStatus != "DELETE_PENDING" || !retryScheduled || !leaseReleased {
+		t.Fatalf("media retry status=%s scheduled=%t lease_released=%t err=%v", retryStatus, retryScheduled, leaseReleased, err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE archivos_marca SET delete_after=now()-interval '1 second' WHERE id=$1`, firstImage.ID); err != nil {
+		t.Fatal(err)
+	}
+	dueMedia, err = repo.DueBrandMedia(ctx, 10, leaseB)
+	if err != nil || len(dueMedia) != 1 || dueMedia[0].ID != firstImage.ID {
+		t.Fatalf("media reconciliation retry=%+v err=%v", dueMedia, err)
+	}
+	if err = repo.CompleteBrandMediaDeletion(ctx, firstImage.ID, leaseB, ""); err != nil {
+		t.Fatal(err)
+	}
+	var deletedStatus, deletedKey string
+	if err = pool.QueryRow(ctx, `SELECT estado,object_key FROM archivos_marca WHERE id=$1`, firstImage.ID).Scan(&deletedStatus, &deletedKey); err != nil || deletedStatus != "DELETED" || deletedKey != "deleted/"+firstImage.ID {
+		t.Fatalf("media reconciliation completion status=%s key=%s err=%v", deletedStatus, deletedKey, err)
+	}
+	media.setSignError(errors.New("presigner unavailable"))
+	recoverableImage, err := svc.UploadBrandImage(ctx, merchant.User.ID, merchant.Merchant.BrandID, "ICONO", nil, brandPNG.Bytes())
+	media.setSignError(nil)
+	if err != nil || recoverableImage.Status != "ACTIVA" || recoverableImage.URL != "" || recoverableImage.URLExpiresAt != nil {
+		t.Fatalf("recoverable presign result=%+v err=%v", recoverableImage, err)
 	}
 	requiredStamps := int64(5)
 	merchant.Merchant.Benefit = &model.Benefit{ID: benefitID, ProgramID: merchant.Merchant.Program.ID, Name: "Beneficio de prueba", RequiredStamps: &requiredStamps, Active: true, Version: 1}
@@ -805,9 +857,14 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if err != nil || !benefitCurrent.Active || benefitCurrent.DeletedAt != nil {
 		t.Fatalf("reactivate benefit=%+v err=%v", benefitCurrent, err)
 	}
+	operatorAccount, err := svc.RegisterCustomer(ctx, model.RegisterCustomerRequest{Email: "operator@example.com", Password: "operator-pass", Name: "Operator"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	operatorID := operatorAccount.User.ID
 	invitationKey := uuid.NewString()
 	invitationRequestID := uuid.NewString()
-	invitationResult, err := svc.CreateInvitation(ctx, merchant.User.ID, merchant.Merchant.BrandID, invitationKey, invitationRequestID, model.CreateInvitationRequest{Email: "client@example.com", Role: "OPERADOR", BranchIDs: []int64{newBranch.ID}})
+	invitationResult, err := svc.CreateInvitation(ctx, merchant.User.ID, merchant.Merchant.BrandID, invitationKey, invitationRequestID, model.CreateInvitationRequest{Email: "operator@example.com", Role: "OPERADOR", BranchIDs: []int64{newBranch.ID}})
 	var invitationEnvelope web.Envelope[model.BrandInvitation]
 	if err == nil {
 		err = json.Unmarshal(invitationResult.Body, &invitationEnvelope)
@@ -816,7 +873,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if err != nil || invitation.Status != "PENDIENTE" || len(invitation.BranchIDs) != 1 {
 		t.Fatalf("create invitation=%+v err=%v", invitation, err)
 	}
-	replayedInvitation, err := svc.CreateInvitation(ctx, merchant.User.ID, merchant.Merchant.BrandID, invitationKey, uuid.NewString(), model.CreateInvitationRequest{Email: "client@example.com", Role: "OPERADOR", BranchIDs: []int64{newBranch.ID}})
+	replayedInvitation, err := svc.CreateInvitation(ctx, merchant.User.ID, merchant.Merchant.BrandID, invitationKey, uuid.NewString(), model.CreateInvitationRequest{Email: "operator@example.com", Role: "OPERADOR", BranchIDs: []int64{newBranch.ID}})
 	if err != nil || !replayedInvitation.Replayed || !bytes.Equal(replayedInvitation.Body, invitationResult.Body) {
 		t.Fatalf("invitation replay exact=%v err=%v", replayedInvitation.Replayed, err)
 	}
@@ -825,7 +882,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 		t.Fatalf("invitation replay outbox count=%d err=%v", invitationOutboxCount, err)
 	}
 	var inviteOutbox model.OutboxEmail
-	if err = pool.QueryRow(ctx, `SELECT id::text,token_ciphertext,token_nonce,token_expires_at FROM email_outbox WHERE tipo='BRAND_INVITATION' AND destinatario='client@example.com' ORDER BY created_at DESC LIMIT 1`).Scan(&inviteOutbox.ID, &inviteOutbox.Ciphertext, &inviteOutbox.Nonce, &inviteOutbox.ExpiresAt); err != nil {
+	if err = pool.QueryRow(ctx, `SELECT id::text,token_ciphertext,token_nonce,token_expires_at FROM email_outbox WHERE tipo='BRAND_INVITATION' AND destinatario='operator@example.com' ORDER BY created_at DESC LIMIT 1`).Scan(&inviteOutbox.ID, &inviteOutbox.Ciphertext, &inviteOutbox.Nonce, &inviteOutbox.ExpiresAt); err != nil {
 		t.Fatal(err)
 	}
 	inviteToken, err := repository.DecryptOutboxToken(inviteOutbox, outboxKey)
@@ -833,7 +890,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 		t.Fatalf("invitation outbox token protection err=%v", err)
 	}
 	publicInvite, err := svc.PublicInvitation(ctx, inviteToken)
-	if err != nil || publicInvite.MaskedEmail == "client@example.com" || publicInvite.Role != "OPERADOR" {
+	if err != nil || publicInvite.MaskedEmail == "operator@example.com" || publicInvite.Role != "OPERADOR" {
 		t.Fatalf("public invitation=%+v err=%v", publicInvite, err)
 	}
 	if _, err = svc.AcceptInvitation(ctx, merchant.User.ID, inviteToken); !errors.Is(err, repository.ErrInvitationEmailMismatch) {
@@ -848,7 +905,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			accepted, acceptErr := svc.AcceptInvitation(ctx, customer.ID, inviteToken)
+			accepted, acceptErr := svc.AcceptInvitation(ctx, operatorID, inviteToken)
 			acceptResults <- acceptResult{staff: accepted, err: acceptErr}
 		}()
 	}
@@ -868,6 +925,28 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	}
 	if acceptedCount != 1 || rejectedCount != 1 || staff.Role != "OPERADOR" || len(staff.BranchIDs) != 1 {
 		t.Fatalf("double accept accepted=%d rejected=%d staff=%+v", acceptedCount, rejectedCount, staff)
+	}
+	conflictResult, err := svc.CreateInvitation(ctx, merchant.User.ID, merchant.Merchant.BrandID, uuid.NewString(), uuid.NewString(), model.CreateInvitationRequest{Email: "client@example.com", Role: "OPERADOR", BranchIDs: []int64{newBranch.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var conflictEnvelope web.Envelope[model.BrandInvitation]
+	if err = json.Unmarshal(conflictResult.Body, &conflictEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	var conflictOutbox model.OutboxEmail
+	if err = pool.QueryRow(ctx, `SELECT id::text,token_ciphertext,token_nonce FROM email_outbox WHERE invitation_id=$1`, conflictEnvelope.Data.ID).Scan(&conflictOutbox.ID, &conflictOutbox.Ciphertext, &conflictOutbox.Nonce); err != nil {
+		t.Fatal(err)
+	}
+	conflictToken, err := repository.DecryptOutboxToken(conflictOutbox, outboxKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = svc.AcceptInvitation(ctx, customer.ID, conflictToken); !errors.Is(err, repository.ErrAccountModeConflict) {
+		t.Fatalf("loyalty account accepted staff invitation: %v", err)
+	}
+	if err = svc.RevokeInvitation(ctx, merchant.User.ID, merchant.Merchant.BrandID, conflictEnvelope.Data.ID); err != nil {
+		t.Fatal(err)
 	}
 	expiringResult, err := svc.CreateInvitation(ctx, merchant.User.ID, merchant.Merchant.BrandID, uuid.NewString(), uuid.NewString(), model.CreateInvitationRequest{Email: "newstaff@example.com", Role: "OPERADOR", BranchIDs: []int64{newBranch.ID}})
 	if err != nil {
@@ -926,7 +1005,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if err = svc.RevokeInvitation(ctx, merchant.User.ID, merchant.Merchant.BrandID, replacementEnvelope.Data.ID); !errors.Is(err, repository.ErrInvitationInvalid) {
 		t.Fatalf("double revoke: %v", err)
 	}
-	operatorBranches, err := svc.Branches(ctx, customer.ID, merchant.Merchant.BrandID)
+	operatorBranches, err := svc.Branches(ctx, operatorID, merchant.Merchant.BrandID)
 	if err != nil || len(operatorBranches) != 1 || operatorBranches[0].ID != newBranch.ID {
 		t.Fatalf("operator branch scope=%+v err=%v", operatorBranches, err)
 	}
@@ -965,12 +1044,21 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	}
 	adminRole := "ADMINISTRADOR"
 	promotedStaff, err := svc.UpdateStaff(ctx, merchant.User.ID, merchant.Merchant.BrandID, staff.MembershipID, staff.Version, model.UpdateStaffRequest{Role: &adminRole})
-	if err != nil {
-		t.Fatalf("promote staff: %v", err)
+	if err != nil || len(promotedStaff.BranchIDs) != 0 {
+		t.Fatalf("promote staff=%+v err=%v", promotedStaff, err)
+	}
+	assignedWhileAdmin := []int64{newBranch.ID}
+	if _, err = svc.UpdateStaff(ctx, merchant.User.ID, merchant.Merchant.BrandID, promotedStaff.MembershipID, promotedStaff.Version, model.UpdateStaffRequest{BranchIDs: &assignedWhileAdmin}); !errors.Is(err, repository.ErrInvalidRequest) {
+		t.Fatalf("admin accepted branch assignments: %v", err)
 	}
 	operatorRole := "OPERADOR"
-	if _, err = svc.UpdateStaff(ctx, customer.ID, merchant.Merchant.BrandID, promotedStaff.MembershipID, promotedStaff.Version, model.UpdateStaffRequest{Role: &operatorRole}); !errors.Is(err, repository.ErrSelfRoleChangeForbidden) {
+	if _, err = svc.UpdateStaff(ctx, operatorID, merchant.Merchant.BrandID, promotedStaff.MembershipID, promotedStaff.Version, model.UpdateStaffRequest{Role: &operatorRole}); !errors.Is(err, repository.ErrSelfRoleChangeForbidden) {
 		t.Fatalf("admin self-demotion: %v", err)
+	}
+	operatorScope := []int64{newBranch.ID}
+	demotedStaff, err := svc.UpdateStaff(ctx, merchant.User.ID, merchant.Merchant.BrandID, promotedStaff.MembershipID, promotedStaff.Version, model.UpdateStaffRequest{Role: &operatorRole, BranchIDs: &operatorScope})
+	if err != nil || demotedStaff.Role != "OPERADOR" || len(demotedStaff.BranchIDs) != 1 || demotedStaff.BranchIDs[0] != newBranch.ID {
+		t.Fatalf("demote staff with explicit scope=%+v err=%v", demotedStaff, err)
 	}
 	staffPatchErrs := make(chan error, 2)
 	for _, branches := range [][]int64{{newBranch.ID}, {racingA.ID}} {
@@ -978,7 +1066,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, patchErr := svc.UpdateStaff(ctx, merchant.User.ID, merchant.Merchant.BrandID, promotedStaff.MembershipID, promotedStaff.Version, model.UpdateStaffRequest{BranchIDs: &assigned})
+			_, patchErr := svc.UpdateStaff(ctx, merchant.User.ID, merchant.Merchant.BrandID, demotedStaff.MembershipID, demotedStaff.Version, model.UpdateStaffRequest{BranchIDs: &assigned})
 			staffPatchErrs <- patchErr
 		}()
 	}
@@ -998,7 +1086,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 		t.Fatalf("staff patch success=%d stale=%d", staffPatchSuccess, staffPatchStale)
 	}
 	current, err := svc.CurrentUser(ctx, customer.ID)
-	if err != nil || current.User.Version != 2 || current.User.AccountType != "PERSONAL_MARCA" {
+	if err != nil || current.User.Version != 1 || current.User.AccountType != "CLIENTE_FINAL" {
 		t.Fatalf("current account=%+v err=%v", current, err)
 	}
 	lastNameA, lastNameB := "Primero", "Segundo"
@@ -1041,7 +1129,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 		t.Fatalf("clear account fields=%+v err=%v", current, err)
 	}
 	accountExport, err := svc.ExportCurrentUser(ctx, customer.ID)
-	if err != nil || len(accountExport.Cards) != 2 || len(accountExport.Movements) != 13 || accountExport.User.Version != 5 {
+	if err != nil || len(accountExport.Cards) != 2 || len(accountExport.Movements) != 13 || accountExport.User.Version != 4 {
 		t.Fatalf("account export=%+v err=%v", accountExport, err)
 	}
 	if _, err = repo.AnonymizeAccount(ctx, merchant.User.ID, merchant.User.Version); !errors.Is(err, repository.ErrOwnershipTransfer) {
@@ -1153,7 +1241,56 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if err = pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM solicitudes_idempotentes WHERE idempotency_key=$1),EXISTS(SELECT 1 FROM email_outbox WHERE id=$2 AND redacted_at IS NOT NULL AND destinatario::text LIKE 'redacted-%@anon.invalid' AND ultimo_error IS NULL)`, recentIdempotency, redactEmail).Scan(&recentExists, &redacted); err != nil || !recentExists || !redacted {
 		t.Fatalf("retention preservation recent=%t redacted=%t err=%v", recentExists, redacted, err)
 	}
-	if err = repo.CheckSchema(ctx, "0016"); err != nil {
+	retiredInvitee, err := svc.RegisterCustomer(ctx, model.RegisterCustomerRequest{Email: "retired-brand-staff@example.com", Password: "retired-brand-pass", Name: "Retired Brand Staff"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	retiredInvitationResult, err := svc.CreateInvitation(ctx, merchant.User.ID, merchant.Merchant.BrandID, uuid.NewString(), uuid.NewString(), model.CreateInvitationRequest{Email: retiredInvitee.User.Email, Role: "OPERADOR", BranchIDs: []int64{newBranch.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var retiredInvitationEnvelope web.Envelope[model.BrandInvitation]
+	if err = json.Unmarshal(retiredInvitationResult.Body, &retiredInvitationEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	var retiredInvitationOutbox model.OutboxEmail
+	if err = pool.QueryRow(ctx, `SELECT id::text,token_ciphertext,token_nonce FROM email_outbox WHERE invitation_id=$1`, retiredInvitationEnvelope.Data.ID).Scan(&retiredInvitationOutbox.ID, &retiredInvitationOutbox.Ciphertext, &retiredInvitationOutbox.Nonce); err != nil {
+		t.Fatal(err)
+	}
+	retiredInvitationToken, err := repository.DecryptOutboxToken(retiredInvitationOutbox, outboxKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pendingImageID := uuid.NewString()
+	pendingImage, err := repo.ReserveBrandImage(ctx, merchant.User.ID, merchant.Merchant.BrandID, model.BrandImage{
+		ID: pendingImageID, BrandID: merchant.Merchant.BrandID, Type: "LOGO", ObjectKey: fmt.Sprintf("brands/%d/%s.png", merchant.Merchant.BrandID, pendingImageID), MIMEType: "image/png", ByteSize: int64(brandPNG.Len()), Width: 8, Height: 6,
+	}, make([]byte, 32))
+	if err != nil || pendingImage.Status != "UPLOAD_PENDING" {
+		t.Fatalf("reserve pending media=%+v err=%v", pendingImage, err)
+	}
+	var brandVersion int
+	if err = pool.QueryRow(ctx, `SELECT version FROM marcas WHERE id=$1`, merchant.Merchant.BrandID).Scan(&brandVersion); err != nil {
+		t.Fatal(err)
+	}
+	if err = svc.DeleteBrand(ctx, merchant.User.ID, merchant.Merchant.BrandID, brandVersion); err != nil {
+		t.Fatal(err)
+	}
+	var scheduledByBrandDelete int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM archivos_marca WHERE id=ANY($1::uuid[]) AND estado='DELETE_PENDING' AND delete_after>=now()+interval '23 hours'`, []string{recoverableImage.ID, pendingImage.ID}).Scan(&scheduledByBrandDelete); err != nil || scheduledByBrandDelete != 2 {
+		t.Fatalf("brand media scheduled=%d err=%v", scheduledByBrandDelete, err)
+	}
+	if _, err = repo.ActivateBrandImage(ctx, merchant.User.ID, pendingImage.ID); !errors.Is(err, repository.ErrNotFound) {
+		t.Fatalf("media activated after brand deletion: %v", err)
+	}
+	var retiredInvitationStatus, retiredOutboxStatus string
+	var retiredTokenScrubbed bool
+	if err = pool.QueryRow(ctx, `SELECT i.estado,o.estado,o.token_ciphertext IS NULL AND o.token_nonce IS NULL AND o.token_expires_at IS NULL FROM invitaciones_marca i JOIN email_outbox o ON o.invitation_id=i.id WHERE i.id=$1`, retiredInvitationEnvelope.Data.ID).Scan(&retiredInvitationStatus, &retiredOutboxStatus, &retiredTokenScrubbed); err != nil || retiredInvitationStatus != "REVOCADA" || retiredOutboxStatus != "FAILED" || !retiredTokenScrubbed {
+		t.Fatalf("deleted brand invitation=%s outbox=%s scrubbed=%t err=%v", retiredInvitationStatus, retiredOutboxStatus, retiredTokenScrubbed, err)
+	}
+	if _, err = svc.AcceptInvitation(ctx, retiredInvitee.User.ID, retiredInvitationToken); !errors.Is(err, service.ErrIdentityToken) {
+		t.Fatalf("accepted invitation from deleted brand: %v", err)
+	}
+	if err = repo.CheckSchema(ctx, "0017"); err != nil {
 		t.Fatal(err)
 	}
 	if err = repo.CheckSchema(ctx, "9999"); err == nil {
@@ -1165,6 +1302,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 type fakeMediaStore struct {
 	mu      sync.Mutex
 	objects map[string][]byte
+	signErr error
 }
 
 func (f *fakeMediaStore) Put(_ context.Context, key, _ string, body, _ []byte) error {
@@ -1180,7 +1318,18 @@ func (f *fakeMediaStore) Delete(_ context.Context, key string) error {
 	return nil
 }
 func (f *fakeMediaStore) SignedGet(_ context.Context, key string, _ time.Duration) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.signErr != nil {
+		return "", f.signErr
+	}
 	return "https://private.example.test/" + key + "?signature=test", nil
+}
+func (f *fakeMediaStore) Ready(context.Context) error { return nil }
+func (f *fakeMediaStore) setSignError(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.signErr = err
 }
 
 func authorizedRequestFor(tokens *auth.Tokens, repo *repository.Repository, accessToken string) *httptest.ResponseRecorder {
