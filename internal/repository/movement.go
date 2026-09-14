@@ -236,7 +236,7 @@ func (r *Repository) ConfirmMovement(ctx context.Context, in ConfirmInput, build
 	} else {
 		requiredStamps = benefitRequirement
 	}
-	err = tx.QueryRow(ctx, `INSERT INTO historial_movimientos(operation_id,tarjeta_id,marca_id,sucursal_id,usuario_operador_id,beneficio_id,operacion,sentido,cantidad,saldo_anterior,saldo_posterior,beneficio_nombre_snapshot,beneficio_requisito_snapshot,programa_tipo,beneficio_requisito_puntos_snapshot) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id,occurred_at`, operationID, cardID, p.BrandID, in.BranchID, in.ActorID, in.BenefitID, in.Operation, direction, p.Amount, balance, after, benefitName, requiredStamps, programType, requiredPoints).Scan(&m.ID, &m.OccurredAt)
+	err = tx.QueryRow(ctx, `INSERT INTO historial_movimientos(operation_id,tarjeta_id,marca_id,sucursal_id,usuario_operador_id,beneficio_id,operacion,sentido,cantidad,saldo_anterior,saldo_posterior,beneficio_nombre_snapshot,beneficio_requisito_snapshot,programa_tipo,beneficio_requisito_puntos_snapshot,marca_nombre_snapshot,sucursal_nombre_snapshot,programa_id_snapshot) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING id,occurred_at`, operationID, cardID, p.BrandID, in.BranchID, in.ActorID, in.BenefitID, in.Operation, direction, p.Amount, balance, after, benefitName, requiredStamps, programType, requiredPoints, brandName, branchName, programID).Scan(&m.ID, &m.OccurredAt)
 	if err != nil {
 		return IdempotentResult{}, err
 	}
@@ -248,6 +248,7 @@ func (r *Repository) ConfirmMovement(ctx context.Context, in ConfirmInput, build
 	m.BranchName = branchName
 	m.Operation = in.Operation
 	m.ProgramType = programType
+	m.ProgramIDSnapshot = programID
 	m.Direction = direction
 	m.Amount = p.Amount
 	m.BalanceBefore = balance

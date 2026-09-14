@@ -1023,7 +1023,7 @@ components:
     Movement:
       type: object
       additionalProperties: false
-      required: [id, operation_id, card_id, branch_id, operation, program_type, direction, amount, balance_before, balance_after, occurred_at]
+      required: [id, operation_id, card_id, brand_id, brand_name, branch_id, branch_name, operation, program_type, program_id_snapshot, direction, amount, balance_before, balance_after, occurred_at]
       properties:
         id: { type: integer, format: int64 }
         operation_id: { type: string, format: uuid }
@@ -1034,6 +1034,10 @@ components:
         branch_name: { type: string }
         operation: { $ref: '#/components/schemas/MovementOperation' }
         program_type: { type: string, enum: [SELLOS, PUNTOS] }
+        program_id_snapshot:
+          type: integer
+          format: int64
+          description: Identificador del programa vigente al confirmar; no se resuelve desde configuración mutable
         direction: { type: string, enum: [CREDITO, DEBITO] }
         amount: { type: integer, format: int64, minimum: 1 }
         balance_before: { type: integer, format: int64, minimum: 0 }

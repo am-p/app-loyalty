@@ -197,6 +197,7 @@ type Movement struct {
 	BranchName                    string    `json:"branch_name,omitempty"`
 	Operation                     string    `json:"operation"`
 	ProgramType                   string    `json:"program_type"`
+	ProgramIDSnapshot             int64     `json:"program_id_snapshot"`
 	Direction                     string    `json:"direction"`
 	Amount                        int64     `json:"amount"`
 	BalanceBefore                 int64     `json:"balance_before"`

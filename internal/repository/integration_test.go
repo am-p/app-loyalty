@@ -100,11 +100,18 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if _, err = pool.Exec(ctx, string(familyMigration)); err != nil {
 		t.Fatalf("migration 0006: %v", err)
 	}
-	if _, err = pool.Exec(ctx, `CREATE TABLE schema_migrations(version CHAR(4) PRIMARY KEY,applied_at TIMESTAMPTZ NOT NULL DEFAULT now()); INSERT INTO schema_migrations(version) VALUES('0001'),('0002'),('0003'),('0004'),('0005'),('0006')`); err != nil {
+	snapshotMigration, err := os.ReadFile(filepath.Join("..", "..", "migrations", "0007_movement_snapshots.up.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, string(snapshotMigration)); err != nil {
+		t.Fatalf("migration 0007: %v", err)
+	}
+	if _, err = pool.Exec(ctx, `CREATE TABLE schema_migrations(version CHAR(4) PRIMARY KEY,applied_at TIMESTAMPTZ NOT NULL DEFAULT now()); INSERT INTO schema_migrations(version) VALUES('0001'),('0002'),('0003'),('0004'),('0005'),('0006'),('0007')`); err != nil {
 		t.Fatal(err)
 	}
 	demoHash, _ := bcrypt.GenerateFromPassword([]byte("demo-access-code"), bcrypt.MinCost)
-	cfg := config.Config{JWTSecret: "jwt-secret-0123456789012345678901", JWTIssuer: "puntazo", QRPepper: "qr-pepper-01234567890123456789012", DemoAccessCodeHash: string(demoHash), DemoSignupEnabled: true, ExpectedSchemaVersion: "0006"}
+	cfg := config.Config{JWTSecret: "jwt-secret-0123456789012345678901", JWTIssuer: "puntazo", QRPepper: "qr-pepper-01234567890123456789012", DemoAccessCodeHash: string(demoHash), DemoSignupEnabled: true, ExpectedSchemaVersion: "0007"}
 	repo := repository.New(pool)
 	tokens := auth.NewTokens(cfg.JWTSecret, cfg.JWTIssuer)
 	svc := service.New(repo, tokens, cfg)
@@ -306,6 +313,22 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err = pool.Exec(ctx, `UPDATE marcas SET nombre='Brand renombrada' WHERE id=$1`, merchant.Merchant.BrandID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE sucursales SET nombre='Sucursal renombrada' WHERE id=$1`, merchant.Merchant.Branch.ID); err != nil {
+		t.Fatal(err)
+	}
+	historical, _, err := svc.BrandMovements(ctx, merchant.User.ID, merchant.Merchant.BrandID, 1, 20)
+	if err != nil || len(historical) != 1 || historical[0].BrandName != "Brand" || historical[0].BranchName != "Main" || historical[0].ProgramIDSnapshot != merchant.Merchant.Program.ID || historical[0].ProgramType != "SELLOS" {
+		t.Fatalf("movement snapshots=%+v err=%v", historical, err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE marcas SET nombre='Brand' WHERE id=$1`, merchant.Merchant.BrandID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE sucursales SET nombre='Main' WHERE id=$1`, merchant.Merchant.Branch.ID); err != nil {
+		t.Fatal(err)
+	}
 	customerCards, cardPage, err := svc.Cards(ctx, customer.ID, 1, 20)
 	if err != nil || cardPage.TotalItems != 1 || len(customerCards) != 1 || customerCards[0].Benefit.ID != benefit.ID || customerCards[0].Benefit.Version != 1 {
 		t.Fatalf("multi-benefit cards=%+v page=%+v err=%v", customerCards, cardPage, err)
@@ -497,7 +520,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if _, err = pool.Exec(ctx, `UPDATE membresias_marca SET activo=true WHERE usuario_id=$1 AND marca_id=$2`, merchant.User.ID, merchant.Merchant.BrandID); err != nil {
 		t.Fatal(err)
 	}
-	if err = repo.CheckSchema(ctx, "0006"); err != nil {
+	if err = repo.CheckSchema(ctx, "0007"); err != nil {
 		t.Fatal(err)
 	}
 	if err = repo.CheckSchema(ctx, "9999"); err == nil {
