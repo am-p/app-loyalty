@@ -50,5 +50,3 @@ CREATE UNIQUE INDEX uq_archivos_slot_beneficio_activa
     WHERE tipo = 'BENEFICIO' AND estado = 'ACTIVA';
 CREATE INDEX idx_archivos_cleanup ON archivos_marca (delete_after, id)
     WHERE estado = 'DELETE_PENDING';
-
-INSERT INTO schema_migrations(version) VALUES ('0015');

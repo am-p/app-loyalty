@@ -8,4 +8,3 @@ END $$;
 DROP TABLE archivos_marca;
 ALTER TABLE beneficios DROP CONSTRAINT uq_beneficios_id_programa;
 ALTER TABLE programas_fidelidad DROP CONSTRAINT uq_programas_id_marca;
-DELETE FROM schema_migrations WHERE version = '0015';
