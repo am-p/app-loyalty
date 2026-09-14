@@ -40,7 +40,7 @@ func (r *Repository) CreateDemoMerchant(ctx context.Context, key string, fingerp
 	if err = tx.QueryRow(ctx, `INSERT INTO sucursales(marca_id,nombre,direccion) VALUES($1,$2,$3) RETURNING id`, brandID, branchName, branchAddress).Scan(&branchID); err != nil {
 		return IdempotentResult{}, err
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO membresias_sucursales(membresia_id,sucursal_id) VALUES($1,$2)`, membershipID, branchID); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO membresias_sucursales(membresia_id,sucursal_id,marca_id) VALUES($1,$2,$3)`, membershipID, branchID, brandID); err != nil {
 		return IdempotentResult{}, err
 	}
 	var stampsPerAccumulation *int64

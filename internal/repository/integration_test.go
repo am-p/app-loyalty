@@ -72,11 +72,18 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if _, err = pool.Exec(ctx, string(programMigration)); err != nil {
 		t.Fatalf("migration 0002: %v", err)
 	}
-	if _, err = pool.Exec(ctx, `CREATE TABLE schema_migrations(version CHAR(4) PRIMARY KEY,applied_at TIMESTAMPTZ NOT NULL DEFAULT now()); INSERT INTO schema_migrations(version) VALUES('0001'),('0002')`); err != nil {
+	tenantMigration, err := os.ReadFile(filepath.Join("..", "..", "migrations", "0003_tenant_roles.up.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, string(tenantMigration)); err != nil {
+		t.Fatalf("migration 0003: %v", err)
+	}
+	if _, err = pool.Exec(ctx, `CREATE TABLE schema_migrations(version CHAR(4) PRIMARY KEY,applied_at TIMESTAMPTZ NOT NULL DEFAULT now()); INSERT INTO schema_migrations(version) VALUES('0001'),('0002'),('0003')`); err != nil {
 		t.Fatal(err)
 	}
 	demoHash, _ := bcrypt.GenerateFromPassword([]byte("demo-access-code"), bcrypt.MinCost)
-	cfg := config.Config{JWTSecret: "jwt-secret-0123456789012345678901", JWTIssuer: "puntazo", QRPepper: "qr-pepper-01234567890123456789012", DemoAccessCodeHash: string(demoHash), DemoSignupEnabled: true, ExpectedSchemaVersion: "0002"}
+	cfg := config.Config{JWTSecret: "jwt-secret-0123456789012345678901", JWTIssuer: "puntazo", QRPepper: "qr-pepper-01234567890123456789012", DemoAccessCodeHash: string(demoHash), DemoSignupEnabled: true, ExpectedSchemaVersion: "0003"}
 	repo := repository.New(pool)
 	tokens := auth.NewTokens(cfg.JWTSecret, cfg.JWTIssuer)
 	svc := service.New(repo, tokens, cfg)
@@ -344,6 +351,13 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if second.Data.OnboardingComplete || second.Data.Merchant.Program.Type != "PUNTOS" {
 		t.Fatalf("unexpected PUNTOS registration %+v", second.Data)
 	}
+	var firstMembershipID int64
+	if err = pool.QueryRow(ctx, `SELECT id FROM membresias_marca WHERE usuario_id=$1 AND marca_id=$2`, merchant.User.ID, merchant.Merchant.BrandID).Scan(&firstMembershipID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO membresias_sucursales(membresia_id,sucursal_id,marca_id) VALUES($1,$2,$3)`, firstMembershipID, second.Data.Merchant.Branch.ID, merchant.Merchant.BrandID); err == nil {
+		t.Fatal("cross-brand branch membership was accepted")
+	}
 	var pointsBenefitID int64
 	if err = pool.QueryRow(ctx, `INSERT INTO beneficios(programa_id,nombre,requisito_puntos) VALUES($1,'Beneficio Puntos',10000000) RETURNING id`, second.Data.Merchant.Program.ID).Scan(&pointsBenefitID); err != nil {
 		t.Fatal(err)
@@ -397,7 +411,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if _, err = pool.Exec(ctx, `UPDATE membresias_marca SET activo=true WHERE usuario_id=$1 AND marca_id=$2`, merchant.User.ID, merchant.Merchant.BrandID); err != nil {
 		t.Fatal(err)
 	}
-	if err = repo.CheckSchema(ctx, "0002"); err != nil {
+	if err = repo.CheckSchema(ctx, "0003"); err != nil {
 		t.Fatal(err)
 	}
 	if err = repo.CheckSchema(ctx, "9999"); err == nil {

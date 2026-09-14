@@ -14,8 +14,8 @@ const merchantContextSelect = `SELECT m.id,m.nombre,mm.rol,s.id,s.marca_id,s.nom
 		b.id,b.programa_id,b.nombre,b.requisito_sellos,b.requisito_puntos,b.activo,
 	a.tipo,a.precio_minor,a.moneda,a.cobro_automatico,a.activo,a.started_at
 	FROM membresias_marca mm JOIN marcas m ON m.id=mm.marca_id AND m.activo
-	JOIN membresias_sucursales ms ON ms.membresia_id=mm.id AND ms.activo
-	JOIN sucursales s ON s.id=ms.sucursal_id AND s.activo
+	JOIN membresias_sucursales ms ON ms.membresia_id=mm.id AND ms.marca_id=mm.marca_id AND ms.activo
+	JOIN sucursales s ON s.id=ms.sucursal_id AND s.marca_id=ms.marca_id AND s.activo
 	JOIN programas_fidelidad p ON p.marca_id=m.id AND p.activo
 	LEFT JOIN beneficios b ON b.programa_id=p.id AND b.activo
 	JOIN accesos_demo a ON a.marca_id=m.id AND a.activo
