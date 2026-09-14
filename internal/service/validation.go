@@ -22,4 +22,6 @@ func cleanName(value string, max int) (string, error) {
 	return value, nil
 }
 
-func validPassword(value string) bool { return len(value) >= 10 && len(value) <= 128 }
+// bcrypt rejects passwords longer than 72 bytes. Validate the encoded input
+// before hashing so a contract error cannot become a 500 response.
+func validPassword(value string) bool { return len(value) >= 10 && len(value) <= 72 }

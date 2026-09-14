@@ -526,7 +526,12 @@ components:
       required: [email, password, name]
       properties:
         email: { type: string, format: email, maxLength: 254 }
-        password: { type: string, format: password, minLength: 10, maxLength: 128 }
+        password:
+          type: string
+          format: password
+          minLength: 10
+          maxLength: 72
+          description: Máximo 72 bytes en UTF-8 por compatibilidad con bcrypt
         name: { type: string, minLength: 1, maxLength: 120 }
     RegisterDemoMerchantRequest:
       type: object
@@ -534,7 +539,12 @@ components:
       required: [email, password, owner_name, brand_name, branch_name]
       properties:
         email: { type: string, format: email, maxLength: 254 }
-        password: { type: string, format: password, minLength: 10, maxLength: 128 }
+        password:
+          type: string
+          format: password
+          minLength: 10
+          maxLength: 72
+          description: Máximo 72 bytes en UTF-8 por compatibilidad con bcrypt
         owner_name: { type: string, minLength: 1, maxLength: 120 }
         brand_name: { type: string, minLength: 1, maxLength: 120 }
         branch_name: { type: string, minLength: 1, maxLength: 120 }
