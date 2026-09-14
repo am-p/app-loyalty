@@ -590,6 +590,31 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if _, err = pool.Exec(ctx, `UPDATE membresias_marca SET activo=true WHERE usuario_id=$1 AND marca_id=$2`, merchant.User.ID, merchant.Merchant.BrandID); err != nil {
 		t.Fatal(err)
 	}
+	pendingMerchantRaw, err := identitySvc.RegisterDemoMerchant(ctx, uuid.NewString(), uuid.NewString(), model.RegisterDemoMerchantRequest{Email: "pendingmerchant@example.com", Password: "pending-merchant-pass", OwnerName: "Pending Owner", BrandName: "Pending Brand", BranchName: "Principal", ProgramType: "SELLOS", AccessCode: "demo-access-code"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pendingMerchant web.Envelope[model.DemoMerchantData]
+	if err = json.Unmarshal(pendingMerchantRaw.Body, &pendingMerchant); err != nil {
+		t.Fatal(err)
+	}
+	if pendingMerchant.Data.Session != nil || !pendingMerchant.Data.VerificationRequired || pendingMerchant.Data.Merchant.BrandID < 1 {
+		t.Fatalf("pending merchant=%+v", pendingMerchant.Data)
+	}
+	var pendingMerchantSessions int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM sesiones_auth WHERE usuario_id=$1`, pendingMerchant.Data.User.ID).Scan(&pendingMerchantSessions); err != nil || pendingMerchantSessions != 0 {
+		t.Fatalf("pending merchant sessions=%d err=%v", pendingMerchantSessions, err)
+	}
+	claimedEmails, err := repo.ClaimEmails(ctx, 20)
+	if err != nil || len(claimedEmails) < 2 {
+		t.Fatalf("claimed outbox=%+v err=%v", claimedEmails, err)
+	}
+	if err = repo.MarkEmailSent(ctx, claimedEmails[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	if err = repo.MarkEmailFailed(ctx, claimedEmails[1].ID, claimedEmails[1].Attempts, errors.New("temporary smtp failure")); err != nil {
+		t.Fatal(err)
+	}
 	if err = repo.CheckSchema(ctx, "0008"); err != nil {
 		t.Fatal(err)
 	}
