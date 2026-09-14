@@ -121,12 +121,20 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if _, err = pool.Exec(ctx, string(accountMigration)); err != nil {
 		t.Fatalf("migration 0009: %v", err)
 	}
-	if _, err = pool.Exec(ctx, `CREATE TABLE schema_migrations(version CHAR(4) PRIMARY KEY,applied_at TIMESTAMPTZ NOT NULL DEFAULT now()); INSERT INTO schema_migrations(version) VALUES('0001'),('0002'),('0003'),('0004'),('0005'),('0006'),('0007'),('0008'),('0009')`); err != nil {
+	secureOutboxMigration, err := os.ReadFile(filepath.Join("..", "..", "migrations", "0010_secure_email_outbox.up.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, string(secureOutboxMigration)); err != nil {
+		t.Fatalf("migration 0010: %v", err)
+	}
+	if _, err = pool.Exec(ctx, `CREATE TABLE schema_migrations(version CHAR(4) PRIMARY KEY,applied_at TIMESTAMPTZ NOT NULL DEFAULT now()); INSERT INTO schema_migrations(version) VALUES('0001'),('0002'),('0003'),('0004'),('0005'),('0006'),('0007'),('0008'),('0009'),('0010')`); err != nil {
 		t.Fatal(err)
 	}
 	demoHash, _ := bcrypt.GenerateFromPassword([]byte("demo-access-code"), bcrypt.MinCost)
-	cfg := config.Config{JWTSecret: "jwt-secret-0123456789012345678901", JWTIssuer: "puntazo", QRPepper: "qr-pepper-01234567890123456789012", DemoAccessCodeHash: string(demoHash), DemoSignupEnabled: true, ExpectedSchemaVersion: "0009", PublicAppURL: "https://app.puntazo.test"}
-	repo := repository.New(pool)
+	outboxKey := []byte("01234567890123456789012345678901")
+	cfg := config.Config{JWTSecret: "jwt-secret-0123456789012345678901", JWTIssuer: "puntazo", QRPepper: "qr-pepper-01234567890123456789012", DemoAccessCodeHash: string(demoHash), DemoSignupEnabled: true, ExpectedSchemaVersion: "0010", PublicAppURL: "https://app.puntazo.test", OutboxEncryptionKey: outboxKey}
+	repo := repository.New(pool, outboxKey)
 	tokens := auth.NewTokens(cfg.JWTSecret, cfg.JWTIssuer)
 	svc := service.New(repo, tokens, cfg)
 	identityCfg := cfg
@@ -139,15 +147,21 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if _, err = identitySvc.Login(ctx, model.LoginRequest{Email: "pending@example.com", Password: "pending-pass"}); !errors.Is(err, service.ErrEmailUnverified) {
 		t.Fatalf("unverified login: %v", err)
 	}
-	var verificationBody string
-	if err = pool.QueryRow(ctx, `SELECT cuerpo_texto FROM email_outbox WHERE destinatario='pending@example.com' AND tipo='VERIFY_EMAIL' ORDER BY created_at DESC LIMIT 1`).Scan(&verificationBody); err != nil {
+	var verificationOutbox model.OutboxEmail
+	if err = pool.QueryRow(ctx, `SELECT id::text,token_ciphertext,token_nonce FROM email_outbox WHERE destinatario='pending@example.com' AND tipo='VERIFY_EMAIL' ORDER BY created_at DESC LIMIT 1`).Scan(&verificationOutbox.ID, &verificationOutbox.Ciphertext, &verificationOutbox.Nonce); err != nil {
 		t.Fatal(err)
 	}
-	parts := strings.Split(verificationBody, "?token=")
-	if len(parts) != 2 {
-		t.Fatal("verification token missing from outbox")
+	verificationToken, err := repository.DecryptOutboxToken(verificationOutbox, outboxKey)
+	if err != nil {
+		t.Fatal(err)
 	}
-	verificationToken := strings.Fields(parts[1])[0]
+	var logicalOutbox string
+	if err = pool.QueryRow(ctx, `SELECT row_to_json(e)::text FROM email_outbox e WHERE id=$1`, verificationOutbox.ID).Scan(&logicalOutbox); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(logicalOutbox, verificationToken) || strings.Contains(logicalOutbox, "?token=") {
+		t.Fatal("logical outbox export exposed the verification token")
+	}
 	if err = identitySvc.ConfirmEmailVerification(ctx, model.TokenRequest{Token: verificationToken}); err != nil {
 		t.Fatal(err)
 	}
@@ -161,15 +175,14 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if err = identitySvc.RequestPasswordReset(ctx, model.EmailRequest{Email: "pending@example.com"}); err != nil {
 		t.Fatal(err)
 	}
-	var resetBody string
-	if err = pool.QueryRow(ctx, `SELECT cuerpo_texto FROM email_outbox WHERE destinatario='pending@example.com' AND tipo='RESET_PASSWORD' ORDER BY created_at DESC LIMIT 1`).Scan(&resetBody); err != nil {
+	var resetOutbox model.OutboxEmail
+	if err = pool.QueryRow(ctx, `SELECT id::text,token_ciphertext,token_nonce FROM email_outbox WHERE destinatario='pending@example.com' AND tipo='RESET_PASSWORD' ORDER BY created_at DESC LIMIT 1`).Scan(&resetOutbox.ID, &resetOutbox.Ciphertext, &resetOutbox.Nonce); err != nil {
 		t.Fatal(err)
 	}
-	parts = strings.Split(resetBody, "?token=")
-	if len(parts) != 2 {
-		t.Fatal("reset token missing")
+	resetToken, err := repository.DecryptOutboxToken(resetOutbox, outboxKey)
+	if err != nil {
+		t.Fatal(err)
 	}
-	resetToken := strings.Fields(parts[1])[0]
 	if err = identitySvc.ConfirmPasswordReset(ctx, model.PasswordResetConfirmRequest{Token: resetToken, NewPassword: "new-pending-pass"}); err != nil {
 		t.Fatal(err)
 	}
@@ -677,13 +690,16 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if err != nil || len(claimedEmails) < 2 {
 		t.Fatalf("claimed outbox=%+v err=%v", claimedEmails, err)
 	}
-	if err = repo.MarkEmailSent(ctx, claimedEmails[0].ID); err != nil {
+	if err = repo.MarkEmailSent(ctx, claimedEmails[0].ID, uuid.NewString()); !errors.Is(err, repository.ErrNotFound) {
+		t.Fatalf("stale lease owner updated email: %v", err)
+	}
+	if err = repo.MarkEmailSent(ctx, claimedEmails[0].ID, claimedEmails[0].LeaseOwner); err != nil {
 		t.Fatal(err)
 	}
-	if err = repo.MarkEmailFailed(ctx, claimedEmails[1].ID, claimedEmails[1].Attempts, errors.New("temporary smtp failure")); err != nil {
+	if err = repo.MarkEmailFailed(ctx, claimedEmails[1].ID, claimedEmails[1].LeaseOwner, claimedEmails[1].Attempts, errors.New("temporary smtp failure")); err != nil {
 		t.Fatal(err)
 	}
-	if err = repo.CheckSchema(ctx, "0009"); err != nil {
+	if err = repo.CheckSchema(ctx, "0010"); err != nil {
 		t.Fatal(err)
 	}
 	if err = repo.CheckSchema(ctx, "9999"); err == nil {

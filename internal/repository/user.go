@@ -34,7 +34,7 @@ func (r *Repository) CreateCustomer(ctx context.Context, email, passwordHash, na
 		return model.User{}, err
 	}
 	if message != nil {
-		if err = enqueueIdentityEmail(ctx, tx, u.ID, tokenHash, tokenExpires, *message); err != nil {
+		if err = enqueueIdentityEmail(ctx, tx, r.OutboxCipherKey, u.ID, tokenHash, tokenExpires, *message); err != nil {
 			return model.User{}, err
 		}
 	}

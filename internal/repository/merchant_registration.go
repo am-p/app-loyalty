@@ -57,7 +57,7 @@ func (r *Repository) CreateDemoMerchant(ctx context.Context, key string, fingerp
 	}
 	merchant := model.MerchantContext{BrandID: brandID, BrandName: brandName, Role: "PROPIETARIO", Branch: model.Branch{ID: branchID, BrandID: brandID, Name: branchName, Address: branchAddress, Active: true}, Program: model.Program{ID: programID, BrandID: brandID, Type: programType, StampsPerAccumulation: stampsPerAccumulation, Active: true}, Benefits: []model.Benefit{}, DemoAccess: model.DemoAccess{Kind: demoKind, PriceMinor: 0, Currency: "ARS", AutomaticCharge: false, Active: true, StartedAt: started}}
 	if message != nil {
-		if err = enqueueIdentityEmail(ctx, tx, u.ID, verificationHash, verificationExpires, *message); err != nil {
+		if err = enqueueIdentityEmail(ctx, tx, r.OutboxCipherKey, u.ID, verificationHash, verificationExpires, *message); err != nil {
 			return IdempotentResult{}, err
 		}
 	} else {

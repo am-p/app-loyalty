@@ -43,11 +43,11 @@ func main() {
 		os.Exit(1)
 	}
 	defer pool.Close()
-	repo := repository.New(pool)
+	repo := repository.New(pool, cfg.OutboxEncryptionKey)
 	workerCtx, stopWorker := context.WithCancel(context.Background())
 	defer stopWorker()
 	if cfg.MailProvider == "smtp" {
-		go (mailer.Worker{Repo: repo, Sender: mailer.NewSMTP(cfg), Logger: logger, Interval: cfg.MailPollInterval}).Run(workerCtx)
+		go (mailer.Worker{Repo: repo, Sender: mailer.NewSMTP(cfg), Logger: logger, Interval: cfg.MailPollInterval, PublicAppURL: cfg.PublicAppURL, CipherKey: cfg.OutboxEncryptionKey}).Run(workerCtx)
 	}
 	tokens := auth.NewTokens(cfg.JWTSecret, cfg.JWTIssuer)
 	svc := service.New(repo, tokens, cfg)

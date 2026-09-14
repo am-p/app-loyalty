@@ -38,11 +38,15 @@ func (m *MemorySender) Messages() []model.EmailMessage {
 
 func VerificationMessage(appURL, to, token string) model.EmailMessage {
 	link := actionURL(appURL, "/verify-email", token)
-	return transactional("VERIFY_EMAIL", to, "Verificá tu correo en Puntazo", "Verificá tu correo para activar tu cuenta: "+link+"\n\nEl enlace vence en 24 horas.", "Verificá tu correo", "Activar mi cuenta", link, "Este enlace vence en 24 horas.")
+	message := transactional("VERIFY_EMAIL", to, "Verificá tu correo en Puntazo", "Verificá tu correo para activar tu cuenta: "+link+"\n\nEl enlace vence en 24 horas.", "Verificá tu correo", "Activar mi cuenta", link, "Este enlace vence en 24 horas.")
+	message.Token = token
+	return message
 }
 func PasswordResetMessage(appURL, to, token string) model.EmailMessage {
 	link := actionURL(appURL, "/reset-password", token)
-	return transactional("RESET_PASSWORD", to, "Restablecé tu contraseña de Puntazo", "Usá este enlace para elegir una contraseña nueva: "+link+"\n\nEl enlace vence en 1 hora.", "Restablecé tu contraseña", "Elegir contraseña nueva", link, "Este enlace vence en 1 hora. Si no lo pediste, ignorá este correo.")
+	message := transactional("RESET_PASSWORD", to, "Restablecé tu contraseña de Puntazo", "Usá este enlace para elegir una contraseña nueva: "+link+"\n\nEl enlace vence en 1 hora.", "Restablecé tu contraseña", "Elegir contraseña nueva", link, "Este enlace vence en 1 hora. Si no lo pediste, ignorá este correo.")
+	message.Token = token
+	return message
 }
 func actionURL(base, path, token string) string {
 	return strings.TrimRight(base, "/") + path + "?token=" + url.QueryEscape(token)

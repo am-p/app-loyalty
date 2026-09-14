@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/base64"
 	"errors"
 	"net/mail"
 	"net/url"
@@ -30,6 +31,7 @@ type Config struct {
 	SMTPPassword              string
 	SMTPTLSMode               string
 	MailPollInterval          time.Duration
+	OutboxEncryptionKey       []byte
 	AppVersion                string
 	GitCommit                 string
 	ExpectedSchemaVersion     string
@@ -48,7 +50,7 @@ func Load() (Config, error) {
 		EmailVerificationRequired: envBool("EMAIL_VERIFICATION_REQUIRED", false), PublicAppURL: envDefault("PUBLIC_APP_URL", "http://localhost:8081"),
 		MailProvider: strings.ToLower(envDefault("MAIL_PROVIDER", "disabled")), MailFromAddress: strings.TrimSpace(os.Getenv("MAIL_FROM_ADDRESS")), MailFromName: envDefault("MAIL_FROM_NAME", "Puntazo"),
 		SMTPHost: strings.TrimSpace(os.Getenv("SMTP_HOST")), SMTPPort: envInt("SMTP_PORT", 587), SMTPUsername: os.Getenv("SMTP_USERNAME"), SMTPPassword: os.Getenv("SMTP_PASSWORD"), SMTPTLSMode: strings.ToLower(envDefault("SMTP_TLS_MODE", "starttls")), MailPollInterval: time.Duration(envInt("MAIL_POLL_INTERVAL_SECONDS", 5)) * time.Second,
-		GitCommit: envDefault("GIT_COMMIT", "0000000"), ExpectedSchemaVersion: envDefault("EXPECTED_SCHEMA_VERSION", "0009"),
+		GitCommit: envDefault("GIT_COMMIT", "0000000"), ExpectedSchemaVersion: envDefault("EXPECTED_SCHEMA_VERSION", "0010"),
 		Port: envDefault("PORT", "8080"), TrustedProxyCount: envInt("TRUSTED_PROXY_COUNT", 0),
 		ReadTimeout: 10 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second,
 	}
@@ -78,8 +80,20 @@ func Load() (Config, error) {
 		return Config{}, errors.New("PUBLIC_APP_URL must be an absolute http(s) URL")
 	}
 	production := strings.EqualFold(os.Getenv("APP_ENV"), "production")
+	if encodedKey := strings.TrimSpace(os.Getenv("OUTBOX_ENCRYPTION_KEY")); encodedKey != "" {
+		c.OutboxEncryptionKey, err = base64.StdEncoding.DecodeString(encodedKey)
+		if err != nil || len(c.OutboxEncryptionKey) != 32 {
+			return Config{}, errors.New("OUTBOX_ENCRYPTION_KEY must be base64 for exactly 32 bytes")
+		}
+	}
 	if production && !c.EmailVerificationRequired {
 		return Config{}, errors.New("EMAIL_VERIFICATION_REQUIRED=true is required in production")
+	}
+	if c.EmailVerificationRequired && len(c.OutboxEncryptionKey) != 32 {
+		return Config{}, errors.New("OUTBOX_ENCRYPTION_KEY is required while email verification is required")
+	}
+	if production && (string(c.OutboxEncryptionKey) == c.JWTSecret || string(c.OutboxEncryptionKey) == c.QRPepper) {
+		return Config{}, errors.New("a separate 32-byte OUTBOX_ENCRYPTION_KEY is required in production")
 	}
 	if c.MailProvider != "disabled" && c.MailProvider != "smtp" {
 		return Config{}, errors.New("MAIL_PROVIDER must be disabled or smtp")

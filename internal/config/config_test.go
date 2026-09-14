@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"encoding/base64"
+	"testing"
+)
 
 func TestFourDigits(t *testing.T) {
 	for _, value := range []string{"0001", "9999"} {
@@ -63,6 +66,7 @@ func TestProductionRequiresVerifiedSMTPIdentity(t *testing.T) {
 	t.Setenv("MAIL_FROM_ADDRESS", "no-reply@puntazo.test")
 	t.Setenv("SMTP_HOST", "smtp.puntazo.test")
 	t.Setenv("SMTP_TLS_MODE", "starttls")
+	t.Setenv("OUTBOX_ENCRYPTION_KEY", base64.StdEncoding.EncodeToString([]byte("separate-outbox-key-32-bytes!!!!")))
 	if _, err := Load(); err != nil {
 		t.Fatal(err)
 	}

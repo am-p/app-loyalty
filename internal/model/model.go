@@ -84,11 +84,13 @@ type PasswordResetConfirmRequest struct {
 	NewPassword string `json:"new_password"`
 }
 type EmailMessage struct {
-	Kind, To, Subject, Text, HTML string
+	Kind, To, Subject, Text, HTML, Token string
 }
 type OutboxEmail struct {
-	ID, To, Subject, Text, HTML string
-	Attempts                    int
+	ID, To, Kind, LeaseOwner string
+	Ciphertext, Nonce        []byte
+	ExpiresAt                time.Time
+	Attempts                 int
 }
 type Membership struct {
 	BrandID   int64   `json:"brand_id"`

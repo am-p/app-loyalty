@@ -131,7 +131,7 @@ func (r *Repository) AnonymizeAccount(ctx context.Context, id int64, expectedVer
 		`UPDATE previews_movimiento SET expires_at=LEAST(expires_at,$2) WHERE (actor_id=$1 OR cliente_id=$1) AND consumed_at IS NULL`,
 		`UPDATE sesiones_auth SET revoked_at=COALESCE(revoked_at,$2) WHERE usuario_id=$1`,
 		`UPDATE tokens_identidad_email SET consumed_at=COALESCE(consumed_at,$2) WHERE usuario_id=$1`,
-		`UPDATE email_outbox SET estado='FAILED',cuerpo_texto='',cuerpo_html='',ultimo_error='account deleted',lease_until=NULL,disponible_at=$2 WHERE usuario_id=$1 AND estado IN ('PENDING','SENDING')`,
+		`UPDATE email_outbox SET estado='FAILED',cuerpo_texto=NULL,cuerpo_html=NULL,ultimo_error='account deleted',lease_until=NULL,lease_owner=NULL,token_ciphertext=NULL,token_nonce=NULL,token_expires_at=NULL,disponible_at=$2 WHERE usuario_id=$1 AND estado IN ('PENDING','SENDING')`,
 	}
 	for _, statement := range statements {
 		if _, err = tx.Exec(ctx, statement, id, deletedAt); err != nil {
