@@ -114,11 +114,18 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if _, err = pool.Exec(ctx, string(identityMigration)); err != nil {
 		t.Fatalf("migration 0008: %v", err)
 	}
-	if _, err = pool.Exec(ctx, `CREATE TABLE schema_migrations(version CHAR(4) PRIMARY KEY,applied_at TIMESTAMPTZ NOT NULL DEFAULT now()); INSERT INTO schema_migrations(version) VALUES('0001'),('0002'),('0003'),('0004'),('0005'),('0006'),('0007'),('0008')`); err != nil {
+	accountMigration, err := os.ReadFile(filepath.Join("..", "..", "migrations", "0009_account_lifecycle.up.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, string(accountMigration)); err != nil {
+		t.Fatalf("migration 0009: %v", err)
+	}
+	if _, err = pool.Exec(ctx, `CREATE TABLE schema_migrations(version CHAR(4) PRIMARY KEY,applied_at TIMESTAMPTZ NOT NULL DEFAULT now()); INSERT INTO schema_migrations(version) VALUES('0001'),('0002'),('0003'),('0004'),('0005'),('0006'),('0007'),('0008'),('0009')`); err != nil {
 		t.Fatal(err)
 	}
 	demoHash, _ := bcrypt.GenerateFromPassword([]byte("demo-access-code"), bcrypt.MinCost)
-	cfg := config.Config{JWTSecret: "jwt-secret-0123456789012345678901", JWTIssuer: "puntazo", QRPepper: "qr-pepper-01234567890123456789012", DemoAccessCodeHash: string(demoHash), DemoSignupEnabled: true, ExpectedSchemaVersion: "0008", PublicAppURL: "https://app.puntazo.test"}
+	cfg := config.Config{JWTSecret: "jwt-secret-0123456789012345678901", JWTIssuer: "puntazo", QRPepper: "qr-pepper-01234567890123456789012", DemoAccessCodeHash: string(demoHash), DemoSignupEnabled: true, ExpectedSchemaVersion: "0009", PublicAppURL: "https://app.puntazo.test"}
 	repo := repository.New(pool)
 	tokens := auth.NewTokens(cfg.JWTSecret, cfg.JWTIssuer)
 	svc := service.New(repo, tokens, cfg)
@@ -590,6 +597,67 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if _, err = pool.Exec(ctx, `UPDATE membresias_marca SET activo=true WHERE usuario_id=$1 AND marca_id=$2`, merchant.User.ID, merchant.Merchant.BrandID); err != nil {
 		t.Fatal(err)
 	}
+	current, err := svc.CurrentUser(ctx, customer.ID)
+	if err != nil || current.User.Version != 1 {
+		t.Fatalf("current account=%+v err=%v", current, err)
+	}
+	lastNameA, lastNameB := "Primero", "Segundo"
+	accountErrs := make(chan error, 2)
+	for _, update := range []model.UpdateAccountRequest{{Name: "Cliente A", LastName: &lastNameA}, {Name: "Cliente B", LastName: &lastNameB}} {
+		wg.Add(1)
+		go func(update model.UpdateAccountRequest) {
+			defer wg.Done()
+			_, updateErr := svc.UpdateCurrentUser(ctx, customer.ID, current.User.Version, update)
+			accountErrs <- updateErr
+		}(update)
+	}
+	wg.Wait()
+	close(accountErrs)
+	accountUpdates := 0
+	for updateErr := range accountErrs {
+		if updateErr == nil {
+			accountUpdates++
+		} else if !errors.Is(updateErr, repository.ErrPreconditionFailed) {
+			t.Fatalf("unexpected account concurrency error: %v", updateErr)
+		}
+	}
+	if accountUpdates != 1 {
+		t.Fatalf("concurrent account updates accepted=%d", accountUpdates)
+	}
+	accountExport, err := svc.ExportCurrentUser(ctx, customer.ID)
+	if err != nil || len(accountExport.Cards) != 2 || len(accountExport.Movements) != 13 || accountExport.User.Version != 2 {
+		t.Fatalf("account export=%+v err=%v", accountExport, err)
+	}
+	if _, err = repo.AnonymizeAccount(ctx, merchant.User.ID, merchant.User.Version); !errors.Is(err, repository.ErrOwnershipTransfer) {
+		t.Fatalf("last owner deletion: %v", err)
+	}
+	deleteLogin, err := svc.Login(ctx, model.LoginRequest{Email: "client@example.com", Password: "customer-pass"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ledgerBefore int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM historial_movimientos h JOIN tarjetas t ON t.id=h.tarjeta_id WHERE t.usuario_id=$1`, customer.ID).Scan(&ledgerBefore); err != nil {
+		t.Fatal(err)
+	}
+	deletedAt, err := repo.AnonymizeAccount(ctx, customer.ID, accountExport.User.Version)
+	if err != nil || deletedAt.IsZero() {
+		t.Fatalf("anonymize customer: %v", err)
+	}
+	if w = authorizedRequest(deleteLogin.Session.AccessToken); w.Code != http.StatusUnauthorized {
+		t.Fatalf("deleted account access status=%d", w.Code)
+	}
+	var tombstone, anonymizedName string
+	var inactive, credentialsCleared, qrCleared, profileCleared bool
+	var ledgerAfter int
+	if err = pool.QueryRow(ctx, `SELECT email::text,nombre,NOT activo,password_hash IS NULL AND google_id IS NULL AND email_verified_at IS NULL,qr_hash IS NULL,apellido IS NULL AND alias IS NULL AND foto_url IS NULL FROM usuarios WHERE id=$1`, customer.ID).Scan(&tombstone, &anonymizedName, &inactive, &credentialsCleared, &qrCleared, &profileCleared); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM historial_movimientos h JOIN tarjetas t ON t.id=h.tarjeta_id WHERE t.usuario_id=$1`, customer.ID).Scan(&ledgerAfter); err != nil {
+		t.Fatal(err)
+	}
+	if tombstone != fmt.Sprintf("deleted-%d@anon.invalid", customer.ID) || anonymizedName != "Cuenta anonimizada" || !inactive || !credentialsCleared || !qrCleared || !profileCleared || ledgerAfter != ledgerBefore {
+		t.Fatalf("anonymized state email=%s name=%s inactive=%t credentials=%t qr=%t profile=%t ledger=%d/%d", tombstone, anonymizedName, inactive, credentialsCleared, qrCleared, profileCleared, ledgerAfter, ledgerBefore)
+	}
 	pendingMerchantRaw, err := identitySvc.RegisterDemoMerchant(ctx, uuid.NewString(), uuid.NewString(), model.RegisterDemoMerchantRequest{Email: "pendingmerchant@example.com", Password: "pending-merchant-pass", OwnerName: "Pending Owner", BrandName: "Pending Brand", BranchName: "Principal", ProgramType: "SELLOS", AccessCode: "demo-access-code"})
 	if err != nil {
 		t.Fatal(err)
@@ -615,7 +683,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if err = repo.MarkEmailFailed(ctx, claimedEmails[1].ID, claimedEmails[1].Attempts, errors.New("temporary smtp failure")); err != nil {
 		t.Fatal(err)
 	}
-	if err = repo.CheckSchema(ctx, "0008"); err != nil {
+	if err = repo.CheckSchema(ctx, "0009"); err != nil {
 		t.Fatal(err)
 	}
 	if err = repo.CheckSchema(ctx, "9999"); err == nil {
