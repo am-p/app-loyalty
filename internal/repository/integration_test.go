@@ -744,6 +744,43 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if _, err = svc.AcceptInvitation(ctx, customer.ID, inviteToken); !errors.Is(err, service.ErrIdentityToken) {
 		t.Fatalf("reused invitation token: %v", err)
 	}
+	operatorBranches, err := svc.Branches(ctx, customer.ID, merchant.Merchant.BrandID)
+	if err != nil || len(operatorBranches) != 1 || operatorBranches[0].ID != newBranch.ID {
+		t.Fatalf("operator branch scope=%+v err=%v", operatorBranches, err)
+	}
+	racingA, err := svc.CreateBranch(ctx, merchant.User.ID, merchant.Merchant.BrandID, model.CreateBranchRequest{Name: "Carrera A"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	racingB, err := svc.CreateBranch(ctx, merchant.User.ID, merchant.Merchant.BrandID, model.CreateBranchRequest{Name: "Carrera B"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	promotionErrs := make(chan error, 2)
+	for _, branch := range []model.Branch{racingA, racingB} {
+		wg.Add(1)
+		go func(branch model.Branch) {
+			defer wg.Done()
+			primary := true
+			_, updateErr := svc.UpdateBranch(ctx, merchant.User.ID, merchant.Merchant.BrandID, branch.ID, branch.Version, model.UpdateBranchRequest{Name: branch.Name, Primary: &primary})
+			promotionErrs <- updateErr
+		}(branch)
+	}
+	wg.Wait()
+	close(promotionErrs)
+	for promotionErr := range promotionErrs {
+		if promotionErr != nil {
+			t.Fatalf("concurrent branch promotion: %v", promotionErr)
+		}
+	}
+	var primaryCount int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM sucursales WHERE marca_id=$1 AND activo AND principal`, merchant.Merchant.BrandID).Scan(&primaryCount); err != nil || primaryCount != 1 {
+		t.Fatalf("active primaries=%d err=%v", primaryCount, err)
+	}
+	ownerContexts, err := svc.ListBrands(ctx, merchant.User.ID)
+	if err != nil || len(ownerContexts) != 3 {
+		t.Fatalf("owner global branch scope=%d err=%v", len(ownerContexts), err)
+	}
 	adminRole := "ADMINISTRADOR"
 	if _, err = svc.UpdateStaff(ctx, merchant.User.ID, merchant.Merchant.BrandID, staff.MembershipID, staff.Version, model.UpdateStaffRequest{Role: &adminRole}); err != nil {
 		t.Fatalf("promote staff: %v", err)
