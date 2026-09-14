@@ -270,6 +270,24 @@ type Benefit struct {
 	CreatedAt      time.Time  `json:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at"`
 }
+type BrandImage struct {
+	ID           string     `json:"id"`
+	BrandID      int64      `json:"brand_id"`
+	Type         string     `json:"tipo"`
+	BenefitID    *int64     `json:"benefit_id,omitempty"`
+	MIMEType     string     `json:"mime_type"`
+	ByteSize     int64      `json:"byte_size"`
+	SHA256       string     `json:"sha256"`
+	Width        int        `json:"width"`
+	Height       int        `json:"height"`
+	Status       string     `json:"estado"`
+	Version      int        `json:"version"`
+	URL          string     `json:"url,omitempty"`
+	URLExpiresAt *time.Time `json:"url_expires_at,omitempty"`
+	CreatedAt    time.Time  `json:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at"`
+	ObjectKey    string     `json:"-"`
+}
 type CreateBenefitRequest struct {
 	Name                 string `json:"name"`
 	Requirement          int64  `json:"requirement"`

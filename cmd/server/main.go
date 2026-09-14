@@ -14,9 +14,11 @@ import (
 	"clientesFrecuentes/internal/config"
 	"clientesFrecuentes/internal/handler"
 	"clientesFrecuentes/internal/mailer"
+	"clientesFrecuentes/internal/mediaworker"
 	"clientesFrecuentes/internal/middleware"
 	"clientesFrecuentes/internal/repository"
 	"clientesFrecuentes/internal/service"
+	"clientesFrecuentes/internal/storage"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
@@ -50,7 +52,16 @@ func main() {
 		go (mailer.Worker{Repo: repo, Sender: mailer.NewSMTP(cfg), Logger: logger, Interval: cfg.MailPollInterval, PublicAppURL: cfg.PublicAppURL, CipherKey: cfg.OutboxEncryptionKey}).Run(workerCtx)
 	}
 	tokens := auth.NewTokens(cfg.JWTSecret, cfg.JWTIssuer)
-	svc := service.New(repo, tokens, cfg)
+	var mediaStore service.MediaStore
+	if cfg.MediaProvider == "s3" {
+		mediaStore, err = storage.NewS3(context.Background(), cfg)
+		if err != nil {
+			logger.Error("media storage failed", "error", err)
+			os.Exit(1)
+		}
+		go (mediaworker.Worker{Repo: repo, Store: mediaStore, Logger: logger, Interval: cfg.MediaCleanupInterval}).Run(workerCtx)
+	}
+	svc := service.New(repo, tokens, cfg, mediaStore)
 	h := &handler.Handler{Service: svc, Repo: repo, Limiter: middleware.NewRateLimiter(), Logger: logger, TrustedProxyCount: cfg.TrustedProxyCount}
 	router := newRouter(h, tokens, logger)
 	server := &http.Server{Addr: ":" + cfg.Port, Handler: router, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: cfg.ReadTimeout, WriteTimeout: cfg.WriteTimeout, IdleTimeout: cfg.IdleTimeout, MaxHeaderBytes: 32 << 10}

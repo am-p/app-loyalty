@@ -13,6 +13,12 @@ import (
 
 func writeErr(c *gin.Context, err error) {
 	switch {
+	case errors.Is(err, service.ErrMediaTooLarge):
+		web.Error(c, http.StatusRequestEntityTooLarge, "MEDIA_TOO_LARGE", "La imagen supera el máximo permitido", nil)
+	case errors.Is(err, service.ErrMediaType):
+		web.Error(c, http.StatusUnsupportedMediaType, "MEDIA_TYPE_UNSUPPORTED", "Formato de imagen no permitido", nil)
+	case errors.Is(err, service.ErrMediaUnavailable):
+		web.Error(c, http.StatusServiceUnavailable, "MEDIA_STORAGE_UNAVAILABLE", "El almacenamiento de imágenes no está disponible", nil)
 	case errors.Is(err, service.ErrInvalidRequest), errors.Is(err, repository.ErrInvalidRequest):
 		web.Error(c, http.StatusUnprocessableEntity, "INVALID_REQUEST", "Solicitud inválida", nil)
 	case errors.Is(err, service.ErrInvalidCredentials):

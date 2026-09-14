@@ -6,6 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"clientesFrecuentes/internal/auth"
 	"clientesFrecuentes/internal/config"
@@ -174,6 +178,16 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if _, err = pool.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES('0014')`); err != nil {
 		t.Fatal(err)
 	}
+	mediaMigration, err := os.ReadFile(filepath.Join("..", "..", "migrations", "0015_private_brand_media.up.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, string(mediaMigration)); err != nil {
+		t.Fatalf("migration 0015: %v", err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES('0015')`); err != nil {
+		t.Fatal(err)
+	}
 	var legacyPasswordVerified, legacyGoogleVerified bool
 	if err = pool.QueryRow(ctx, `SELECT email_verified_at IS NOT NULL FROM usuarios WHERE email='legacy-password@example.com'`).Scan(&legacyPasswordVerified); err != nil {
 		t.Fatal(err)
@@ -190,10 +204,11 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	}
 	demoHash, _ := bcrypt.GenerateFromPassword([]byte("demo-access-code"), bcrypt.MinCost)
 	outboxKey := []byte("01234567890123456789012345678901")
-	cfg := config.Config{JWTSecret: "jwt-secret-0123456789012345678901", JWTIssuer: "puntazo", QRPepper: "qr-pepper-01234567890123456789012", DemoAccessCodeHash: string(demoHash), DemoSignupEnabled: true, ExpectedSchemaVersion: "0014", PublicAppURL: "https://app.puntazo.test", OutboxEncryptionKey: outboxKey}
+	cfg := config.Config{JWTSecret: "jwt-secret-0123456789012345678901", JWTIssuer: "puntazo", QRPepper: "qr-pepper-01234567890123456789012", DemoAccessCodeHash: string(demoHash), DemoSignupEnabled: true, ExpectedSchemaVersion: "0015", PublicAppURL: "https://app.puntazo.test", OutboxEncryptionKey: outboxKey, MediaURLTTL: 5 * time.Minute}
 	repo := repository.New(pool, outboxKey)
 	tokens := auth.NewTokens(cfg.JWTSecret, cfg.JWTIssuer)
-	svc := service.New(repo, tokens, cfg)
+	media := &fakeMediaStore{objects: map[string][]byte{}}
+	svc := service.New(repo, tokens, cfg, media)
 	identityCfg := cfg
 	identityCfg.EmailVerificationRequired = true
 	identitySvc := service.New(repo, tokens, identityCfg)
@@ -414,6 +429,37 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	contexts, err := svc.ListBrands(ctx, merchant.User.ID)
 	if err != nil || len(contexts) != 1 || len(contexts[0].Benefits) != 2 || contexts[0].Benefits[1].ID != secondBenefit.ID {
 		t.Fatalf("multi-benefit contexts=%+v err=%v", contexts, err)
+	}
+	brandImageSource := image.NewRGBA(image.Rect(0, 0, 8, 6))
+	brandImageSource.Set(2, 2, color.RGBA{R: 220, G: 20, B: 60, A: 255})
+	var brandPNG bytes.Buffer
+	if err = png.Encode(&brandPNG, brandImageSource); err != nil {
+		t.Fatal(err)
+	}
+	firstImage, err := svc.UploadBrandImage(ctx, merchant.User.ID, merchant.Merchant.BrandID, "LOGO", nil, brandPNG.Bytes())
+	if err != nil || firstImage.Status != "ACTIVA" || firstImage.URL == "" || firstImage.Width != 8 || firstImage.Height != 6 {
+		t.Fatalf("first media=%+v err=%v", firstImage, err)
+	}
+	if _, err = svc.UploadBrandImage(ctx, customer.ID, merchant.Merchant.BrandID, "ICONO", nil, brandPNG.Bytes()); !errors.Is(err, repository.ErrNotFound) {
+		t.Fatalf("cross-tenant media=%v", err)
+	}
+	secondImage, err := svc.UploadBrandImage(ctx, merchant.User.ID, merchant.Merchant.BrandID, "LOGO", nil, brandPNG.Bytes())
+	if err != nil || secondImage.ID == firstImage.ID {
+		t.Fatalf("replacement media=%+v err=%v", secondImage, err)
+	}
+	var oldStatus string
+	if err = pool.QueryRow(ctx, `SELECT estado FROM archivos_marca WHERE id=$1`, firstImage.ID).Scan(&oldStatus); err != nil || oldStatus != "DELETE_PENDING" {
+		t.Fatalf("old media status=%s err=%v", oldStatus, err)
+	}
+	images, err := svc.BrandImages(ctx, merchant.User.ID, merchant.Merchant.BrandID)
+	if err != nil || len(images) != 1 || images[0].ID != secondImage.ID {
+		t.Fatalf("media list=%+v err=%v", images, err)
+	}
+	if err = svc.DeleteBrandImage(ctx, merchant.User.ID, merchant.Merchant.BrandID, secondImage.ID, secondImage.Version+1); !errors.Is(err, repository.ErrPreconditionFailed) {
+		t.Fatalf("media stale delete=%v", err)
+	}
+	if err = svc.DeleteBrandImage(ctx, merchant.User.ID, merchant.Merchant.BrandID, secondImage.ID, secondImage.Version); err != nil {
+		t.Fatal(err)
 	}
 	requiredStamps := int64(5)
 	merchant.Merchant.Benefit = &model.Benefit{ID: benefitID, ProgramID: merchant.Merchant.Program.ID, Name: "Beneficio de prueba", RequiredStamps: &requiredStamps, Active: true, Version: 1}
@@ -1056,13 +1102,34 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if err = repo.MarkEmailFailed(ctx, claimedEmails[1].ID, claimedEmails[1].LeaseOwner, claimedEmails[1].Attempts, errors.New("temporary smtp failure")); err != nil {
 		t.Fatal(err)
 	}
-	if err = repo.CheckSchema(ctx, "0014"); err != nil {
+	if err = repo.CheckSchema(ctx, "0015"); err != nil {
 		t.Fatal(err)
 	}
 	if err = repo.CheckSchema(ctx, "9999"); err == nil {
 		t.Fatal("readiness accepted wrong schema")
 	}
 	t.Logf("verified brand=%d customer=%d movements persisted", merchant.Merchant.BrandID, customer.ID)
+}
+
+type fakeMediaStore struct {
+	mu      sync.Mutex
+	objects map[string][]byte
+}
+
+func (f *fakeMediaStore) Put(_ context.Context, key, _ string, body, _ []byte) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.objects[key] = append([]byte(nil), body...)
+	return nil
+}
+func (f *fakeMediaStore) Delete(_ context.Context, key string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.objects, key)
+	return nil
+}
+func (f *fakeMediaStore) SignedGet(_ context.Context, key string, _ time.Duration) (string, error) {
+	return "https://private.example.test/" + key + "?signature=test", nil
 }
 
 func authorizedRequestFor(tokens *auth.Tokens, repo *repository.Repository, accessToken string) *httptest.ResponseRecorder {
