@@ -13,11 +13,17 @@ import (
 	"clientesFrecuentes/internal/model"
 
 	"github.com/google/uuid"
+	"golang.org/x/image/draw"
+	_ "golang.org/x/image/webp"
 )
 
 const maxMediaBytes = 5 << 20
 
-func normalizeImage(input []byte) ([]byte, string, int, int, []byte, error) {
+func (s *Service) AuthorizeBrandMedia(ctx context.Context, actorID, brandID int64) error {
+	return s.Repo.AuthorizeBrandMedia(ctx, actorID, brandID)
+}
+
+func normalizeImage(input []byte, kind string) ([]byte, string, int, int, []byte, error) {
 	if len(input) == 0 || len(input) > maxMediaBytes {
 		return nil, "", 0, 0, nil, ErrMediaTooLarge
 	}
@@ -25,7 +31,7 @@ func normalizeImage(input []byte) ([]byte, string, int, int, []byte, error) {
 	if err != nil {
 		return nil, "", 0, 0, nil, ErrMediaType
 	}
-	if format != "jpeg" && format != "png" {
+	if format != "jpeg" && format != "png" && format != "webp" {
 		return nil, "", 0, 0, nil, ErrMediaType
 	}
 	if cfg.Width < 1 || cfg.Height < 1 || cfg.Width > 4096 || cfg.Height > 4096 || int64(cfg.Width)*int64(cfg.Height) > 16000000 {
@@ -34,6 +40,30 @@ func normalizeImage(input []byte) ([]byte, string, int, int, []byte, error) {
 	decoded, actualFormat, err := image.Decode(bytes.NewReader(input))
 	if err != nil || actualFormat != format {
 		return nil, "", 0, 0, nil, ErrMediaType
+	}
+	maxDimension := 4096
+	if kind == "LOGO" {
+		maxDimension = 1024
+	} else if kind == "ICONO" {
+		maxDimension = 512
+	}
+	width, height := decoded.Bounds().Dx(), decoded.Bounds().Dy()
+	if width > maxDimension || height > maxDimension {
+		scale := float64(maxDimension) / float64(width)
+		if height > width {
+			scale = float64(maxDimension) / float64(height)
+		}
+		targetWidth, targetHeight := int(float64(width)*scale), int(float64(height)*scale)
+		if targetWidth < 1 {
+			targetWidth = 1
+		}
+		if targetHeight < 1 {
+			targetHeight = 1
+		}
+		resized := image.NewRGBA(image.Rect(0, 0, targetWidth, targetHeight))
+		draw.CatmullRom.Scale(resized, resized.Bounds(), decoded, decoded.Bounds(), draw.Over, nil)
+		decoded = resized
+		width, height = targetWidth, targetHeight
 	}
 	var output bytes.Buffer
 	mime := "image/png"
@@ -51,7 +81,7 @@ func normalizeImage(input []byte) ([]byte, string, int, int, []byte, error) {
 		return nil, "", 0, 0, nil, ErrMediaTooLarge
 	}
 	sum := sha256.Sum256(output.Bytes())
-	return output.Bytes(), mime, cfg.Width, cfg.Height, sum[:], nil
+	return output.Bytes(), mime, width, height, sum[:], nil
 }
 
 func (s *Service) UploadBrandImage(ctx context.Context, actorID, brandID int64, kind string, benefitID *int64, input []byte) (model.BrandImage, error) {
@@ -65,7 +95,13 @@ func (s *Service) UploadBrandImage(ctx context.Context, actorID, brandID int64, 
 	if (kind == "BENEFICIO") != (benefitID != nil) {
 		return model.BrandImage{}, ErrInvalidRequest
 	}
-	body, mime, width, height, digest, err := normalizeImage(input)
+	// The HTTP handler authorizes before reading multipart bytes. Keep the same
+	// invariant at the service boundary so non-HTTP callers cannot decode an
+	// attacker-controlled image before tenant authorization.
+	if err := s.AuthorizeBrandMedia(ctx, actorID, brandID); err != nil {
+		return model.BrandImage{}, err
+	}
+	body, mime, width, height, digest, err := normalizeImage(input, kind)
 	if err != nil {
 		return model.BrandImage{}, err
 	}

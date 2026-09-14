@@ -18,6 +18,21 @@ func scanBrandImage(row rowScanner, item *model.BrandImage) error {
 	return err
 }
 
+func (r *Repository) AuthorizeBrandMedia(ctx context.Context, actorID, brandID int64) error {
+	var role string
+	err := r.Pool.QueryRow(ctx, `SELECT mm.rol FROM membresias_marca mm JOIN marcas m ON m.id=mm.marca_id AND m.activo AND m.deleted_at IS NULL WHERE mm.usuario_id=$1 AND mm.marca_id=$2 AND mm.activo`, actorID, brandID).Scan(&role)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if !mutableRole(role) {
+		return ErrForbidden
+	}
+	return nil
+}
+
 func (r *Repository) ReserveBrandImage(ctx context.Context, actorID, brandID int64, item model.BrandImage, digest []byte) (model.BrandImage, error) {
 	tx, err := r.Pool.Begin(ctx)
 	if err != nil {
