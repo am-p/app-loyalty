@@ -88,6 +88,33 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/ValidationError' }
         '429': { $ref: '#/components/responses/RateLimited' }
+  /marcas/{brand_id}/beneficios/{resource_id}:
+    parameters: [{ $ref: '#/components/parameters/BrandId' }, { $ref: '#/components/parameters/ResourceId' }]
+    get:
+      tags: [Marcas]
+      operationId: getBenefit
+      x-puntazo-implementation: IMPLEMENTED
+      responses: { '200': { description: Beneficio activo o inactivo, content: { application/json: { schema: { $ref: '#/components/schemas/BenefitEnvelope' } } } }, '404': { $ref: '#/components/responses/NotFound' } }
+    put:
+      tags: [Marcas]
+      operationId: replaceBenefit
+      x-puntazo-implementation: IMPLEMENTED
+      parameters: [{ $ref: '#/components/parameters/IfMatch' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ReplaceBenefitRequest' } } } }
+      responses: { '200': { description: Beneficio reemplazado o reactivado }, '412': { description: Versión desactualizada } }
+    patch:
+      tags: [Marcas]
+      operationId: patchBenefit
+      x-puntazo-implementation: IMPLEMENTED
+      parameters: [{ $ref: '#/components/parameters/IfMatch' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/UpdateBenefitRequest' } } } }
+      responses: { '200': { description: Beneficio actualizado }, '412': { description: Versión desactualizada } }
+    delete:
+      tags: [Marcas]
+      operationId: deleteBenefit
+      x-puntazo-implementation: IMPLEMENTED
+      parameters: [{ $ref: '#/components/parameters/IfMatch' }]
+      responses: { '204': { description: Beneficio desactivado }, '412': { description: Versión desactualizada } }
   /auth/email-verification/request:
     post:
       tags: [Auth]
@@ -373,6 +400,66 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/MerchantContextEnvelope' }
         '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Marcas]
+      operationId: updateBrand
+      x-puntazo-implementation: IMPLEMENTED
+      parameters: [{ $ref: '#/components/parameters/BrandId' }, { $ref: '#/components/parameters/IfMatch' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/UpdateBrandRequest' } } } }
+      responses: { '200': { description: Marca actualizada, content: { application/json: { schema: { $ref: '#/components/schemas/MerchantContextEnvelope' } } } }, '403': { $ref: '#/components/responses/Forbidden' }, '412': { description: Versión desactualizada } }
+    delete:
+      tags: [Marcas]
+      operationId: deleteBrand
+      x-puntazo-implementation: IMPLEMENTED
+      parameters: [{ $ref: '#/components/parameters/BrandId' }, { $ref: '#/components/parameters/IfMatch' }]
+      responses: { '204': { description: Marca desactivada }, '403': { $ref: '#/components/responses/Forbidden' }, '412': { description: Versión desactualizada } }
+  /marcas/{brand_id}/sucursales:
+    parameters: [{ $ref: '#/components/parameters/BrandId' }]
+    get:
+      tags: [Marcas]
+      operationId: listBranches
+      x-puntazo-implementation: IMPLEMENTED
+      responses: { '200': { description: Sucursales, content: { application/json: { schema: { type: object } } } }, '404': { $ref: '#/components/responses/NotFound' } }
+    post:
+      tags: [Marcas]
+      operationId: createBranch
+      x-puntazo-implementation: IMPLEMENTED
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CreateBranchRequest' } } } }
+      responses: { '201': { description: Sucursal creada, content: { application/json: { schema: { type: object } } } }, '403': { $ref: '#/components/responses/Forbidden' } }
+  /marcas/{brand_id}/sucursales/{resource_id}:
+    parameters: [{ $ref: '#/components/parameters/BrandId' }, { $ref: '#/components/parameters/ResourceId' }]
+    get:
+      tags: [Marcas]
+      operationId: getBranch
+      x-puntazo-implementation: IMPLEMENTED
+      responses: { '200': { description: Sucursal, content: { application/json: { schema: { type: object } } } }, '404': { $ref: '#/components/responses/NotFound' } }
+    patch:
+      tags: [Marcas]
+      operationId: updateBranch
+      x-puntazo-implementation: IMPLEMENTED
+      parameters: [{ $ref: '#/components/parameters/IfMatch' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/UpdateBranchRequest' } } } }
+      responses: { '200': { description: Sucursal actualizada }, '409': { description: Debe conservarse una principal activa }, '412': { description: Versión desactualizada } }
+    delete:
+      tags: [Marcas]
+      operationId: deleteBranch
+      x-puntazo-implementation: IMPLEMENTED
+      parameters: [{ $ref: '#/components/parameters/IfMatch' }]
+      responses: { '204': { description: Sucursal desactivada }, '409': { description: No se elimina la principal o última activa }, '412': { description: Versión desactualizada } }
+  /marcas/{brand_id}/programa:
+    parameters: [{ $ref: '#/components/parameters/BrandId' }]
+    get:
+      tags: [Marcas]
+      operationId: getProgram
+      x-puntazo-implementation: IMPLEMENTED
+      responses: { '200': { description: Programa, content: { application/json: { schema: { type: object } } } } }
+    put:
+      tags: [Marcas]
+      operationId: updateProgram
+      x-puntazo-implementation: IMPLEMENTED
+      parameters: [{ $ref: '#/components/parameters/IfMatch' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/UpdateProgramRequest' } } } }
+      responses: { '200': { description: Programa actualizado }, '409': { description: PROGRAM_TYPE_IMMUTABLE tras el primer movimiento }, '412': { description: Versión desactualizada } }
   /marcas/{brand_id}/beneficios:
     parameters:
       - $ref: '#/components/parameters/BrandId'
@@ -626,6 +713,16 @@ components:
       in: path
       required: true
       schema: { type: integer, format: int64, minimum: 1 }
+    ResourceId:
+      name: resource_id
+      in: path
+      required: true
+      schema: { type: integer, format: int64, minimum: 1 }
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      schema: { type: string, pattern: '^"[1-9][0-9]*"$' }
     CardId:
       name: card_id
       in: path
@@ -978,6 +1075,17 @@ components:
         name: { type: string }
         address: { type: [string, 'null'] }
         active: { type: boolean }
+        principal: { type: boolean }
+        version: { type: integer, minimum: 1 }
+    CreateBranchRequest:
+      type: object
+      required: [nombre]
+      properties: { nombre: { type: string }, direccion: { type: string }, localidad: { type: string }, provincia: { type: string }, codigo_postal: { type: string }, latitud: { type: number }, longitud: { type: number } }
+    UpdateBranchRequest:
+      allOf:
+        - { $ref: '#/components/schemas/CreateBranchRequest' }
+        - type: object
+          properties: { principal: { type: boolean } }
     Program:
       type: object
       additionalProperties: false
@@ -988,6 +1096,12 @@ components:
         type: { type: string, enum: [SELLOS, PUNTOS] }
         stamps_per_accumulation: { type: integer, const: 1 }
         active: { type: boolean }
+        nombre_unidad: { type: string }
+        version: { type: integer, minimum: 1 }
+    UpdateProgramRequest:
+      type: object
+      required: [tipo, nombre_unidad, activo]
+      properties: { tipo: { type: string, enum: [SELLOS, PUNTOS] }, nombre_unidad: { type: string }, activo: { type: boolean } }
     Benefit:
       type: object
       additionalProperties: false
@@ -1000,13 +1114,28 @@ components:
         required_points: { type: integer, minimum: 1, maximum: 10000000 }
         active: { type: boolean }
         version: { type: integer, minimum: 1 }
+        descripcion: { type: string }
+        deleted_at: { type: [string, 'null'], format: date-time }
     CreateBenefitRequest:
+      oneOf:
+        - type: object
+          required: [name, requirement]
+          properties: { name: { type: string }, requirement: { type: integer } }
+        - type: object
+          required: [nombre, descripcion, requisito_cantidad]
+          properties: { nombre: { type: string }, descripcion: { type: string }, requisito_cantidad: { type: integer } }
+    ReplaceBenefitRequest:
       type: object
-      additionalProperties: false
-      required: [name, requirement]
-      properties:
-        name: { type: string, minLength: 1, maxLength: 120 }
-        requirement: { type: integer, format: int64, minimum: 1, maximum: 10000000 }
+      required: [nombre, descripcion, requisito_cantidad, activo]
+      properties: { nombre: { type: string }, descripcion: { type: string }, requisito_cantidad: { type: integer }, activo: { type: boolean } }
+    UpdateBenefitRequest:
+      type: object
+      minProperties: 1
+      properties: { nombre: { type: string }, descripcion: { type: string }, requisito_cantidad: { type: integer }, activo: { type: boolean } }
+    UpdateBrandRequest:
+      type: object
+      minProperties: 1
+      properties: { nombre: { type: string }, descripcion: { type: string }, color_primario: { type: string }, color_secundario: { type: string }, zona_horaria: { type: string } }
     BenefitEnvelope:
       type: object
       additionalProperties: false
