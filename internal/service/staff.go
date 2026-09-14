@@ -69,14 +69,20 @@ func (s *Service) CreateInvitation(ctx context.Context, actorID, brandID int64, 
 	return result, err
 }
 func (s *Service) RevokeInvitation(ctx context.Context, actorID, brandID int64, id string) error {
-	return s.Repo.RevokeInvitation(ctx, actorID, brandID, id)
+	return retry(ctx, func() error { return s.Repo.RevokeInvitation(ctx, actorID, brandID, id) })
 }
 func (s *Service) ResendInvitation(ctx context.Context, actorID, brandID int64, id string) (model.BrandInvitation, error) {
 	token, hash, err := identityToken()
 	if err != nil {
 		return model.BrandInvitation{}, err
 	}
-	return s.Repo.ResendInvitation(ctx, actorID, brandID, id, token, hash, s.Now().Add(72*time.Hour))
+	var result model.BrandInvitation
+	err = retry(ctx, func() error {
+		var retryErr error
+		result, retryErr = s.Repo.ResendInvitation(ctx, actorID, brandID, id, token, hash, s.Now().Add(72*time.Hour))
+		return retryErr
+	})
+	return result, err
 }
 func invitationHash(token string) ([]byte, error) {
 	if len(token) < 40 || len(token) > 256 {
@@ -101,7 +107,12 @@ func (s *Service) AcceptInvitation(ctx context.Context, actorID int64, token str
 	if e != nil {
 		return model.StaffMember{}, e
 	}
-	x, e := s.Repo.AcceptInvitation(ctx, actorID, h, s.Now())
+	var x model.StaffMember
+	e = retry(ctx, func() error {
+		var retryErr error
+		x, retryErr = s.Repo.AcceptInvitation(ctx, actorID, h, s.Now())
+		return retryErr
+	})
 	if e == repository.ErrInvitationInvalid {
 		return x, ErrIdentityToken
 	}
@@ -135,12 +146,21 @@ func (s *Service) UpdateStaff(ctx context.Context, actorID, brandID, membershipI
 			}
 			seen[id] = struct{}{}
 		}
+		if req.Role != nil && *req.Role == "OPERADOR" && len(*req.BranchIDs) == 0 {
+			return model.StaffMember{}, ErrInvalidRequest
+		}
 	}
-	return s.Repo.UpdateStaff(ctx, actorID, brandID, membershipID, version, req)
+	var result model.StaffMember
+	err := retry(ctx, func() error {
+		var retryErr error
+		result, retryErr = s.Repo.UpdateStaff(ctx, actorID, brandID, membershipID, version, req)
+		return retryErr
+	})
+	return result, err
 }
 func (s *Service) DeleteStaff(ctx context.Context, actorID, brandID, membershipID int64, version int) error {
 	if version < 1 {
 		return ErrInvalidRequest
 	}
-	return s.Repo.DeleteStaff(ctx, actorID, brandID, membershipID, version)
+	return retry(ctx, func() error { return s.Repo.DeleteStaff(ctx, actorID, brandID, membershipID, version) })
 }

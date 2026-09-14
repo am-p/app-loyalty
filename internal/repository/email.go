@@ -5,6 +5,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"crypto/sha256"
 	"errors"
 	"time"
 
@@ -51,6 +52,29 @@ func DecryptOutboxToken(item model.OutboxEmail, key []byte) (string, error) {
 		return "", errors.New("secure outbox payload is invalid")
 	}
 	return string(plaintext), nil
+}
+
+// ValidateClaimedEmail closes the gap between claiming and delivering an
+// invitation: rotations, acceptance, revocation and expiry invalidate the
+// encrypted payload before it can leave the process.
+func (r *Repository) ValidateClaimedEmail(ctx context.Context, item model.OutboxEmail, token string) error {
+	if item.Kind != "BRAND_INVITATION" {
+		return nil
+	}
+	hash := sha256.Sum256([]byte(token))
+	var valid bool
+	err := r.Pool.QueryRow(ctx, `SELECT EXISTS(
+		SELECT 1 FROM email_outbox e JOIN invitaciones_marca i ON i.id=e.invitation_id
+		WHERE e.id=$1 AND e.estado='SENDING' AND e.lease_owner=$2
+		AND i.estado='PENDIENTE' AND i.expires_at>now() AND i.token_hash=$3
+	)`, item.ID, item.LeaseOwner, hash[:]).Scan(&valid)
+	if err != nil {
+		return err
+	}
+	if !valid {
+		return ErrInvitationInvalid
+	}
+	return nil
 }
 
 func enqueueIdentityEmail(ctx context.Context, tx pgx.Tx, key []byte, userID int64, tokenHash []byte, expiresAt time.Time, message model.EmailMessage) error {

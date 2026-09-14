@@ -41,6 +41,9 @@ func (w Worker) flush(ctx context.Context) {
 	}
 	for _, item := range items {
 		token, decryptErr := repository.DecryptOutboxToken(item, w.CipherKey)
+		if decryptErr == nil {
+			decryptErr = w.Repo.ValidateClaimedEmail(ctx, item, token)
+		}
 		if decryptErr != nil || !item.ExpiresAt.After(time.Now()) {
 			if decryptErr == nil {
 				decryptErr = errors.New("identity token expired")

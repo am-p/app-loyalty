@@ -63,3 +63,13 @@ func TestCreateInvitationRequiresUUIDIdempotencyKey(t *testing.T) {
 		t.Fatalf("error=%v", err)
 	}
 }
+
+func TestUpdateOperatorRequiresAtLeastOneAssignedBranch(t *testing.T) {
+	svc := &Service{}
+	role := "OPERADOR"
+	empty := []int64{}
+	_, err := svc.UpdateStaff(context.Background(), 1, 2, 3, 1, model.UpdateStaffRequest{Role: &role, BranchIDs: &empty})
+	if !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("error=%v", err)
+	}
+}

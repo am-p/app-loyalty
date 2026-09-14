@@ -34,6 +34,15 @@ func scanInvitation(row pgx.Row) (model.BrandInvitation, error) {
 	return invitation, err
 }
 
+func expireInvitations(ctx context.Context, tx pgx.Tx, brandID int64, now time.Time) error {
+	_, err := tx.Exec(ctx, `WITH expired AS (
+		UPDATE invitaciones_marca SET estado='EXPIRADA',version=version+1,updated_at=$2
+		WHERE marca_id=$1 AND estado='PENDIENTE' AND expires_at<=$2 RETURNING id
+	) UPDATE email_outbox SET estado='FAILED',ultimo_error='invitation expired',token_ciphertext=NULL,token_nonce=NULL,token_expires_at=NULL,lease_until=NULL,lease_owner=NULL
+	WHERE invitation_id IN(SELECT id FROM expired) AND estado IN('PENDING','SENDING')`, brandID, now)
+	return err
+}
+
 const invitationSelect = `SELECT i.id::text,i.marca_id,i.email::text,i.rol,COALESCE(array_agg(s.sucursal_id ORDER BY s.sucursal_id) FILTER(WHERE s.sucursal_id IS NOT NULL),'{}'),i.estado,i.expires_at,i.version,i.created_at FROM invitaciones_marca i LEFT JOIN invitaciones_sucursales s ON s.invitacion_id=i.id`
 
 func (r *Repository) ListInvitations(ctx context.Context, actorID, brandID int64) ([]model.BrandInvitation, error) {
@@ -43,6 +52,9 @@ func (r *Repository) ListInvitations(ctx context.Context, actorID, brandID int64
 	}
 	defer tx.Rollback(ctx)
 	if err = requireStaffManager(ctx, tx, actorID, brandID); err != nil {
+		return nil, err
+	}
+	if err = expireInvitations(ctx, tx, brandID, r.Now().UTC()); err != nil {
 		return nil, err
 	}
 	rows, err := tx.Query(ctx, invitationSelect+` WHERE i.marca_id=$1 GROUP BY i.id ORDER BY i.created_at DESC`, brandID)
@@ -58,7 +70,13 @@ func (r *Repository) ListInvitations(ctx context.Context, actorID, brandID int64
 		}
 		items = append(items, item)
 	}
-	return items, rows.Err()
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 func enqueueInvitationEmail(ctx context.Context, tx pgx.Tx, key []byte, inviterID int64, invitationID uuid.UUID, email, token string, expires time.Time) error {
@@ -97,6 +115,9 @@ func (r *Repository) CreateInvitation(ctx context.Context, actorID, brandID int6
 	}
 	if claimed != nil {
 		return *claimed, nil
+	}
+	if err = expireInvitations(ctx, tx, brandID, r.Now().UTC()); err != nil {
+		return IdempotentResult{}, err
 	}
 	if err = validateInvitationBranches(ctx, tx, brandID, req.BranchIDs); err != nil {
 		return IdempotentResult{}, err
@@ -146,6 +167,9 @@ func (r *Repository) RevokeInvitation(ctx context.Context, actorID, brandID int6
 	if err = requireStaffManager(ctx, tx, actorID, brandID); err != nil {
 		return err
 	}
+	if err = expireInvitations(ctx, tx, brandID, r.Now().UTC()); err != nil {
+		return err
+	}
 	tag, err := tx.Exec(ctx, `UPDATE invitaciones_marca SET estado='REVOCADA',version=version+1,updated_at=now() WHERE id=$1 AND marca_id=$2 AND estado='PENDIENTE'`, id, brandID)
 	if err != nil {
 		return err
@@ -153,7 +177,7 @@ func (r *Repository) RevokeInvitation(ctx context.Context, actorID, brandID int6
 	if tag.RowsAffected() != 1 {
 		return ErrInvitationInvalid
 	}
-	if _, err = tx.Exec(ctx, `UPDATE email_outbox SET estado='FAILED',ultimo_error='invitation revoked',token_ciphertext=NULL,token_nonce=NULL,token_expires_at=NULL WHERE invitation_id=$1 AND estado='PENDING'`, id); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE email_outbox SET estado='FAILED',ultimo_error='invitation revoked',token_ciphertext=NULL,token_nonce=NULL,token_expires_at=NULL,lease_until=NULL,lease_owner=NULL WHERE invitation_id=$1 AND estado IN('PENDING','SENDING')`, id); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -168,6 +192,9 @@ func (r *Repository) ResendInvitation(ctx context.Context, actorID, brandID int6
 	if err = requireStaffManager(ctx, tx, actorID, brandID); err != nil {
 		return model.BrandInvitation{}, err
 	}
+	if err = expireInvitations(ctx, tx, brandID, r.Now().UTC()); err != nil {
+		return model.BrandInvitation{}, err
+	}
 	var email string
 	if err = tx.QueryRow(ctx, `UPDATE invitaciones_marca SET token_hash=$3,expires_at=$4,version=version+1,updated_at=now() WHERE id=$1 AND marca_id=$2 AND estado='PENDIENTE' RETURNING email::text`, id, brandID, hash, expires).Scan(&email); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -175,7 +202,7 @@ func (r *Repository) ResendInvitation(ctx context.Context, actorID, brandID int6
 		}
 		return model.BrandInvitation{}, err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE email_outbox SET estado='FAILED',ultimo_error='superseded',token_ciphertext=NULL,token_nonce=NULL,token_expires_at=NULL WHERE invitation_id=$1 AND estado='PENDING'`, id); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE email_outbox SET estado='FAILED',ultimo_error='superseded',token_ciphertext=NULL,token_nonce=NULL,token_expires_at=NULL,lease_until=NULL,lease_owner=NULL WHERE invitation_id=$1 AND estado IN('PENDING','SENDING')`, id); err != nil {
 		return model.BrandInvitation{}, err
 	}
 	if err = enqueueInvitationEmail(ctx, tx, r.OutboxCipherKey, actorID, uuid.MustParse(id), email, token, expires); err != nil {
@@ -233,6 +260,9 @@ func (r *Repository) AcceptInvitation(ctx context.Context, actorID int64, hash [
 	if actorEmail != invitedEmail {
 		return model.StaffMember{}, ErrInvitationEmailMismatch
 	}
+	if _, err = tx.Exec(ctx, `UPDATE usuarios SET tipo_cuenta='PERSONAL_MARCA',qr_hash=NULL,version=version+1 WHERE id=$1`, actorID); err != nil {
+		return model.StaffMember{}, err
+	}
 	var membershipID int64
 	err = tx.QueryRow(ctx, `INSERT INTO membresias_marca(usuario_id,marca_id,rol) VALUES($1,$2,$3) ON CONFLICT(usuario_id,marca_id) DO UPDATE SET rol=EXCLUDED.rol,activo=true,version=membresias_marca.version+1,updated_at=$4 WHERE NOT membresias_marca.activo RETURNING id`, actorID, brandID, role, now).Scan(&membershipID)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -245,6 +275,9 @@ func (r *Repository) AcceptInvitation(ctx context.Context, actorID int64, hash [
 		return model.StaffMember{}, err
 	}
 	if _, err = tx.Exec(ctx, `UPDATE invitaciones_marca SET estado='ACEPTADA',accepted_by=$2,accepted_at=$3,version=version+1,updated_at=$3 WHERE id=$1`, id, actorID, now); err != nil {
+		return model.StaffMember{}, err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE email_outbox SET estado='FAILED',ultimo_error='invitation accepted',token_ciphertext=NULL,token_nonce=NULL,token_expires_at=NULL,lease_until=NULL,lease_owner=NULL WHERE invitation_id=$1 AND estado IN('PENDING','SENDING')`, id); err != nil {
 		return model.StaffMember{}, err
 	}
 	if err = tx.Commit(ctx); err != nil {
@@ -298,13 +331,17 @@ func (r *Repository) UpdateStaff(ctx context.Context, actorID, brandID, membersh
 		return model.StaffMember{}, err
 	}
 	var currentRole string
-	if err = tx.QueryRow(ctx, `SELECT rol FROM membresias_marca WHERE id=$1 AND marca_id=$2 AND activo FOR UPDATE`, membershipID, brandID).Scan(&currentRole); errors.Is(err, pgx.ErrNoRows) {
+	var targetUserID int64
+	if err = tx.QueryRow(ctx, `SELECT rol,usuario_id FROM membresias_marca WHERE id=$1 AND marca_id=$2 AND activo FOR UPDATE`, membershipID, brandID).Scan(&currentRole, &targetUserID); errors.Is(err, pgx.ErrNoRows) {
 		return model.StaffMember{}, ErrNotFound
 	} else if err != nil {
 		return model.StaffMember{}, err
 	}
 	if currentRole == "PROPIETARIO" {
 		return model.StaffMember{}, ErrForbidden
+	}
+	if targetUserID == actorID {
+		return model.StaffMember{}, ErrSelfRoleChangeForbidden
 	}
 	role := currentRole
 	if req.Role != nil {
@@ -330,6 +367,15 @@ func (r *Repository) UpdateStaff(ctx context.Context, actorID, brandID, membersh
 			}
 		}
 	}
+	if role == "OPERADOR" {
+		var assigned int
+		if err = tx.QueryRow(ctx, `SELECT count(*) FROM membresias_sucursales WHERE membresia_id=$1 AND activo`, membershipID).Scan(&assigned); err != nil {
+			return model.StaffMember{}, err
+		}
+		if assigned == 0 {
+			return model.StaffMember{}, ErrInvalidRequest
+		}
+	}
 	if err = tx.Commit(ctx); err != nil {
 		return model.StaffMember{}, err
 	}
@@ -347,13 +393,17 @@ func (r *Repository) DeleteStaff(ctx context.Context, actorID, brandID, membersh
 	}
 	var currentRole string
 	var currentVersion int
-	if err = tx.QueryRow(ctx, `SELECT rol,version FROM membresias_marca WHERE id=$1 AND marca_id=$2 AND activo FOR UPDATE`, membershipID, brandID).Scan(&currentRole, &currentVersion); errors.Is(err, pgx.ErrNoRows) {
+	var targetUserID int64
+	if err = tx.QueryRow(ctx, `SELECT rol,version,usuario_id FROM membresias_marca WHERE id=$1 AND marca_id=$2 AND activo FOR UPDATE`, membershipID, brandID).Scan(&currentRole, &currentVersion, &targetUserID); errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	} else if err != nil {
 		return err
 	}
 	if currentRole == "PROPIETARIO" {
 		return ErrForbidden
+	}
+	if targetUserID == actorID {
+		return ErrSelfRoleChangeForbidden
 	}
 	if currentVersion != version {
 		return ErrPreconditionFailed
