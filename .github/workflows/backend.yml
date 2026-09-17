@@ -12,7 +12,7 @@ on:
       - "go.sum"
       - "openapi.yaml"
   push:
-    branches: [main]
+    branches: [main, testing]
     paths:
       - ".github/workflows/backend.yml"
       - "cmd/**"
@@ -22,6 +22,7 @@ on:
       - "go.mod"
       - "go.sum"
       - "openapi.yaml"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -86,3 +87,55 @@ jobs:
 
       - name: Build runtime image
         run: docker build --target api --tag puntazo-api:ci .
+
+  deploy-testing:
+    name: Deploy testing
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/testing' &&
+      vars.CI_CD_DEPLOY_ENABLED == 'true'
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: testing
+    concurrency:
+      group: puntazo-api-testing
+      cancel-in-progress: true
+    steps:
+      - name: Trigger Coolify testing deployment
+        env:
+          COOLIFY_DEPLOY_TOKEN: ${{ secrets.COOLIFY_DEPLOY_TOKEN_TESTING }}
+          COOLIFY_DEPLOY_URL: ${{ secrets.COOLIFY_DEPLOY_URL_TESTING }}
+        run: |
+          test -n "$COOLIFY_DEPLOY_TOKEN"
+          test -n "$COOLIFY_DEPLOY_URL"
+          curl --fail-with-body --silent --show-error \
+            --request POST \
+            --header "Authorization: Bearer $COOLIFY_DEPLOY_TOKEN" \
+            "$COOLIFY_DEPLOY_URL"
+
+  deploy-production:
+    name: Deploy production
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      vars.CI_CD_DEPLOY_ENABLED == 'true'
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: production
+    concurrency:
+      group: puntazo-api-production
+      cancel-in-progress: false
+    steps:
+      - name: Trigger Coolify production deployment
+        env:
+          COOLIFY_DEPLOY_TOKEN: ${{ secrets.COOLIFY_DEPLOY_TOKEN_PRODUCTION }}
+          COOLIFY_DEPLOY_URL: ${{ secrets.COOLIFY_DEPLOY_URL_PRODUCTION }}
+        run: |
+          test -n "$COOLIFY_DEPLOY_TOKEN"
+          test -n "$COOLIFY_DEPLOY_URL"
+          curl --fail-with-body --silent --show-error \
+            --request POST \
+            --header "Authorization: Bearer $COOLIFY_DEPLOY_TOKEN" \
+            "$COOLIFY_DEPLOY_URL"
