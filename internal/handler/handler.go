@@ -18,6 +18,7 @@ type Handler struct {
 	Service           *service.Service
 	Repo              *repository.Repository
 	Limiter           *middleware.RateLimiter
+	Uploads           *middleware.UploadSemaphore
 	Logger            *slog.Logger
 	TrustedProxyCount int
 }
@@ -31,7 +32,14 @@ func actor(c *gin.Context) (middleware.Actor, bool) {
 }
 
 func (h *Handler) limit(c *gin.Context, key string, n int, w time.Duration) bool {
-	ok, retry := h.Limiter.Allow(key, n, w)
+	ok, retry, err := h.Limiter.Allow(c.Request.Context(), key, n, w)
+	if err != nil {
+		if h.Logger != nil {
+			h.Logger.ErrorContext(c.Request.Context(), "rate limiter unavailable", "error", err)
+		}
+		web.Error(c, http.StatusServiceUnavailable, "DEPENDENCY_UNAVAILABLE", "Control de tráfico no disponible", nil)
+		return false
+	}
 	if ok {
 		return true
 	}

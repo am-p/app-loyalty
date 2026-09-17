@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"time"
 
 	"clientesFrecuentes/internal/auth"
 	"clientesFrecuentes/internal/web"
@@ -18,10 +19,12 @@ const ActorKey = "actor"
 type Actor struct {
 	ID          int64
 	AccountType string
+	SessionID   string
+	AuthTime    time.Time
 }
 
 type ActiveActorStore interface {
-	ActiveAccountType(ctx context.Context, userID int64) (string, error)
+	ActiveSessionAccountType(ctx context.Context, userID int64, sessionID string, authVersion int) (string, error)
 }
 
 func RequireAuth(tokens *auth.Tokens, actors ActiveActorStore) gin.HandlerFunc {
@@ -31,7 +34,7 @@ func RequireAuth(tokens *auth.Tokens, actors ActiveActorStore) gin.HandlerFunc {
 			unauthenticated(c)
 			return
 		}
-		userID, accountType, err := tokens.Parse(raw)
+		userID, _, sessionID, authVersion, authTime, err := tokens.ParseSessionContext(raw)
 		if err != nil {
 			unauthenticated(c)
 			return
@@ -43,12 +46,12 @@ func RequireAuth(tokens *auth.Tokens, actors ActiveActorStore) gin.HandlerFunc {
 			unauthenticated(c)
 			return
 		}
-		activeAccountType, err := actors.ActiveAccountType(c.Request.Context(), userID)
-		if err != nil || activeAccountType != accountType {
+		activeAccountType, err := actors.ActiveSessionAccountType(c.Request.Context(), userID, sessionID, authVersion)
+		if err != nil {
 			unauthenticated(c)
 			return
 		}
-		c.Set(ActorKey, Actor{ID: userID, AccountType: activeAccountType})
+		c.Set(ActorKey, Actor{ID: userID, AccountType: activeAccountType, SessionID: sessionID, AuthTime: authTime})
 		c.Next()
 	}
 }

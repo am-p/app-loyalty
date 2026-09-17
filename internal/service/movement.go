@@ -21,6 +21,9 @@ func (s *Service) Preview(ctx context.Context, actorID int64, req model.Movement
 	if req.Operation == "CANJE" && (req.BenefitID == nil || *req.BenefitID < 1) {
 		return model.Preview{}, ErrInvalidRequest
 	}
+	if req.Operation == "CANJE" && req.PointsAmount != nil {
+		return model.Preview{}, ErrInvalidRequest
+	}
 	token, err := s.resolveMovementIdentity(req.QRToken, req.CustomerCode)
 	if err != nil {
 		return model.Preview{}, err

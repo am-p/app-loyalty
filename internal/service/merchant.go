@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"time"
 
+	"clientesFrecuentes/internal/mailer"
 	"clientesFrecuentes/internal/model"
 	"clientesFrecuentes/internal/repository"
 	"clientesFrecuentes/internal/web"
@@ -13,14 +15,14 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-func (s *Service) RegisterDemoMerchant(ctx context.Context, key, accessCode, requestID string, req model.RegisterDemoMerchantRequest) (repository.IdempotentResult, error) {
+func (s *Service) RegisterDemoMerchant(ctx context.Context, key, requestID string, req model.RegisterDemoMerchantRequest) (repository.IdempotentResult, error) {
 	if !s.Config.DemoSignupEnabled {
 		return repository.IdempotentResult{}, ErrDemoDisabled
 	}
-	if len(accessCode) < 12 || len(accessCode) > 128 {
+	if len(req.AccessCode) < 12 || len(req.AccessCode) > 128 {
 		return repository.IdempotentResult{}, ErrInvalidRequest
 	}
-	if bcrypt.CompareHashAndPassword([]byte(s.Config.DemoAccessCodeHash), []byte(accessCode)) != nil {
+	if bcrypt.CompareHashAndPassword([]byte(s.Config.DemoAccessCodeHash), []byte(req.AccessCode)) != nil {
 		return repository.IdempotentResult{}, ErrDemoAccess
 	}
 	if _, err := uuid.Parse(key); err != nil {
@@ -49,6 +51,10 @@ func (s *Service) RegisterDemoMerchant(ctx context.Context, key, accessCode, req
 		}
 		req.BranchAddress = &v
 	}
+	programType, err := normalizeProgramType(req.ProgramType)
+	if err != nil {
+		return repository.IdempotentResult{}, ErrInvalidRequest
+	}
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
 		return repository.IdempotentResult{}, err
@@ -58,20 +64,80 @@ func (s *Service) RegisterDemoMerchant(ctx context.Context, key, accessCode, req
 	fingerprint := KeyedFingerprint(s.Config.QRPepper, struct {
 		Email, Password, OwnerName, BrandName, BranchName string
 		BranchAddress                                     *string
-	}{email, req.Password, owner, brand, branch, req.BranchAddress})
+		ProgramType                                       string
+	}{email, req.Password, owner, brand, branch, req.BranchAddress, programType})
+	credentials, err := newSessionCredentials()
+	if err != nil {
+		return repository.IdempotentResult{}, err
+	}
+	var verifiedAt *time.Time
+	var verificationHash []byte
+	var verificationExpires time.Time
+	var verificationMessage *model.EmailMessage
+	if s.Config.EmailVerificationRequired {
+		token, tokenHash, tokenErr := identityToken()
+		if tokenErr != nil {
+			return repository.IdempotentResult{}, tokenErr
+		}
+		verificationHash, verificationExpires = tokenHash, s.Now().Add(24*time.Hour)
+		m := mailer.VerificationMessage(s.Config.PublicAppURL, email, token)
+		verificationMessage = &m
+	} else {
+		now := s.Now()
+		verifiedAt = &now
+	}
 	var result repository.IdempotentResult
 	err = retry(ctx, func() error {
 		var e error
-		result, e = s.Repo.CreateDemoMerchant(ctx, key, fingerprint, email, string(passwordHash), owner, brand, branch, req.BranchAddress, func(u model.User, m model.MerchantContext) ([]byte, error) {
-			token, e := s.Tokens.Generate(u.ID, u.AccountType)
+		result, e = s.Repo.CreateDemoMerchant(ctx, key, fingerprint, email, string(passwordHash), owner, brand, branch, req.BranchAddress, programType, credentials.id, credentials.hash, credentials.expiresAt, credentials.authTime, verifiedAt, verificationHash, verificationExpires, verificationMessage, func(u model.User, m model.MerchantContext) ([]byte, error) {
+			if s.Config.EmailVerificationRequired {
+				return json.Marshal(web.Envelope[model.DemoMerchantData]{Data: model.DemoMerchantData{User: u, Merchant: m, VerificationRequired: true}, RequestID: requestID})
+			}
+			merchantSession, e := s.session(u, credentials)
 			if e != nil {
 				return nil, e
 			}
-			return json.Marshal(web.Envelope[model.DemoMerchantData]{Data: model.DemoMerchantData{Session: session(token), User: u, Merchant: m}, RequestID: requestID})
+			// Idempotency persistence must never retain the bearer-equivalent
+			// refresh secret. It is injected only into the in-memory response.
+			merchantSession.RefreshToken = ""
+			return json.Marshal(web.Envelope[model.DemoMerchantData]{Data: model.DemoMerchantData{Session: &merchantSession, User: u, Merchant: m}, RequestID: requestID})
 		})
 		return e
 	})
-	return result, err
+	if err != nil {
+		return repository.IdempotentResult{}, err
+	}
+	var envelope web.Envelope[model.DemoMerchantData]
+	if err = json.Unmarshal(result.Body, &envelope); err != nil {
+		return repository.IdempotentResult{}, err
+	}
+	if envelope.Data.VerificationRequired {
+		result.Body, err = json.Marshal(envelope)
+		return result, err
+	}
+	if result.Replayed {
+		sess, sessionErr := s.issueSession(ctx, envelope.Data.User)
+		err = sessionErr
+		envelope.Data.Session = &sess
+		if err != nil {
+			return repository.IdempotentResult{}, err
+		}
+	} else {
+		envelope.Data.Session.RefreshToken = credentials.raw
+	}
+	result.Body, err = json.Marshal(envelope)
+	if err != nil {
+		return repository.IdempotentResult{}, err
+	}
+	return result, nil
+}
+
+func normalizeProgramType(value string) (string, error) {
+	value = strings.ToUpper(strings.TrimSpace(value))
+	if value != "SELLOS" && value != "PUNTOS" {
+		return "", ErrInvalidRequest
+	}
+	return value, nil
 }
 
 func (s *Service) ListBrands(ctx context.Context, actorID int64) ([]model.MerchantContext, error) {
@@ -80,6 +146,24 @@ func (s *Service) ListBrands(ctx context.Context, actorID int64) ([]model.Mercha
 
 func (s *Service) Brand(ctx context.Context, actorID, brandID int64) (model.MerchantContext, error) {
 	return s.Repo.GetMerchantContext(ctx, actorID, brandID)
+}
+
+func (s *Service) Benefits(ctx context.Context, actorID, brandID int64) ([]model.Benefit, error) {
+	return s.Repo.ListBenefits(ctx, actorID, brandID)
+}
+
+func (s *Service) CreateBenefit(ctx context.Context, actorID, brandID int64, req model.CreateBenefitRequest) (model.Benefit, error) {
+	if req.CanonicalName != "" {
+		req.Name = req.CanonicalName
+	}
+	if req.CanonicalRequirement != 0 {
+		req.Requirement = req.CanonicalRequirement
+	}
+	name, err := cleanName(req.Name, 120)
+	if err != nil || req.Requirement < 1 || req.Requirement > 10000000 || len(req.Description) > 1000 {
+		return model.Benefit{}, ErrInvalidRequest
+	}
+	return s.Repo.CreateBenefit(ctx, actorID, brandID, name, req.Description, req.Requirement)
 }
 
 func (s *Service) BrandMovements(ctx context.Context, actorID, brandID int64, page, size int) ([]model.Movement, web.Pagination, error) {
