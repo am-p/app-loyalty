@@ -97,6 +97,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/RegisterCustomerEnvelope' }
+        '403': { $ref: '#/components/responses/DemoSignupClosed' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/ValidationError' }
         '429': { $ref: '#/components/responses/RateLimited' }
@@ -248,7 +249,18 @@ paths:
     post:
       tags: [Auth]
       operationId: loginGoogle
-      summary: Inicia sesión con un ID token de Google verificado
+      summary: Inicia sesión o crea una cuenta elegida con un ID token de Google verificado
+      description: |
+        Para una cuenta existente basta `id_token`; `account_type` y `merchant_registration`
+        se ignoran y nunca convierten la cuenta. Una identidad nueva debe indicar
+        `CLIENTE_FINAL` o `PERSONAL_MARCA`. El alta `PERSONAL_MARCA` provisiona en una
+        transacción la marca, membresía PROPIETARIO, sucursal, programa y acceso demo $0.
+        Si una identidad Google verificada es nueva y omite `account_type`, no se crea
+        usuario, sesión ni recurso comercial: se devuelve `422 ACCOUNT_TYPE_REQUIRED`
+        con `details.next_action=SELECT_ACCOUNT_TYPE`. El cliente debe conservar el
+        `id_token` sólo en memoria y reenviarlo después de la elección; si Google ya no
+        lo valida, debe comenzar una autenticación nueva. El alias temporal
+        `POST /auth/google` conserva este mismo error y reglas de selección.
       security: []
       x-puntazo-implementation: IMPLEMENTED
       parameters:
@@ -264,7 +276,9 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AuthEnvelope' }
+        '403': { $ref: '#/components/responses/DemoSignupClosed' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
+        '422': { $ref: '#/components/responses/GoogleAuthValidationError' }
         '429': { $ref: '#/components/responses/RateLimited' }
   /auth/refresh:
     post:
@@ -562,7 +576,7 @@ paths:
       responses:
         '201': { description: Invitación creada, content: { application/json: { schema: { $ref: '#/components/schemas/InvitationEnvelope' } } } }
         '403': { $ref: '#/components/responses/Forbidden' }
-        '409': { description: El usuario ya pertenece a la marca }
+        '409': { description: INVITATION_EMAIL_ALREADY_REGISTERED; las invitaciones del MVP requieren un correo nunca registrado }
         '422': { $ref: '#/components/responses/ValidationError' }
   /marcas/{brand_id}/invitaciones/{invitation_id}:
     parameters: [{ $ref: '#/components/parameters/BrandId' }, { name: invitation_id, in: path, required: true, schema: { type: string, format: uuid } }]
@@ -597,17 +611,19 @@ paths:
       responses:
         '200': { description: Invitación válida, content: { application/json: { schema: { $ref: '#/components/schemas/PublicInvitationEnvelope' } } } }
         '422': { description: IDENTITY_TOKEN_INVALID }
-  /invitaciones/{token}/aceptar:
+  /invitaciones/{token}/registrar:
     post:
+      security: []
       tags: [Auth]
-      summary: Acepta una invitación para el email exacto de la sesión
-      operationId: acceptBrandInvitation
+      summary: Crea la cuenta de personal desde una invitación y activa su membresía
+      operationId: registerBrandInvitation
       x-puntazo-implementation: IMPLEMENTED
       parameters: [{ name: token, in: path, required: true, schema: { type: string, minLength: 40, maxLength: 256 } }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/RegisterInvitationRequest' } } } }
       responses:
-        '200': { description: Membresía creada, content: { application/json: { schema: { $ref: '#/components/schemas/StaffEnvelope' } } } }
-        '409': { description: 'INVITATION_EMAIL_MISMATCH, ACCOUNT_MODE_CONFLICT o membresía activa existente' }
-        '422': { description: IDENTITY_TOKEN_INVALID }
+        '201': { description: Cuenta y membresía creadas; sesión iniciada, content: { application/json: { schema: { $ref: '#/components/schemas/AuthEnvelope' } } } }
+        '409': { description: EMAIL_EXISTS }
+        '422': { description: IDENTITY_TOKEN_INVALID o datos inválidos }
   /marcas/{brand_id}/personal:
     parameters: [{ $ref: '#/components/parameters/BrandId' }]
     get:
@@ -646,7 +662,7 @@ paths:
       tags: [Clientes]
       operationId: listBrandCustomers
       summary: Lista clientes con tarjeta y saldo real de la marca
-      description: Sólo lectura para propietarios activos; nunca devuelve el QR del cliente.
+      description: Sólo lectura para cualquier membresía activa de la marca; nunca devuelve el QR del cliente.
       x-puntazo-implementation: IMPLEMENTED
       parameters:
         - $ref: '#/components/parameters/BrandId'
@@ -686,7 +702,7 @@ paths:
       tags: [Marcas]
       operationId: listBrandImages
       summary: Lista las imágenes privadas activas de la marca con URLs firmadas
-      description: Sólo propietarios y administradores. Las URLs vencen y deben refrescarse volviendo a listar.
+      description: Toda membresía activa puede consultar las imágenes. Sólo propietarios y administradores pueden modificarlas. Las URLs vencen y deben refrescarse volviendo a listar.
       x-puntazo-implementation: IMPLEMENTED
       parameters: [{ $ref: '#/components/parameters/BrandId' }]
       responses:
@@ -948,6 +964,16 @@ components:
     ValidationError:
       description: Request válido como JSON pero inválido para el contrato
       content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } }
+    GoogleAuthValidationError:
+      description: |
+        Request inválido o identidad Google verificada que requiere elegir el tipo de
+        cuenta antes de realizar cualquier escritura o emitir una sesión.
+      content:
+        application/json:
+          schema:
+            oneOf:
+              - $ref: '#/components/schemas/AccountTypeRequiredErrorEnvelope'
+              - $ref: '#/components/schemas/InvalidRequestErrorEnvelope'
     RateLimited:
       description: Límite por IP, email u operador excedido
       headers:
@@ -992,9 +1018,41 @@ components:
           properties:
             code:
               type: string
-              enum: [INVALID_REQUEST, IDENTITY_TOKEN_INVALID, INVITATION_INVALID, INVITATION_EMAIL_MISMATCH, SELF_ROLE_CHANGE_FORBIDDEN, EMAIL_VERIFICATION_REQUIRED, UNAUTHENTICATED, RECENT_AUTH_REQUIRED, FORBIDDEN, NOT_FOUND, EMAIL_EXISTS, RESOURCE_CONFLICT, PROGRAM_TYPE_HAS_BENEFITS, PROGRAM_TYPE_IMMUTABLE, IDEMPOTENCY_CONFLICT, IDEMPOTENCY_IN_PROGRESS, PREVIEW_EXPIRED, PREVIEW_CONSUMED, PREVIEW_CHANGED, PRECONDITION_FAILED, OWNERSHIP_TRANSFER_REQUIRED, INSUFFICIENT_BALANCE, DEMO_SIGNUP_DISABLED, DEMO_ACCESS_DENIED, MEDIA_TOO_LARGE, MEDIA_TYPE_UNSUPPORTED, MEDIA_STORAGE_UNAVAILABLE, RATE_LIMITED, DEPENDENCY_UNAVAILABLE, INTERNAL_ERROR]
+              enum: [INVALID_REQUEST, ACCOUNT_TYPE_REQUIRED, IDENTITY_TOKEN_INVALID, INVITATION_INVALID, INVITATION_EMAIL_MISMATCH, SELF_ROLE_CHANGE_FORBIDDEN, EMAIL_VERIFICATION_REQUIRED, UNAUTHENTICATED, RECENT_AUTH_REQUIRED, FORBIDDEN, NOT_FOUND, EMAIL_EXISTS, RESOURCE_CONFLICT, PROGRAM_TYPE_HAS_BENEFITS, PROGRAM_TYPE_IMMUTABLE, IDEMPOTENCY_CONFLICT, IDEMPOTENCY_IN_PROGRESS, PREVIEW_EXPIRED, PREVIEW_CONSUMED, PREVIEW_CHANGED, PRECONDITION_FAILED, OWNERSHIP_TRANSFER_REQUIRED, INSUFFICIENT_BALANCE, DEMO_SIGNUP_DISABLED, DEMO_ACCESS_DENIED, MEDIA_TOO_LARGE, MEDIA_TYPE_UNSUPPORTED, MEDIA_STORAGE_UNAVAILABLE, RATE_LIMITED, DEPENDENCY_UNAVAILABLE, INTERNAL_ERROR]
             message: { type: string }
             details: { type: object, additionalProperties: true }
+        request_id: { $ref: '#/components/schemas/RequestId' }
+    AccountTypeRequiredErrorEnvelope:
+      type: object
+      additionalProperties: false
+      required: [error, request_id]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message, details]
+          properties:
+            code: { type: string, const: ACCOUNT_TYPE_REQUIRED }
+            message: { type: string }
+            details:
+              type: object
+              additionalProperties: false
+              required: [next_action]
+              properties:
+                next_action: { type: string, const: SELECT_ACCOUNT_TYPE }
+        request_id: { $ref: '#/components/schemas/RequestId' }
+    InvalidRequestErrorEnvelope:
+      type: object
+      additionalProperties: false
+      required: [error, request_id]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message]
+          properties:
+            code: { type: string, const: INVALID_REQUEST }
+            message: { type: string }
         request_id: { $ref: '#/components/schemas/RequestId' }
     MessageEnvelope:
       type: object
@@ -1160,7 +1218,12 @@ components:
         owner_name: { type: string, minLength: 1, maxLength: 120 }
         brand_name: { type: string, minLength: 1, maxLength: 120 }
         branch_name: { type: string, minLength: 1, maxLength: 120 }
-        branch_address: { type: string, maxLength: 240 }
+        branch_address: { type: string, maxLength: 300 }
+        branch_locality: { type: string, maxLength: 120 }
+        branch_province: { type: string, maxLength: 120 }
+        branch_postal_code: { type: string, maxLength: 20 }
+        branch_latitude: { type: number, format: double, minimum: -90, maximum: 90, description: Debe enviarse junto con branch_longitude }
+        branch_longitude: { type: number, format: double, minimum: -180, maximum: 180, description: Debe enviarse junto con branch_latitude }
         program_type: { type: string, enum: [SELLOS, PUNTOS] }
         access_code:
           type: string
@@ -1193,6 +1256,27 @@ components:
       required: [id_token]
       properties:
         id_token: { type: string, minLength: 1 }
+        account_type: { $ref: '#/components/schemas/AccountType' }
+        merchant_registration: { $ref: '#/components/schemas/GoogleMerchantRegistration' }
+    GoogleMerchantRegistration:
+      type: object
+      additionalProperties: false
+      required: [brand_name, branch_name, program_type, access_code]
+      properties:
+        brand_name: { type: string, minLength: 1, maxLength: 120 }
+        branch_name: { type: string, minLength: 1, maxLength: 120 }
+        branch_address: { type: string, maxLength: 300 }
+        branch_locality: { type: string, maxLength: 120 }
+        branch_province: { type: string, maxLength: 120 }
+        branch_postal_code: { type: string, maxLength: 20 }
+        branch_latitude: { type: number, format: double, minimum: -90, maximum: 90, description: Debe enviarse junto con branch_longitude }
+        branch_longitude: { type: number, format: double, minimum: -180, maximum: 180, description: Debe enviarse junto con branch_latitude }
+        program_type: { type: string, enum: [SELLOS, PUNTOS] }
+        access_code:
+          type: string
+          minLength: 12
+          maxLength: 128
+          description: Se compara contra bcrypt y nunca se persiste ni registra en claro
     CreateInvitationRequest:
       type: object
       additionalProperties: false
@@ -1224,6 +1308,18 @@ components:
         email_enmascarado: { type: string }
         rol: { type: string, enum: [ADMINISTRADOR, OPERADOR] }
         expires_at: { $ref: '#/components/schemas/Timestamp' }
+    RegisterInvitationRequest:
+      type: object
+      additionalProperties: false
+      required: [nombre, password]
+      properties:
+        nombre: { type: string, minLength: 1, maxLength: 120 }
+        password:
+          type: string
+          format: password
+          minLength: 10
+          maxLength: 72
+          description: Máximo 72 bytes en UTF-8 por compatibilidad con bcrypt
     StaffMember:
       type: object
       additionalProperties: false

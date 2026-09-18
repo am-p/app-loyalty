@@ -102,7 +102,7 @@ func (r *Repository) ListBrandCustomers(ctx context.Context, actorID, brandID in
 	var authorized bool
 	err = tx.QueryRow(ctx, `SELECT EXISTS(
 		SELECT 1 FROM usuarios u
-		JOIN membresias_marca mm ON mm.usuario_id=u.id AND mm.activo AND mm.rol='PROPIETARIO'
+		JOIN membresias_marca mm ON mm.usuario_id=u.id AND mm.activo
 		JOIN marcas m ON m.id=mm.marca_id AND m.activo AND m.deleted_at IS NULL
 		WHERE u.id=$1 AND u.tipo_cuenta='PERSONAL_MARCA' AND u.activo AND u.deleted_at IS NULL AND m.id=$2
 	)`, actorID, brandID).Scan(&authorized)
