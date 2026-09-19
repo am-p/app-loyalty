@@ -3,11 +3,28 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
+	"clientesFrecuentes/internal/config"
 	"clientesFrecuentes/internal/model"
+
+	"golang.org/x/crypto/bcrypt"
 )
+
+func TestRegisterCustomerRejectsWhenDemoSignupIsDisabled(t *testing.T) {
+	svc := &Service{Config: config.Config{DemoSignupEnabled: false}}
+
+	_, err := svc.RegisterCustomer(context.Background(), model.RegisterCustomerRequest{
+		Email:    "customer@example.com",
+		Password: "customer-pass",
+		Name:     "Customer",
+	})
+	if !errors.Is(err, ErrDemoDisabled) {
+		t.Fatalf("error = %v, want %v", err, ErrDemoDisabled)
+	}
+}
 
 func TestValidPasswordHonorsBcryptByteLimit(t *testing.T) {
 	tests := []struct {
@@ -61,6 +78,79 @@ func TestCreateInvitationRequiresUUIDIdempotencyKey(t *testing.T) {
 	_, err := svc.CreateInvitation(context.Background(), 1, 2, "not-a-uuid", "request-id", model.CreateInvitationRequest{Email: "staff@example.com", Role: "OPERADOR", BranchIDs: []int64{3}})
 	if !errors.Is(err, ErrInvalidRequest) {
 		t.Fatalf("error=%v", err)
+	}
+}
+
+func TestRegisterInvitationValidatesTokenAndCredentialsBeforePersistence(t *testing.T) {
+	svc := &Service{}
+	tests := []struct {
+		name  string
+		token string
+		req   model.RegisterInvitationRequest
+	}{
+		{name: "invalid token", token: "short", req: model.RegisterInvitationRequest{Name: "Operador", Password: "operator-pass"}},
+		{name: "blank name", token: strings.Repeat("a", 40), req: model.RegisterInvitationRequest{Name: " ", Password: "operator-pass"}},
+		{name: "short password", token: strings.Repeat("a", 40), req: model.RegisterInvitationRequest{Name: "Operador", Password: "short"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := svc.RegisterInvitation(context.Background(), tt.token, tt.req); !errors.Is(err, ErrInvalidRequest) && !errors.Is(err, ErrIdentityToken) {
+				t.Fatalf("error=%v", err)
+			}
+		})
+	}
+}
+
+func TestValidateGoogleMerchantNormalizesAcceptedRegistration(t *testing.T) {
+	hash, err := bcrypt.GenerateFromPassword([]byte("demo-access-code"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	address, locality, province, postalCode := "  Calle 123  ", "  Rosario  ", "  Santa Fe  ", "  S2000  "
+	latitude, longitude := -32.94682, -60.63932
+	svc := &Service{Config: config.Config{DemoAccessCodeHash: string(hash)}}
+	got, err := svc.validateGoogleMerchant(&model.GoogleMerchantRegistration{
+		BrandName: "  Mi Marca  ", BranchName: "  Principal  ", BranchAddress: &address, BranchLocality: &locality,
+		BranchProvince: &province, BranchPostalCode: &postalCode, BranchLatitude: &latitude, BranchLongitude: &longitude,
+		ProgramType: " puntos ", AccessCode: "demo-access-code",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.BrandName != "Mi Marca" || got.BranchName != "Principal" || got.BranchAddress == nil || *got.BranchAddress != "Calle 123" || got.BranchLocality == nil || *got.BranchLocality != "Rosario" || got.BranchProvince == nil || *got.BranchProvince != "Santa Fe" || got.BranchPostalCode == nil || *got.BranchPostalCode != "S2000" || got.BranchLatitude == nil || *got.BranchLatitude != latitude || got.BranchLongitude == nil || *got.BranchLongitude != longitude || got.ProgramType != "PUNTOS" || got.AccessCode != "" {
+		t.Fatalf("normalized registration=%+v", got)
+	}
+}
+
+func TestCleanRegistrationBranchLocationRequiresCoordinatePairAndRanges(t *testing.T) {
+	latitude, longitude := -34.6, -58.4
+	for name, location := range map[string]model.BranchRegistrationLocation{
+		"missing longitude": {BranchLatitude: &latitude},
+		"missing latitude":  {BranchLongitude: &longitude},
+		"invalid latitude":  {BranchLatitude: float64Pointer(91), BranchLongitude: &longitude},
+		"invalid longitude": {BranchLatitude: &latitude, BranchLongitude: float64Pointer(-181)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := cleanRegistrationBranchLocation(&location); !errors.Is(err, ErrInvalidRequest) {
+				t.Fatalf("error=%v", err)
+			}
+		})
+	}
+}
+
+func float64Pointer(value float64) *float64 { return &value }
+
+func TestValidateGoogleMerchantRejectsMissingAndInvalidAccess(t *testing.T) {
+	hash, err := bcrypt.GenerateFromPassword([]byte("demo-access-code"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := &Service{Config: config.Config{DemoAccessCodeHash: string(hash)}}
+	if _, err = svc.validateGoogleMerchant(nil); !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("missing registration error=%v", err)
+	}
+	if _, err = svc.validateGoogleMerchant(&model.GoogleMerchantRegistration{BrandName: "Marca", BranchName: "Principal", ProgramType: "SELLOS", AccessCode: "wrong-access-code"}); !errors.Is(err, ErrDemoAccess) {
+		t.Fatalf("invalid access error=%v", err)
 	}
 }
 

@@ -12,14 +12,27 @@ type RegisterCustomerRequest struct {
 	Name     string `json:"name"`
 }
 type RegisterDemoMerchantRequest struct {
-	Email         string  `json:"email"`
-	Password      string  `json:"password"`
-	OwnerName     string  `json:"owner_name"`
-	BrandName     string  `json:"brand_name"`
-	BranchName    string  `json:"branch_name"`
-	BranchAddress *string `json:"branch_address,omitempty"`
-	ProgramType   string  `json:"program_type"`
-	AccessCode    string  `json:"access_code"`
+	Email            string   `json:"email"`
+	Password         string   `json:"password"`
+	OwnerName        string   `json:"owner_name"`
+	BrandName        string   `json:"brand_name"`
+	BranchName       string   `json:"branch_name"`
+	BranchAddress    *string  `json:"branch_address,omitempty"`
+	BranchLocality   *string  `json:"branch_locality,omitempty"`
+	BranchProvince   *string  `json:"branch_province,omitempty"`
+	BranchPostalCode *string  `json:"branch_postal_code,omitempty"`
+	BranchLatitude   *float64 `json:"branch_latitude,omitempty"`
+	BranchLongitude  *float64 `json:"branch_longitude,omitempty"`
+	ProgramType      string   `json:"program_type"`
+	AccessCode       string   `json:"access_code"`
+}
+type BranchRegistrationLocation struct {
+	BranchAddress    *string  `json:"branch_address,omitempty"`
+	BranchLocality   *string  `json:"branch_locality,omitempty"`
+	BranchProvince   *string  `json:"branch_province,omitempty"`
+	BranchPostalCode *string  `json:"branch_postal_code,omitempty"`
+	BranchLatitude   *float64 `json:"branch_latitude,omitempty"`
+	BranchLongitude  *float64 `json:"branch_longitude,omitempty"`
 }
 type LoginRequest struct {
 	Email    string `json:"email"`
@@ -29,7 +42,21 @@ type RefreshRequest struct {
 	RefreshToken string `json:"refresh_token"`
 }
 type GoogleAuthRequest struct {
-	IDToken string `json:"id_token"`
+	IDToken              string                      `json:"id_token"`
+	AccountType          *string                     `json:"account_type,omitempty"`
+	MerchantRegistration *GoogleMerchantRegistration `json:"merchant_registration,omitempty"`
+}
+type GoogleMerchantRegistration struct {
+	BrandName        string   `json:"brand_name"`
+	BranchName       string   `json:"branch_name"`
+	BranchAddress    *string  `json:"branch_address,omitempty"`
+	BranchLocality   *string  `json:"branch_locality,omitempty"`
+	BranchProvince   *string  `json:"branch_province,omitempty"`
+	BranchPostalCode *string  `json:"branch_postal_code,omitempty"`
+	BranchLatitude   *float64 `json:"branch_latitude,omitempty"`
+	BranchLongitude  *float64 `json:"branch_longitude,omitempty"`
+	ProgramType      string   `json:"program_type"`
+	AccessCode       string   `json:"access_code"`
 }
 
 type User struct {
@@ -119,12 +146,21 @@ type PasswordResetConfirmRequest struct {
 }
 type EmailMessage struct {
 	Kind, To, Subject, Text, HTML, Token string
+	InlineImages                         []EmailInlineImage
+}
+type EmailInlineImage struct {
+	ContentID, Filename, ContentType string
+	Data                             []byte
 }
 type OutboxEmail struct {
 	ID, To, Kind, LeaseOwner string
 	Ciphertext, Nonce        []byte
 	ExpiresAt                time.Time
 	Attempts                 int
+	BrandName                string
+	InvitationRole           string
+	InvitationBranchNames    []string
+	BrandLogoObjectKey       string
 }
 type Membership struct {
 	BrandID   int64   `json:"brand_id"`
@@ -154,6 +190,10 @@ type PublicInvitation struct {
 	MaskedEmail string    `json:"email_enmascarado"`
 	Role        string    `json:"rol"`
 	ExpiresAt   time.Time `json:"expires_at"`
+}
+type RegisterInvitationRequest struct {
+	Name     string `json:"nombre"`
+	Password string `json:"password"`
 }
 type StaffMember struct {
 	MembershipID int64   `json:"id"`

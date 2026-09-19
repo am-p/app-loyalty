@@ -21,6 +21,8 @@ func writeErr(c *gin.Context, err error) {
 		web.Error(c, http.StatusServiceUnavailable, "MEDIA_STORAGE_UNAVAILABLE", "El almacenamiento de imágenes no está disponible", nil)
 	case errors.Is(err, service.ErrInvalidRequest), errors.Is(err, repository.ErrInvalidRequest):
 		web.Error(c, http.StatusUnprocessableEntity, "INVALID_REQUEST", "Solicitud inválida", nil)
+	case errors.Is(err, service.ErrAccountTypeRequired):
+		web.Error(c, http.StatusUnprocessableEntity, "ACCOUNT_TYPE_REQUIRED", "Elegí si la cuenta es cliente o comercio", map[string]any{"next_action": "SELECT_ACCOUNT_TYPE"})
 	case errors.Is(err, service.ErrInvalidCredentials):
 		web.Error(c, http.StatusUnauthorized, "UNAUTHENTICATED", "Credenciales inválidas", nil)
 	case errors.Is(err, service.ErrRecentAuthRequired):
@@ -61,8 +63,8 @@ func writeErr(c *gin.Context, err error) {
 		web.Error(c, http.StatusConflict, "RESOURCE_CONFLICT", "La operación viola una invariante activa", nil)
 	case errors.Is(err, service.ErrIdentityToken):
 		web.Error(c, http.StatusUnprocessableEntity, "IDENTITY_TOKEN_INVALID", "Token inválido, vencido o utilizado", nil)
-	case errors.Is(err, repository.ErrInvitationEmailMismatch):
-		web.Error(c, http.StatusConflict, "INVITATION_EMAIL_MISMATCH", "La invitación pertenece a otro correo", nil)
+	case errors.Is(err, repository.ErrInvitationEmailRegistered):
+		web.Error(c, http.StatusConflict, "INVITATION_EMAIL_ALREADY_REGISTERED", "Este correo ya está registrado. Usá otro correo para invitar al personal", nil)
 	case errors.Is(err, repository.ErrInvitationInvalid):
 		web.Error(c, http.StatusUnprocessableEntity, "INVITATION_INVALID", "Invitación inválida, vencida o utilizada", nil)
 	case errors.Is(err, service.ErrEmailUnverified):
