@@ -16,7 +16,6 @@ var (
 	ErrAccountTypeRequired = errors.New("account type required")
 	ErrForbidden           = errors.New("forbidden")
 	ErrDemoDisabled        = errors.New("demo signup disabled")
-	ErrDemoAccess          = errors.New("demo access denied")
 	ErrEmailUnverified     = errors.New("email unverified")
 	ErrIdentityToken       = errors.New("identity token invalid")
 	ErrRecentAuthRequired  = errors.New("recent authentication required")

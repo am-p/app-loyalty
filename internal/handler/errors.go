@@ -31,8 +31,6 @@ func writeErr(c *gin.Context, err error) {
 		web.Error(c, http.StatusForbidden, "FORBIDDEN", "Acceso denegado", nil)
 	case errors.Is(err, service.ErrDemoDisabled):
 		web.Error(c, http.StatusForbidden, "DEMO_SIGNUP_DISABLED", "Las altas demo están cerradas", nil)
-	case errors.Is(err, service.ErrDemoAccess):
-		web.Error(c, http.StatusForbidden, "DEMO_ACCESS_DENIED", "Código de acceso inválido", nil)
 	case errors.Is(err, repository.ErrEmailExists):
 		web.Error(c, http.StatusConflict, "EMAIL_EXISTS", "El email ya está registrado", nil)
 	case errors.Is(err, repository.ErrIdempotencyConflict):

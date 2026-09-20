@@ -139,11 +139,10 @@ func (r *Repository) UpdateAccount(ctx context.Context, id int64, expectedVersio
 	command, err := r.Pool.Exec(ctx, `UPDATE usuarios SET nombre=CASE WHEN $3 THEN $4 ELSE nombre END,
 		apellido=CASE WHEN $5 THEN NULLIF($6,'') ELSE apellido END,
 		alias=CASE WHEN $7 THEN NULLIF($8,'') ELSE alias END,
-		foto_url=CASE WHEN $9 THEN NULLIF($10,'') ELSE foto_url END,
 		version=version+1
 		WHERE id=$1 AND version=$2 AND activo AND deleted_at IS NULL`, id, expectedVersion,
 		req.Name.Set, patchValue(req.Name), req.LastName.Set, patchValue(req.LastName),
-		req.Alias.Set, patchValue(req.Alias), req.PhotoURL.Set, patchValue(req.PhotoURL))
+		req.Alias.Set, patchValue(req.Alias))
 	if err != nil {
 		return model.CurrentUser{}, err
 	}

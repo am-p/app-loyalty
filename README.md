@@ -21,7 +21,7 @@ Para levantar PostgreSQL, aplicar las migraciones y arrancar la API con las mism
 
 ```bash
 cp .env.example .env
-# Reemplazar JWT_SECRET, QR_PEPPER, DEMO_ACCESS_CODE_HASH y la contraseña de PostgreSQL.
+# Reemplazar JWT_SECRET, QR_PEPPER y la contraseña de PostgreSQL.
 docker compose --env-file .env up --build
 ```
 
@@ -72,7 +72,6 @@ ALLOW_MIGRATION_DOWN=true go run ./cmd/migrate down
 | `JWT_SECRET` | Secreto aleatorio de al menos 32 bytes. |
 | `JWT_ISSUER` | Issuer firmado y validado en JWT; por defecto `puntazo`. Cambiarlo invalida sesiones previas. |
 | `QR_PEPPER` | Secreto distinto de `JWT_SECRET`, de al menos 32 bytes. |
-| `DEMO_ACCESS_CODE_HASH` | Hash bcrypt del código de alta; obligatorio si `DEMO_SIGNUP_ENABLED=true`. |
 | `DEMO_SIGNUP_ENABLED` | Habilita o cierra nuevas altas gratuitas sin bloquear cuentas existentes. |
 | `CORS_ORIGINS` | Orígenes web exactos permitidos, separados por comas; habilita credenciales para la cookie HttpOnly de refresh. |
 | `GOOGLE_CLIENT_ID` | Audiencia web de Google; opcional para el alias legado. |

@@ -24,7 +24,6 @@ type RegisterDemoMerchantRequest struct {
 	BranchLatitude   *float64 `json:"branch_latitude,omitempty"`
 	BranchLongitude  *float64 `json:"branch_longitude,omitempty"`
 	ProgramType      string   `json:"program_type"`
-	AccessCode       string   `json:"access_code"`
 }
 type BranchRegistrationLocation struct {
 	BranchAddress    *string  `json:"branch_address,omitempty"`
@@ -56,7 +55,6 @@ type GoogleMerchantRegistration struct {
 	BranchLatitude   *float64 `json:"branch_latitude,omitempty"`
 	BranchLongitude  *float64 `json:"branch_longitude,omitempty"`
 	ProgramType      string   `json:"program_type"`
-	AccessCode       string   `json:"access_code"`
 }
 
 type User struct {
@@ -107,7 +105,20 @@ type UpdateAccountRequest struct {
 	Name     OptionalString `json:"nombre"`
 	LastName OptionalString `json:"apellido"`
 	Alias    OptionalString `json:"alias"`
-	PhotoURL OptionalString `json:"foto_url"`
+}
+
+type ProfilePhoto struct {
+	URL          string    `json:"url"`
+	URLExpiresAt time.Time `json:"url_expires_at"`
+	MIMEType     string    `json:"mime_type"`
+	ByteSize     int64     `json:"byte_size"`
+	Width        int       `json:"width"`
+	Height       int       `json:"height"`
+}
+
+type ProfilePhotoUpdate struct {
+	Current CurrentUser  `json:"current"`
+	Photo   ProfilePhoto `json:"photo"`
 }
 type AnonymizeAccountRequest struct {
 	Confirmation string `json:"confirmacion"`

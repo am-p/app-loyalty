@@ -18,7 +18,6 @@ type Config struct {
 	JWTSecret                 string
 	JWTIssuer                 string
 	QRPepper                  string
-	DemoAccessCodeHash        string
 	DemoSignupEnabled         bool
 	EmailVerificationRequired bool
 	PublicAppURL              string
@@ -72,7 +71,7 @@ func Load() (Config, error) {
 	s3Endpoint := strings.TrimSpace(os.Getenv("S3_ENDPOINT"))
 	c := Config{
 		DatabaseURL: os.Getenv("DATABASE_URL"), JWTSecret: os.Getenv("JWT_SECRET"), JWTIssuer: envDefault("JWT_ISSUER", "puntazo"),
-		QRPepper: os.Getenv("QR_PEPPER"), DemoAccessCodeHash: os.Getenv("DEMO_ACCESS_CODE_HASH"),
+		QRPepper:          os.Getenv("QR_PEPPER"),
 		DemoSignupEnabled: envBool("DEMO_SIGNUP_ENABLED", false), AppVersion: envDefault("APP_VERSION", "dev"),
 		EmailVerificationRequired: envBool("EMAIL_VERIFICATION_REQUIRED", false), PublicAppURL: envDefault("PUBLIC_APP_URL", "http://localhost:8081"),
 		MailProvider: strings.ToLower(envDefault("MAIL_PROVIDER", "disabled")), MailFromAddress: strings.TrimSpace(os.Getenv("MAIL_FROM_ADDRESS")), MailFromName: envDefault("MAIL_FROM_NAME", "Puntazo"),
@@ -98,9 +97,6 @@ func Load() (Config, error) {
 	}
 	if c.JWTSecret == c.QRPepper {
 		return Config{}, errors.New("JWT_SECRET and QR_PEPPER must differ")
-	}
-	if c.DemoSignupEnabled && c.DemoAccessCodeHash == "" {
-		return Config{}, errors.New("DEMO_ACCESS_CODE_HASH is required while demo signup is enabled")
 	}
 	if !fourDigits(c.ExpectedSchemaVersion) {
 		return Config{}, errors.New("EXPECTED_SCHEMA_VERSION must have four digits")

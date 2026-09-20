@@ -405,6 +405,47 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/AccountExportEnvelope' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
+  /me/foto:
+    get:
+      tags: [Cuenta]
+      operationId: getCurrentUserPhoto
+      summary: Entrega una URL temporal para la foto privada del perfil
+      x-puntazo-implementation: IMPLEMENTED
+      responses:
+        '200':
+          description: Foto disponible mediante URL firmada temporal
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProfilePhotoEnvelope' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Cuenta]
+      operationId: uploadCurrentUserPhoto
+      summary: Reemplaza la foto privada del perfil
+      x-puntazo-implementation: IMPLEMENTED
+      parameters: [{ $ref: '#/components/parameters/IfMatch' }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [archivo]
+              properties:
+                archivo: { type: string, format: binary, description: "JPEG, PNG o WebP de hasta 5 MiB" }
+      responses:
+        '200':
+          description: Foto reemplazada y perfil versionado
+          headers:
+            ETag:
+              schema: { type: string, pattern: '^"[1-9][0-9]*"$' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProfilePhotoUpdateEnvelope' }
+        '412': { description: Versión desactualizada }
+        '413': { description: La imagen supera 5 MiB }
+        '415': { description: Formato de imagen no permitido }
   /marcas:
     get:
       tags: [Marcas]
@@ -1094,7 +1135,38 @@ components:
         nombre: { type: string, minLength: 1, maxLength: 120 }
         apellido: { type: [string, 'null'], maxLength: 120 }
         alias: { type: [string, 'null'], maxLength: 80 }
-        foto_url: { type: [string, 'null'], format: uri, maxLength: 2048 }
+    ProfilePhoto:
+      type: object
+      additionalProperties: false
+      required: [url, url_expires_at, mime_type]
+      properties:
+        url: { type: string, format: uri }
+        url_expires_at: { $ref: '#/components/schemas/Timestamp' }
+        mime_type: { type: string, enum: [image/jpeg, image/png] }
+        byte_size: { type: integer, format: int64, minimum: 0 }
+        width: { type: integer, minimum: 0 }
+        height: { type: integer, minimum: 0 }
+    ProfilePhotoEnvelope:
+      type: object
+      additionalProperties: false
+      required: [data, request_id]
+      properties:
+        data: { $ref: '#/components/schemas/ProfilePhoto' }
+        request_id: { $ref: '#/components/schemas/RequestId' }
+    ProfilePhotoUpdate:
+      type: object
+      additionalProperties: false
+      required: [current, photo]
+      properties:
+        current: { $ref: '#/components/schemas/CurrentUser' }
+        photo: { $ref: '#/components/schemas/ProfilePhoto' }
+    ProfilePhotoUpdateEnvelope:
+      type: object
+      additionalProperties: false
+      required: [data, request_id]
+      properties:
+        data: { $ref: '#/components/schemas/ProfilePhotoUpdate' }
+        request_id: { $ref: '#/components/schemas/RequestId' }
     AnonymizeAccountRequest:
       type: object
       additionalProperties: false
@@ -1206,7 +1278,7 @@ components:
     RegisterDemoMerchantRequest:
       type: object
       additionalProperties: false
-      required: [email, password, owner_name, brand_name, branch_name, program_type, access_code]
+      required: [email, password, owner_name, brand_name, branch_name, program_type]
       properties:
         email: { type: string, format: email, maxLength: 254 }
         password:
@@ -1225,11 +1297,6 @@ components:
         branch_latitude: { type: number, format: double, minimum: -90, maximum: 90, description: Debe enviarse junto con branch_longitude }
         branch_longitude: { type: number, format: double, minimum: -180, maximum: 180, description: Debe enviarse junto con branch_latitude }
         program_type: { type: string, enum: [SELLOS, PUNTOS] }
-        access_code:
-          type: string
-          minLength: 12
-          maxLength: 128
-          description: Se compara contra bcrypt y nunca se persiste ni registra en claro
     LoginRequest:
       type: object
       additionalProperties: false
@@ -1261,7 +1328,7 @@ components:
     GoogleMerchantRegistration:
       type: object
       additionalProperties: false
-      required: [brand_name, branch_name, program_type, access_code]
+      required: [brand_name, branch_name, program_type]
       properties:
         brand_name: { type: string, minLength: 1, maxLength: 120 }
         branch_name: { type: string, minLength: 1, maxLength: 120 }
@@ -1272,11 +1339,6 @@ components:
         branch_latitude: { type: number, format: double, minimum: -90, maximum: 90, description: Debe enviarse junto con branch_longitude }
         branch_longitude: { type: number, format: double, minimum: -180, maximum: 180, description: Debe enviarse junto con branch_latitude }
         program_type: { type: string, enum: [SELLOS, PUNTOS] }
-        access_code:
-          type: string
-          minLength: 12
-          maxLength: 128
-          description: Se compara contra bcrypt y nunca se persiste ni registra en claro
     CreateInvitationRequest:
       type: object
       additionalProperties: false

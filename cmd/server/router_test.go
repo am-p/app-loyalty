@@ -33,6 +33,8 @@ func TestRouteInventoryAndAuthentication(t *testing.T) {
 		{"GET", "/v1/me/export", "/v1/me/export"},
 		{"DELETE", "/v1/me", "/v1/me"},
 		{"POST", "/v1/auth/logout", "/v1/auth/logout"},
+		{"GET", "/v1/me/foto", "/v1/me/foto"},
+		{"POST", "/v1/me/foto", "/v1/me/foto"},
 		{"GET", "/me", "/me"},
 		{"GET", "/v1/marcas", "/v1/marcas"},
 		{"GET", "/v1/marcas/:brand_id", "/v1/marcas/1"},
