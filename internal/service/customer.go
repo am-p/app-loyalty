@@ -84,12 +84,16 @@ func (s *Service) Cards(ctx context.Context, actorID int64, page, size int) ([]m
 	items, total, err := s.Repo.ListCards(ctx, actorID, page, size)
 	if err == nil && s.Media != nil {
 		for i := range items {
-			if items[i].BrandLogoObjectKey == "" {
-				continue
+			if items[i].BrandLogoObjectKey != "" {
+				// A temporary signing failure must not hide the customer's cards;
+				// the UI keeps its storefront fallback and the next live refresh retries.
+				items[i].BrandLogo, _ = s.Media.SignedGet(ctx, items[i].BrandLogoObjectKey, s.Config.MediaURLTTL)
 			}
-			// A temporary signing failure must not hide the customer's cards;
-			// the UI keeps its storefront fallback and the next live refresh retries.
-			items[i].BrandLogo, _ = s.Media.SignedGet(ctx, items[i].BrandLogoObjectKey, s.Config.MediaURLTTL)
+			if items[i].Benefit.ImageObjectKey != "" {
+				// Benefit artwork follows the same resilient signed-URL behavior as
+				// the brand logo, keeping the text reward usable during storage errors.
+				items[i].Benefit.ImageURL, _ = s.Media.SignedGet(ctx, items[i].Benefit.ImageObjectKey, s.Config.MediaURLTTL)
+			}
 		}
 	}
 	return items, pagination(page, size, total), err

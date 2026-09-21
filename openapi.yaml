@@ -1551,6 +1551,7 @@ components:
         active: { type: boolean }
         version: { type: integer, minimum: 1 }
         descripcion: { type: string }
+        image_url: { type: string, format: uri, description: URL firmada temporal de la imagen activa del premio }
         deleted_at: { type: [string, 'null'], format: date-time }
         created_at: { $ref: '#/components/schemas/Timestamp' }
         updated_at: { $ref: '#/components/schemas/Timestamp' }

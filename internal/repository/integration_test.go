@@ -1014,6 +1014,10 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if err != nil || displayLogo.URL == "" {
 		t.Fatalf("display logo=%+v err=%v", displayLogo, err)
 	}
+	benefitArtwork, err := svc.UploadBrandImage(ctx, merchant.User.ID, merchant.Merchant.BrandID, "BENEFICIO", &benefitID, brandPNG.Bytes())
+	if err != nil || benefitArtwork.URL == "" {
+		t.Fatalf("benefit artwork=%+v err=%v", benefitArtwork, err)
+	}
 	designedCards, _, err := svc.Cards(ctx, customer.ID, 1, 20)
 	var designedCard *model.Card
 	for i := range designedCards {
@@ -1022,7 +1026,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 			break
 		}
 	}
-	if err != nil || designedCard == nil || designedCard.BrandLogo == "" || designedCard.PrimaryColor == nil || *designedCard.PrimaryColor != primaryColor || designedCard.SecondaryColor == nil || *designedCard.SecondaryColor != secondaryColor || designedCard.CardTemplate == nil || *designedCard.CardTemplate != cardTemplate || designedCard.RewardImage == nil || *designedCard.RewardImage != rewardIcon {
+	if err != nil || designedCard == nil || designedCard.BrandLogo == "" || designedCard.PrimaryColor == nil || *designedCard.PrimaryColor != primaryColor || designedCard.SecondaryColor == nil || *designedCard.SecondaryColor != secondaryColor || designedCard.CardTemplate == nil || *designedCard.CardTemplate != cardTemplate || designedCard.RewardImage == nil || *designedCard.RewardImage != rewardIcon || designedCard.Benefit.ImageURL == "" {
 		t.Fatalf("customer card branding=%+v err=%v", designedCards, err)
 	}
 	newBranch, err := svc.CreateBranch(ctx, merchant.User.ID, merchant.Merchant.BrandID, model.CreateBranchRequest{Name: "Secundaria"})

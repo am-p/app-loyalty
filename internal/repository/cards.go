@@ -24,7 +24,8 @@ func (r *Repository) ListCards(ctx context.Context, actorID int64, page, pageSiz
 	}
 	rows, err := r.Pool.Query(ctx, `SELECT t.id,m.id,m.nombre,m.color_primario,m.color_secundario,m.plantilla_tarjeta,m.icono_premio,
 		COALESCE((SELECT a.object_key FROM archivos_marca a WHERE a.marca_id=m.id AND a.tipo='LOGO' AND a.estado='ACTIVA' ORDER BY a.created_at DESC LIMIT 1),''),
-		p.tipo,t.saldo_sellos,t.saldo_puntos,b.id,b.programa_id,b.nombre,b.requisito_sellos,b.requisito_puntos,b.activo,b.version
+		p.tipo,t.saldo_sellos,t.saldo_puntos,b.id,b.programa_id,b.nombre,b.requisito_sellos,b.requisito_puntos,b.activo,b.version,
+		COALESCE((SELECT a.object_key FROM archivos_marca a WHERE a.marca_id=m.id AND a.tipo='BENEFICIO' AND a.beneficio_id=b.id AND a.estado='ACTIVA' ORDER BY a.created_at DESC LIMIT 1),'')
 		FROM tarjetas t JOIN marcas m ON m.id=t.marca_id JOIN programas_fidelidad p ON p.marca_id=m.id AND p.activo
 		JOIN LATERAL (SELECT id,programa_id,nombre,requisito_sellos,requisito_puntos,activo,version FROM beneficios
 			WHERE programa_id=p.id AND activo AND deleted_at IS NULL ORDER BY id LIMIT 1) b ON true
@@ -36,7 +37,7 @@ func (r *Repository) ListCards(ctx context.Context, actorID int64, page, pageSiz
 	items := make([]model.Card, 0)
 	for rows.Next() {
 		var c model.Card
-		if err = rows.Scan(&c.ID, &c.BrandID, &c.BrandName, &c.PrimaryColor, &c.SecondaryColor, &c.CardTemplate, &c.RewardImage, &c.BrandLogoObjectKey, &c.ProgramType, &c.BalanceStamps, &c.BalancePoints, &c.Benefit.ID, &c.Benefit.ProgramID, &c.Benefit.Name, &c.Benefit.RequiredStamps, &c.Benefit.RequiredPoints, &c.Benefit.Active, &c.Benefit.Version); err != nil {
+		if err = rows.Scan(&c.ID, &c.BrandID, &c.BrandName, &c.PrimaryColor, &c.SecondaryColor, &c.CardTemplate, &c.RewardImage, &c.BrandLogoObjectKey, &c.ProgramType, &c.BalanceStamps, &c.BalancePoints, &c.Benefit.ID, &c.Benefit.ProgramID, &c.Benefit.Name, &c.Benefit.RequiredStamps, &c.Benefit.RequiredPoints, &c.Benefit.Active, &c.Benefit.Version, &c.Benefit.ImageObjectKey); err != nil {
 			return nil, 0, err
 		}
 		items = append(items, c)
