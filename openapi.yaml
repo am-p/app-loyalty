@@ -35,6 +35,8 @@ tags:
     description: Resúmenes operativos autorizados
   - name: Movimientos
     description: Preview y confirmación transaccional del ledger
+  - name: Facturación
+    description: Suscripción mensual de la marca mediante Mercado Pago
 paths:
   /health/live:
     get:
@@ -924,6 +926,78 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/MovementEnvelope' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /marcas/{brand_id}/suscripcion:
+    parameters: [{ $ref: '#/components/parameters/BrandId' }]
+    get:
+      tags: [Facturación]
+      summary: Consulta el precio y estado de la suscripción mensual
+      operationId: getBrandSubscription
+      x-puntazo-implementation: IMPLEMENTED
+      responses:
+        '200':
+          description: Estado visible exclusivamente para el propietario
+          content: { application/json: { schema: { $ref: '#/components/schemas/SubscriptionEnvelope' } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /marcas/{brand_id}/suscripcion/checkout:
+    parameters: [{ $ref: '#/components/parameters/BrandId' }]
+    post:
+      tags: [Facturación]
+      summary: Crea el checkout alojado para una suscripción mensual
+      description: El primer checkout de la marca incluye un mes gratuito. Los checkout posteriores no repiten la prueba.
+      operationId: createBrandSubscriptionCheckout
+      x-puntazo-implementation: IMPLEMENTED
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '201':
+          description: Suscripción pendiente con URL de Mercado Pago
+          content: { application/json: { schema: { $ref: '#/components/schemas/SubscriptionEnvelope' } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '503': { $ref: '#/components/responses/DependencyUnavailable' }
+  /marcas/{brand_id}/suscripcion/cancelacion:
+    parameters: [{ $ref: '#/components/parameters/BrandId' }]
+    post:
+      tags: [Facturación]
+      summary: Cancela la renovación automática en Mercado Pago
+      description: La cancelación detiene futuros cobros. No equivale a dar de baja la cuenta de Puntazo.
+      operationId: cancelBrandSubscription
+      x-puntazo-implementation: IMPLEMENTED
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Suscripción cancelada o ya cancelada
+          content: { application/json: { schema: { $ref: '#/components/schemas/SubscriptionEnvelope' } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/DependencyUnavailable' }
+  /mercado-pago/webhooks:
+    post:
+      tags: [Facturación]
+      summary: Recibe y verifica cambios de una suscripción
+      operationId: receiveMercadoPagoWebhook
+      security: []
+      x-puntazo-implementation: IMPLEMENTED
+      parameters:
+        - { name: x-signature, in: header, required: true, schema: { type: string } }
+        - { name: x-request-id, in: header, required: true, schema: { type: string } }
+        - { name: data.id, in: query, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MercadoPagoWebhook' }
+      responses:
+        '204': { description: Notificación válida procesada o ignorada por no corresponder a suscripciones }
+        '401': { description: Firma inválida }
+        '503': { $ref: '#/components/responses/DependencyUnavailable' }
 components:
   securitySchemes:
     bearerAuth:
@@ -1027,6 +1101,43 @@ components:
       description: Altas cerradas o código de demo inválido
       content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } }
   schemas:
+    Subscription:
+      type: object
+      additionalProperties: false
+      required: [brand_id, provider, status, currency, unit_amount_cents, active_branches, monthly_amount_cents, provider_configured, trial_available, updated_at]
+      properties:
+        brand_id: { type: integer, format: int64, minimum: 1 }
+        provider: { type: string, enum: [MERCADO_PAGO] }
+        status: { type: string, enum: [NOT_CONFIGURED, PENDING, AUTHORIZED, PAUSED, CANCELLED] }
+        currency: { type: string, enum: [ARS] }
+        unit_amount_cents: { type: integer, format: int64, minimum: 1 }
+        active_branches: { type: integer, format: int64, minimum: 1 }
+        monthly_amount_cents: { type: integer, format: int64, minimum: 1 }
+        checkout_url: { type: string, format: uri }
+        next_payment_date: { $ref: '#/components/schemas/Timestamp' }
+        provider_configured: { type: boolean }
+        trial_available:
+          type: boolean
+          description: Indica si la marca todavía puede usar el primer mes gratuito en su primer checkout.
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+    SubscriptionEnvelope:
+      type: object
+      additionalProperties: false
+      required: [data, request_id]
+      properties:
+        data: { $ref: '#/components/schemas/Subscription' }
+        request_id: { $ref: '#/components/schemas/RequestId' }
+    MercadoPagoWebhook:
+      type: object
+      required: [id, type, data]
+      properties:
+        id: { oneOf: [{ type: string }, { type: integer }] }
+        type: { type: string }
+        data:
+          type: object
+          required: [id]
+          properties:
+            id: { oneOf: [{ type: string }, { type: integer }] }
     Timestamp:
       type: string
       format: date-time

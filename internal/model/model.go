@@ -257,6 +257,29 @@ type DemoAccess struct {
 	Active          bool      `json:"active"`
 	StartedAt       time.Time `json:"started_at"`
 }
+type Subscription struct {
+	BrandID            int64      `json:"brand_id"`
+	Provider           string     `json:"provider"`
+	Status             string     `json:"status"`
+	Currency           string     `json:"currency"`
+	UnitAmountCents    int64      `json:"unit_amount_cents"`
+	ActiveBranches     int64      `json:"active_branches"`
+	MonthlyAmountCents int64      `json:"monthly_amount_cents"`
+	CheckoutURL        string     `json:"checkout_url,omitempty"`
+	NextPaymentDate    *time.Time `json:"next_payment_date,omitempty"`
+	ProviderConfigured bool       `json:"provider_configured"`
+	TrialAvailable     bool       `json:"trial_available"`
+	UpdatedAt          time.Time  `json:"updated_at"`
+}
+type BillingSubscriptionRequest struct {
+	Reason, ExternalReference, PayerEmail, BackURL, IdempotencyKey, Currency string
+	Amount                                                                   float64
+	FreeTrialMonths                                                          int
+}
+type BillingSubscriptionResult struct {
+	ID, Status, ExternalReference, CheckoutURL string
+	NextPaymentDate                            *time.Time
+}
 type Branch struct {
 	ID         int64     `json:"id"`
 	BrandID    int64     `json:"brand_id"`

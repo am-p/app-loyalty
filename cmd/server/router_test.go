@@ -25,6 +25,7 @@ func TestRouteInventoryAndAuthentication(t *testing.T) {
 		"POST /v1/auth/email-verification/request", "POST /v1/auth/email-verification/confirm",
 		"POST /v1/auth/password-reset/request", "POST /v1/auth/password-reset/confirm",
 		"GET /v1/invitaciones/:token", "POST /v1/invitaciones/:token/registrar",
+		"POST /v1/mercado-pago/webhooks",
 		"POST /auth/register", "POST /auth/login", "POST /auth/google",
 	}
 	protected := []struct{ method, pattern, request string }{
@@ -67,6 +68,9 @@ func TestRouteInventoryAndAuthentication(t *testing.T) {
 		{"GET", "/v1/marcas/:brand_id/personal/:membership_id", "/v1/marcas/1/personal/1"},
 		{"PATCH", "/v1/marcas/:brand_id/personal/:membership_id", "/v1/marcas/1/personal/1"},
 		{"DELETE", "/v1/marcas/:brand_id/personal/:membership_id", "/v1/marcas/1/personal/1"},
+		{"GET", "/v1/marcas/:brand_id/suscripcion", "/v1/marcas/1/suscripcion"},
+		{"POST", "/v1/marcas/:brand_id/suscripcion/checkout", "/v1/marcas/1/suscripcion/checkout"},
+		{"POST", "/v1/marcas/:brand_id/suscripcion/cancelacion", "/v1/marcas/1/suscripcion/cancelacion"},
 		{"GET", "/v1/clientes/me", "/v1/clientes/me"},
 		{"GET", "/v1/clientes/me/tarjetas", "/v1/clientes/me/tarjetas"},
 		{"GET", "/v1/clientes/me/tarjetas/:card_id/movimientos", "/v1/clientes/me/tarjetas/1/movimientos"},
