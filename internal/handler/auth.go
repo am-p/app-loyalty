@@ -192,7 +192,7 @@ func (h *Handler) DeleteMe(c *gin.Context) {
 		writeErr(c, service.ErrInvalidRequest)
 		return
 	}
-	data, err := h.Service.AnonymizeCurrentUser(c.Request.Context(), a.ID, a.AuthTime, version, req)
+	data, err := h.Service.AnonymizeCurrentUser(c.Request.Context(), a.ID, version, req)
 	if err != nil {
 		writeErr(c, err)
 		return

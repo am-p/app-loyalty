@@ -1172,7 +1172,7 @@ components:
       additionalProperties: false
       required: [confirmacion]
       properties:
-        confirmacion: { type: string, const: ANONIMIZAR }
+        confirmacion: { type: string, const: BAJA }
     Anonymization:
       type: object
       additionalProperties: false

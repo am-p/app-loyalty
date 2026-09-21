@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"strings"
-	"time"
 
 	"clientesFrecuentes/internal/model"
 	"clientesFrecuentes/internal/web"
@@ -44,13 +43,9 @@ func (s *Service) ExportCurrentUser(ctx context.Context, actorID int64) (model.A
 	return s.Repo.ExportAccount(ctx, actorID)
 }
 
-func (s *Service) AnonymizeCurrentUser(ctx context.Context, actorID int64, authTime time.Time, expectedVersion int, req model.AnonymizeAccountRequest) (model.Anonymization, error) {
-	if req.Confirmation != "ANONIMIZAR" {
+func (s *Service) AnonymizeCurrentUser(ctx context.Context, actorID int64, expectedVersion int, req model.AnonymizeAccountRequest) (model.Anonymization, error) {
+	if req.Confirmation != "BAJA" {
 		return model.Anonymization{}, ErrInvalidRequest
-	}
-	now := s.Now().UTC()
-	if authTime.IsZero() || now.Sub(authTime) > 10*time.Minute {
-		return model.Anonymization{}, ErrRecentAuthRequired
 	}
 	deletedAt, err := s.Repo.AnonymizeAccount(ctx, actorID, expectedVersion)
 	if err != nil {

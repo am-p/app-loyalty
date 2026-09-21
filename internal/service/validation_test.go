@@ -5,7 +5,6 @@ import (
 	"errors"
 	"strings"
 	"testing"
-	"time"
 
 	"clientesFrecuentes/internal/config"
 	"clientesFrecuentes/internal/model"
@@ -44,14 +43,10 @@ func TestValidPasswordHonorsBcryptByteLimit(t *testing.T) {
 	}
 }
 
-func TestAnonymizeRequiresExactConfirmationAndRecentAuthentication(t *testing.T) {
-	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
-	svc := &Service{Now: func() time.Time { return now }}
-	if _, err := svc.AnonymizeCurrentUser(context.Background(), 1, now, 1, model.AnonymizeAccountRequest{Confirmation: "BORRAR"}); !errors.Is(err, ErrInvalidRequest) {
+func TestAnonymizeRequiresExactConfirmation(t *testing.T) {
+	svc := &Service{}
+	if _, err := svc.AnonymizeCurrentUser(context.Background(), 1, 1, model.AnonymizeAccountRequest{Confirmation: "BORRAR"}); !errors.Is(err, ErrInvalidRequest) {
 		t.Fatalf("confirmation error=%v", err)
-	}
-	if _, err := svc.AnonymizeCurrentUser(context.Background(), 1, now.Add(-10*time.Minute-time.Second), 1, model.AnonymizeAccountRequest{Confirmation: "ANONIMIZAR"}); !errors.Is(err, ErrRecentAuthRequired) {
-		t.Fatalf("recent auth error=%v", err)
 	}
 }
 
