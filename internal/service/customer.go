@@ -82,6 +82,16 @@ func (s *Service) Customer(ctx context.Context, actorID int64) (model.Customer, 
 
 func (s *Service) Cards(ctx context.Context, actorID int64, page, size int) ([]model.Card, web.Pagination, error) {
 	items, total, err := s.Repo.ListCards(ctx, actorID, page, size)
+	if err == nil && s.Media != nil {
+		for i := range items {
+			if items[i].BrandLogoObjectKey == "" {
+				continue
+			}
+			// A temporary signing failure must not hide the customer's cards;
+			// the UI keeps its storefront fallback and the next live refresh retries.
+			items[i].BrandLogo, _ = s.Media.SignedGet(ctx, items[i].BrandLogoObjectKey, s.Config.MediaURLTTL)
+		}
+	}
 	return items, pagination(page, size, total), err
 }
 

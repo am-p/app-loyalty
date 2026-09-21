@@ -75,7 +75,7 @@ ALLOW_MIGRATION_DOWN=true go run ./cmd/migrate down
 | `DEMO_SIGNUP_ENABLED` | Habilita o cierra nuevas altas gratuitas sin bloquear cuentas existentes. |
 | `CORS_ORIGINS` | Orígenes web exactos permitidos, separados por comas; habilita credenciales para la cookie HttpOnly de refresh. |
 | `GOOGLE_CLIENT_ID` | Audiencia web de Google; opcional para el alias legado. |
-| `EXPECTED_SCHEMA_VERSION` | Versión de esquema requerida por readiness; por defecto `0017`. |
+| `EXPECTED_SCHEMA_VERSION` | Versión de esquema requerida por readiness; por defecto `0018`. |
 | `APP_VERSION` | Etiqueta de versión informada por `/v1/version`; por defecto `dev`. |
 | `GIT_COMMIT` | Revisión del código informada por `/v1/version`; `0000000` si no se proporciona. No ejecuta Git. |
 | `TRUSTED_PROXY_COUNT` | Cantidad de proxies confiables para resolver la IP usada por rate limits. |

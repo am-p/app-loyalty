@@ -1607,7 +1607,14 @@ components:
     UpdateBrandRequest:
       type: object
       minProperties: 1
-      properties: { nombre: { type: string }, descripcion: { type: string }, color_primario: { type: string }, color_secundario: { type: string }, zona_horaria: { type: string } }
+      properties:
+        nombre: { type: string }
+        descripcion: { type: string }
+        color_primario: { type: string, pattern: '^#[0-9A-Fa-f]{6}$' }
+        color_secundario: { type: string, pattern: '^#[0-9A-Fa-f]{6}$' }
+        zona_horaria: { type: string }
+        card_template: { $ref: '#/components/schemas/CardTemplate' }
+        reward_image: { type: string, pattern: '^[a-z0-9-]{1,80}$' }
     BenefitEnvelope:
       type: object
       additionalProperties: false
@@ -1655,6 +1662,8 @@ components:
         brand_description: { type: string }
         primary_color: { type: string, pattern: '^#[0-9A-Fa-f]{6}$' }
         secondary_color: { type: string, pattern: '^#[0-9A-Fa-f]{6}$' }
+        card_template: { $ref: '#/components/schemas/CardTemplate' }
+        reward_image: { type: string, pattern: '^[a-z0-9-]{1,80}$' }
         timezone: { type: string }
         brand_version: { type: integer, minimum: 1 }
         role: { type: string, enum: [PROPIETARIO, ADMINISTRADOR, OPERADOR] }
@@ -1725,10 +1734,18 @@ components:
         id: { type: integer, format: int64 }
         brand_id: { type: integer, format: int64 }
         brand_name: { type: string }
+        brand_logo: { type: string, format: uri, description: URL firmada temporal del logo activo }
+        brand_primary_color: { type: string, pattern: '^#[0-9A-Fa-f]{6}$' }
+        brand_secondary_color: { type: string, pattern: '^#[0-9A-Fa-f]{6}$' }
+        card_template: { $ref: '#/components/schemas/CardTemplate' }
+        reward_image: { type: string, pattern: '^[a-z0-9-]{1,80}$' }
         program_type: { type: string, enum: [SELLOS, PUNTOS] }
         balance_stamps: { type: integer, format: int64, minimum: 0 }
         balance_points: { type: integer, format: int64, minimum: 0 }
         benefit: { $ref: '#/components/schemas/Benefit' }
+    CardTemplate:
+      type: string
+      enum: [COMIC_HQ, MINIMAL_PRO, POP_BADGE, PREMIUM_GOLD_CHECKS, DARK_LUXURY_CHECKS, PREMIUM_GOLD, DARK_LUXURY, POP_HEADER, COMIC_HQ_POINTS, MINIMAL_PRO_POINTS, POP_BADGE_POINTS, NEON_PULSE, SUNSET_GRADIENT]
     Pagination:
       type: object
       additionalProperties: false

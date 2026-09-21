@@ -207,6 +207,16 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if _, err = pool.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES('0017')`); err != nil {
 		t.Fatal(err)
 	}
+	cardDesignMigration, err := os.ReadFile(filepath.Join("..", "..", "migrations", "0018_brand_card_design.up.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, string(cardDesignMigration)); err != nil {
+		t.Fatalf("migration 0018: %v", err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES('0018')`); err != nil {
+		t.Fatal(err)
+	}
 	var legacyPasswordVerified, legacyGoogleVerified bool
 	if err = pool.QueryRow(ctx, `SELECT email_verified_at IS NOT NULL FROM usuarios WHERE email='legacy-password@example.com'`).Scan(&legacyPasswordVerified); err != nil {
 		t.Fatal(err)
@@ -222,7 +232,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 		t.Fatalf("legacy session revoked=%t err=%v", legacySessionRevoked, err)
 	}
 	outboxKey := []byte("01234567890123456789012345678901")
-	cfg := config.Config{JWTSecret: "jwt-secret-0123456789012345678901", JWTIssuer: "puntazo", QRPepper: "qr-pepper-01234567890123456789012", DemoSignupEnabled: true, ExpectedSchemaVersion: "0017", PublicAppURL: "https://app.puntazo.test", OutboxEncryptionKey: outboxKey, MediaURLTTL: 5 * time.Minute}
+	cfg := config.Config{JWTSecret: "jwt-secret-0123456789012345678901", JWTIssuer: "puntazo", QRPepper: "qr-pepper-01234567890123456789012", DemoSignupEnabled: true, ExpectedSchemaVersion: "0018", PublicAppURL: "https://app.puntazo.test", OutboxEncryptionKey: outboxKey, MediaURLTTL: 5 * time.Minute}
 	repo := repository.New(pool, outboxKey)
 	blockedGoogleID := "blocked-google-signup"
 	blockedGoogleEmail := "blocked-google@example.com"
@@ -992,6 +1002,29 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if err != nil || commercialBrand.BrandVersion != 2 {
 		t.Fatalf("brand edit=%+v err=%v", commercialBrand, err)
 	}
+	cardTemplate, rewardIcon := "MINIMAL_PRO", "coffee"
+	primaryColor, secondaryColor := "#135E4A", "#F4E6C1"
+	commercialBrand, err = svc.UpdateBrand(ctx, merchant.User.ID, merchant.Merchant.BrandID, commercialBrand.BrandVersion, model.UpdateBrandRequest{
+		PrimaryColor: &primaryColor, SecondaryColor: &secondaryColor, CardTemplate: &cardTemplate, RewardImage: &rewardIcon,
+	})
+	if err != nil || commercialBrand.BrandVersion != 3 || commercialBrand.CardTemplate == nil || *commercialBrand.CardTemplate != cardTemplate || commercialBrand.RewardImage == nil || *commercialBrand.RewardImage != rewardIcon {
+		t.Fatalf("card design brand=%+v err=%v", commercialBrand, err)
+	}
+	displayLogo, err := svc.UploadBrandImage(ctx, merchant.User.ID, merchant.Merchant.BrandID, "LOGO", nil, brandPNG.Bytes())
+	if err != nil || displayLogo.URL == "" {
+		t.Fatalf("display logo=%+v err=%v", displayLogo, err)
+	}
+	designedCards, _, err := svc.Cards(ctx, customer.ID, 1, 20)
+	var designedCard *model.Card
+	for i := range designedCards {
+		if designedCards[i].BrandID == merchant.Merchant.BrandID {
+			designedCard = &designedCards[i]
+			break
+		}
+	}
+	if err != nil || designedCard == nil || designedCard.BrandLogo == "" || designedCard.PrimaryColor == nil || *designedCard.PrimaryColor != primaryColor || designedCard.SecondaryColor == nil || *designedCard.SecondaryColor != secondaryColor || designedCard.CardTemplate == nil || *designedCard.CardTemplate != cardTemplate || designedCard.RewardImage == nil || *designedCard.RewardImage != rewardIcon {
+		t.Fatalf("customer card branding=%+v err=%v", designedCards, err)
+	}
 	newBranch, err := svc.CreateBranch(ctx, merchant.User.ID, merchant.Merchant.BrandID, model.CreateBranchRequest{Name: "Secundaria"})
 	if err != nil || newBranch.Primary {
 		t.Fatalf("create branch=%+v err=%v", newBranch, err)
@@ -1458,7 +1491,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if _, err = svc.RegisterInvitation(ctx, retiredInvitationToken, model.RegisterInvitationRequest{Name: "Retired Brand Staff", Password: "retired-brand-pass"}); !errors.Is(err, service.ErrIdentityToken) {
 		t.Fatalf("registered invitation from deleted brand: %v", err)
 	}
-	if err = repo.CheckSchema(ctx, "0017"); err != nil {
+	if err = repo.CheckSchema(ctx, "0018"); err != nil {
 		t.Fatal(err)
 	}
 	if err = repo.CheckSchema(ctx, "9999"); err == nil {

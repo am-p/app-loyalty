@@ -364,6 +364,8 @@ type MerchantContext struct {
 	BrandDescription *string    `json:"brand_description,omitempty"`
 	PrimaryColor     *string    `json:"primary_color,omitempty"`
 	SecondaryColor   *string    `json:"secondary_color,omitempty"`
+	CardTemplate     *string    `json:"card_template,omitempty"`
+	RewardImage      *string    `json:"reward_image,omitempty"`
 	Timezone         string     `json:"timezone"`
 	BrandVersion     int        `json:"brand_version"`
 	Role             string     `json:"role"`
@@ -378,6 +380,8 @@ type UpdateBrandRequest struct {
 	Description    *string `json:"descripcion,omitempty"`
 	PrimaryColor   *string `json:"color_primario,omitempty"`
 	SecondaryColor *string `json:"color_secundario,omitempty"`
+	CardTemplate   *string `json:"card_template,omitempty"`
+	RewardImage    *string `json:"reward_image,omitempty"`
 	Timezone       *string `json:"zona_horaria,omitempty"`
 }
 type DemoMerchantData struct {
@@ -389,13 +393,19 @@ type DemoMerchantData struct {
 }
 
 type Card struct {
-	ID            int64   `json:"id"`
-	BrandID       int64   `json:"brand_id"`
-	BrandName     string  `json:"brand_name"`
-	ProgramType   string  `json:"program_type"`
-	BalanceStamps int64   `json:"balance_stamps"`
-	BalancePoints int64   `json:"balance_points"`
-	Benefit       Benefit `json:"benefit"`
+	ID                 int64   `json:"id"`
+	BrandID            int64   `json:"brand_id"`
+	BrandName          string  `json:"brand_name"`
+	BrandLogo          string  `json:"brand_logo,omitempty"`
+	PrimaryColor       *string `json:"brand_primary_color,omitempty"`
+	SecondaryColor     *string `json:"brand_secondary_color,omitempty"`
+	CardTemplate       *string `json:"card_template,omitempty"`
+	RewardImage        *string `json:"reward_image,omitempty"`
+	ProgramType        string  `json:"program_type"`
+	BalanceStamps      int64   `json:"balance_stamps"`
+	BalancePoints      int64   `json:"balance_points"`
+	Benefit            Benefit `json:"benefit"`
+	BrandLogoObjectKey string  `json:"-"`
 }
 type BrandCustomer struct {
 	CustomerID     int64      `json:"customer_id"`
