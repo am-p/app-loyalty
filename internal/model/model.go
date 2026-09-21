@@ -395,19 +395,20 @@ type DemoMerchantData struct {
 }
 
 type Card struct {
-	ID                 int64   `json:"id"`
-	BrandID            int64   `json:"brand_id"`
-	BrandName          string  `json:"brand_name"`
-	BrandLogo          string  `json:"brand_logo,omitempty"`
-	PrimaryColor       *string `json:"brand_primary_color,omitempty"`
-	SecondaryColor     *string `json:"brand_secondary_color,omitempty"`
-	CardTemplate       *string `json:"card_template,omitempty"`
-	RewardImage        *string `json:"reward_image,omitempty"`
-	ProgramType        string  `json:"program_type"`
-	BalanceStamps      int64   `json:"balance_stamps"`
-	BalancePoints      int64   `json:"balance_points"`
-	Benefit            Benefit `json:"benefit"`
-	BrandLogoObjectKey string  `json:"-"`
+	ID                 int64     `json:"id"`
+	BrandID            int64     `json:"brand_id"`
+	BrandName          string    `json:"brand_name"`
+	BrandLogo          string    `json:"brand_logo,omitempty"`
+	PrimaryColor       *string   `json:"brand_primary_color,omitempty"`
+	SecondaryColor     *string   `json:"brand_secondary_color,omitempty"`
+	CardTemplate       *string   `json:"card_template,omitempty"`
+	RewardImage        *string   `json:"reward_image,omitempty"`
+	ProgramType        string    `json:"program_type"`
+	BalanceStamps      int64     `json:"balance_stamps"`
+	BalancePoints      int64     `json:"balance_points"`
+	Benefit            Benefit   `json:"benefit"`
+	Benefits           []Benefit `json:"benefits"`
+	BrandLogoObjectKey string    `json:"-"`
 }
 type BrandCustomer struct {
 	CustomerID     int64      `json:"customer_id"`

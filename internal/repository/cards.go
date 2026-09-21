@@ -35,12 +35,25 @@ func (r *Repository) ListCards(ctx context.Context, actorID int64, page, pageSiz
 	}
 	defer rows.Close()
 	items := make([]model.Card, 0)
+	programIDs := make([]int64, 0)
 	for rows.Next() {
 		var c model.Card
 		if err = rows.Scan(&c.ID, &c.BrandID, &c.BrandName, &c.PrimaryColor, &c.SecondaryColor, &c.CardTemplate, &c.RewardImage, &c.BrandLogoObjectKey, &c.ProgramType, &c.BalanceStamps, &c.BalancePoints, &c.Benefit.ID, &c.Benefit.ProgramID, &c.Benefit.Name, &c.Benefit.RequiredStamps, &c.Benefit.RequiredPoints, &c.Benefit.Active, &c.Benefit.Version, &c.Benefit.ImageObjectKey); err != nil {
 			return nil, 0, err
 		}
 		items = append(items, c)
+		programIDs = append(programIDs, c.Benefit.ProgramID)
 	}
-	return items, total, rows.Err()
+	if err = rows.Err(); err != nil {
+		return nil, 0, err
+	}
+	rows.Close()
+	benefitsByProgram, err := r.listBenefitsByProgramIDs(ctx, programIDs)
+	if err != nil {
+		return nil, 0, err
+	}
+	for i := range items {
+		items[i].Benefits = benefitsByProgram[items[i].Benefit.ProgramID]
+	}
+	return items, total, nil
 }

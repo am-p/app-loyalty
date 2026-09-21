@@ -89,10 +89,17 @@ func (s *Service) Cards(ctx context.Context, actorID int64, page, size int) ([]m
 				// the UI keeps its storefront fallback and the next live refresh retries.
 				items[i].BrandLogo, _ = s.Media.SignedGet(ctx, items[i].BrandLogoObjectKey, s.Config.MediaURLTTL)
 			}
-			if items[i].Benefit.ImageObjectKey != "" {
-				// Benefit artwork follows the same resilient signed-URL behavior as
-				// the brand logo, keeping the text reward usable during storage errors.
-				items[i].Benefit.ImageURL, _ = s.Media.SignedGet(ctx, items[i].Benefit.ImageObjectKey, s.Config.MediaURLTTL)
+			for j := range items[i].Benefits {
+				if items[i].Benefits[j].ImageObjectKey != "" {
+					// Benefit artwork follows the same resilient signed-URL behavior as
+					// the brand logo, keeping the text reward usable during storage errors.
+					items[i].Benefits[j].ImageURL, _ = s.Media.SignedGet(ctx, items[i].Benefits[j].ImageObjectKey, s.Config.MediaURLTTL)
+				}
+			}
+			if len(items[i].Benefits) > 0 {
+				// Keep the legacy singular field aligned with the first reward while
+				// clients migrate to the complete benefits collection.
+				items[i].Benefit = items[i].Benefits[0]
 			}
 		}
 	}
