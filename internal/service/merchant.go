@@ -19,12 +19,6 @@ func (s *Service) RegisterDemoMerchant(ctx context.Context, key, requestID strin
 	if !s.Config.DemoSignupEnabled {
 		return repository.IdempotentResult{}, ErrDemoDisabled
 	}
-	if len(req.AccessCode) < 12 || len(req.AccessCode) > 128 {
-		return repository.IdempotentResult{}, ErrInvalidRequest
-	}
-	if bcrypt.CompareHashAndPassword([]byte(s.Config.DemoAccessCodeHash), []byte(req.AccessCode)) != nil {
-		return repository.IdempotentResult{}, ErrDemoAccess
-	}
 	if _, err := uuid.Parse(key); err != nil {
 		return repository.IdempotentResult{}, ErrInvalidRequest
 	}

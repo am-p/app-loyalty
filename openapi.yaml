@@ -35,6 +35,8 @@ tags:
     description: Resúmenes operativos autorizados
   - name: Movimientos
     description: Preview y confirmación transaccional del ledger
+  - name: Facturación
+    description: Suscripción mensual de la marca mediante Mercado Pago
 paths:
   /health/live:
     get:
@@ -405,6 +407,47 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/AccountExportEnvelope' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
+  /me/foto:
+    get:
+      tags: [Cuenta]
+      operationId: getCurrentUserPhoto
+      summary: Entrega una URL temporal para la foto privada del perfil
+      x-puntazo-implementation: IMPLEMENTED
+      responses:
+        '200':
+          description: Foto disponible mediante URL firmada temporal
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProfilePhotoEnvelope' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Cuenta]
+      operationId: uploadCurrentUserPhoto
+      summary: Reemplaza la foto privada del perfil
+      x-puntazo-implementation: IMPLEMENTED
+      parameters: [{ $ref: '#/components/parameters/IfMatch' }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [archivo]
+              properties:
+                archivo: { type: string, format: binary, description: "JPEG, PNG o WebP de hasta 5 MiB" }
+      responses:
+        '200':
+          description: Foto reemplazada y perfil versionado
+          headers:
+            ETag:
+              schema: { type: string, pattern: '^"[1-9][0-9]*"$' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProfilePhotoUpdateEnvelope' }
+        '412': { description: Versión desactualizada }
+        '413': { description: La imagen supera 5 MiB }
+        '415': { description: Formato de imagen no permitido }
   /marcas:
     get:
       tags: [Marcas]
@@ -883,6 +926,78 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/MovementEnvelope' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /marcas/{brand_id}/suscripcion:
+    parameters: [{ $ref: '#/components/parameters/BrandId' }]
+    get:
+      tags: [Facturación]
+      summary: Consulta el precio y estado de la suscripción mensual
+      operationId: getBrandSubscription
+      x-puntazo-implementation: IMPLEMENTED
+      responses:
+        '200':
+          description: Estado visible exclusivamente para el propietario
+          content: { application/json: { schema: { $ref: '#/components/schemas/SubscriptionEnvelope' } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /marcas/{brand_id}/suscripcion/checkout:
+    parameters: [{ $ref: '#/components/parameters/BrandId' }]
+    post:
+      tags: [Facturación]
+      summary: Crea el checkout alojado para una suscripción mensual
+      description: El primer checkout de la marca incluye un mes gratuito. Los checkout posteriores no repiten la prueba.
+      operationId: createBrandSubscriptionCheckout
+      x-puntazo-implementation: IMPLEMENTED
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '201':
+          description: Suscripción pendiente con URL de Mercado Pago
+          content: { application/json: { schema: { $ref: '#/components/schemas/SubscriptionEnvelope' } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '503': { $ref: '#/components/responses/DependencyUnavailable' }
+  /marcas/{brand_id}/suscripcion/cancelacion:
+    parameters: [{ $ref: '#/components/parameters/BrandId' }]
+    post:
+      tags: [Facturación]
+      summary: Cancela la renovación automática en Mercado Pago
+      description: La cancelación detiene futuros cobros. No equivale a dar de baja la cuenta de Puntazo.
+      operationId: cancelBrandSubscription
+      x-puntazo-implementation: IMPLEMENTED
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Suscripción cancelada o ya cancelada
+          content: { application/json: { schema: { $ref: '#/components/schemas/SubscriptionEnvelope' } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/DependencyUnavailable' }
+  /mercado-pago/webhooks:
+    post:
+      tags: [Facturación]
+      summary: Recibe y verifica cambios de una suscripción
+      operationId: receiveMercadoPagoWebhook
+      security: []
+      x-puntazo-implementation: IMPLEMENTED
+      parameters:
+        - { name: x-signature, in: header, required: true, schema: { type: string } }
+        - { name: x-request-id, in: header, required: true, schema: { type: string } }
+        - { name: data.id, in: query, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MercadoPagoWebhook' }
+      responses:
+        '204': { description: Notificación válida procesada o ignorada por no corresponder a suscripciones }
+        '401': { description: Firma inválida }
+        '503': { $ref: '#/components/responses/DependencyUnavailable' }
 components:
   securitySchemes:
     bearerAuth:
@@ -986,6 +1101,43 @@ components:
       description: Altas cerradas o código de demo inválido
       content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } }
   schemas:
+    Subscription:
+      type: object
+      additionalProperties: false
+      required: [brand_id, provider, status, currency, unit_amount_cents, active_branches, monthly_amount_cents, provider_configured, trial_available, updated_at]
+      properties:
+        brand_id: { type: integer, format: int64, minimum: 1 }
+        provider: { type: string, enum: [MERCADO_PAGO] }
+        status: { type: string, enum: [NOT_CONFIGURED, PENDING, AUTHORIZED, PAUSED, CANCELLED] }
+        currency: { type: string, enum: [ARS] }
+        unit_amount_cents: { type: integer, format: int64, minimum: 1 }
+        active_branches: { type: integer, format: int64, minimum: 1 }
+        monthly_amount_cents: { type: integer, format: int64, minimum: 1 }
+        checkout_url: { type: string, format: uri }
+        next_payment_date: { $ref: '#/components/schemas/Timestamp' }
+        provider_configured: { type: boolean }
+        trial_available:
+          type: boolean
+          description: Indica si la marca todavía puede usar el primer mes gratuito en su primer checkout.
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+    SubscriptionEnvelope:
+      type: object
+      additionalProperties: false
+      required: [data, request_id]
+      properties:
+        data: { $ref: '#/components/schemas/Subscription' }
+        request_id: { $ref: '#/components/schemas/RequestId' }
+    MercadoPagoWebhook:
+      type: object
+      required: [id, type, data]
+      properties:
+        id: { oneOf: [{ type: string }, { type: integer }] }
+        type: { type: string }
+        data:
+          type: object
+          required: [id]
+          properties:
+            id: { oneOf: [{ type: string }, { type: integer }] }
     Timestamp:
       type: string
       format: date-time
@@ -1094,13 +1246,44 @@ components:
         nombre: { type: string, minLength: 1, maxLength: 120 }
         apellido: { type: [string, 'null'], maxLength: 120 }
         alias: { type: [string, 'null'], maxLength: 80 }
-        foto_url: { type: [string, 'null'], format: uri, maxLength: 2048 }
+    ProfilePhoto:
+      type: object
+      additionalProperties: false
+      required: [url, url_expires_at, mime_type]
+      properties:
+        url: { type: string, format: uri }
+        url_expires_at: { $ref: '#/components/schemas/Timestamp' }
+        mime_type: { type: string, enum: [image/jpeg, image/png] }
+        byte_size: { type: integer, format: int64, minimum: 0 }
+        width: { type: integer, minimum: 0 }
+        height: { type: integer, minimum: 0 }
+    ProfilePhotoEnvelope:
+      type: object
+      additionalProperties: false
+      required: [data, request_id]
+      properties:
+        data: { $ref: '#/components/schemas/ProfilePhoto' }
+        request_id: { $ref: '#/components/schemas/RequestId' }
+    ProfilePhotoUpdate:
+      type: object
+      additionalProperties: false
+      required: [current, photo]
+      properties:
+        current: { $ref: '#/components/schemas/CurrentUser' }
+        photo: { $ref: '#/components/schemas/ProfilePhoto' }
+    ProfilePhotoUpdateEnvelope:
+      type: object
+      additionalProperties: false
+      required: [data, request_id]
+      properties:
+        data: { $ref: '#/components/schemas/ProfilePhotoUpdate' }
+        request_id: { $ref: '#/components/schemas/RequestId' }
     AnonymizeAccountRequest:
       type: object
       additionalProperties: false
       required: [confirmacion]
       properties:
-        confirmacion: { type: string, const: ANONIMIZAR }
+        confirmacion: { type: string, const: BAJA }
     Anonymization:
       type: object
       additionalProperties: false
@@ -1206,7 +1389,7 @@ components:
     RegisterDemoMerchantRequest:
       type: object
       additionalProperties: false
-      required: [email, password, owner_name, brand_name, branch_name, program_type, access_code]
+      required: [email, password, owner_name, brand_name, branch_name, program_type]
       properties:
         email: { type: string, format: email, maxLength: 254 }
         password:
@@ -1225,11 +1408,6 @@ components:
         branch_latitude: { type: number, format: double, minimum: -90, maximum: 90, description: Debe enviarse junto con branch_longitude }
         branch_longitude: { type: number, format: double, minimum: -180, maximum: 180, description: Debe enviarse junto con branch_latitude }
         program_type: { type: string, enum: [SELLOS, PUNTOS] }
-        access_code:
-          type: string
-          minLength: 12
-          maxLength: 128
-          description: Se compara contra bcrypt y nunca se persiste ni registra en claro
     LoginRequest:
       type: object
       additionalProperties: false
@@ -1261,7 +1439,7 @@ components:
     GoogleMerchantRegistration:
       type: object
       additionalProperties: false
-      required: [brand_name, branch_name, program_type, access_code]
+      required: [brand_name, branch_name, program_type]
       properties:
         brand_name: { type: string, minLength: 1, maxLength: 120 }
         branch_name: { type: string, minLength: 1, maxLength: 120 }
@@ -1272,11 +1450,6 @@ components:
         branch_latitude: { type: number, format: double, minimum: -90, maximum: 90, description: Debe enviarse junto con branch_longitude }
         branch_longitude: { type: number, format: double, minimum: -180, maximum: 180, description: Debe enviarse junto con branch_latitude }
         program_type: { type: string, enum: [SELLOS, PUNTOS] }
-        access_code:
-          type: string
-          minLength: 12
-          maxLength: 128
-          description: Se compara contra bcrypt y nunca se persiste ni registra en claro
     CreateInvitationRequest:
       type: object
       additionalProperties: false
@@ -1489,6 +1662,7 @@ components:
         active: { type: boolean }
         version: { type: integer, minimum: 1 }
         descripcion: { type: string }
+        image_url: { type: string, format: uri, description: URL firmada temporal de la imagen activa del premio }
         deleted_at: { type: [string, 'null'], format: date-time }
         created_at: { $ref: '#/components/schemas/Timestamp' }
         updated_at: { $ref: '#/components/schemas/Timestamp' }
@@ -1545,7 +1719,14 @@ components:
     UpdateBrandRequest:
       type: object
       minProperties: 1
-      properties: { nombre: { type: string }, descripcion: { type: string }, color_primario: { type: string }, color_secundario: { type: string }, zona_horaria: { type: string } }
+      properties:
+        nombre: { type: string }
+        descripcion: { type: string }
+        color_primario: { type: string, pattern: '^#[0-9A-Fa-f]{6}$' }
+        color_secundario: { type: string, pattern: '^#[0-9A-Fa-f]{6}$' }
+        zona_horaria: { type: string }
+        card_template: { $ref: '#/components/schemas/CardTemplate' }
+        reward_image: { type: string, pattern: '^[a-z0-9-]{1,80}$' }
     BenefitEnvelope:
       type: object
       additionalProperties: false
@@ -1593,6 +1774,8 @@ components:
         brand_description: { type: string }
         primary_color: { type: string, pattern: '^#[0-9A-Fa-f]{6}$' }
         secondary_color: { type: string, pattern: '^#[0-9A-Fa-f]{6}$' }
+        card_template: { $ref: '#/components/schemas/CardTemplate' }
+        reward_image: { type: string, pattern: '^[a-z0-9-]{1,80}$' }
         timezone: { type: string }
         brand_version: { type: integer, minimum: 1 }
         role: { type: string, enum: [PROPIETARIO, ADMINISTRADOR, OPERADOR] }
@@ -1663,10 +1846,18 @@ components:
         id: { type: integer, format: int64 }
         brand_id: { type: integer, format: int64 }
         brand_name: { type: string }
+        brand_logo: { type: string, format: uri, description: URL firmada temporal del logo activo }
+        brand_primary_color: { type: string, pattern: '^#[0-9A-Fa-f]{6}$' }
+        brand_secondary_color: { type: string, pattern: '^#[0-9A-Fa-f]{6}$' }
+        card_template: { $ref: '#/components/schemas/CardTemplate' }
+        reward_image: { type: string, pattern: '^[a-z0-9-]{1,80}$' }
         program_type: { type: string, enum: [SELLOS, PUNTOS] }
         balance_stamps: { type: integer, format: int64, minimum: 0 }
         balance_points: { type: integer, format: int64, minimum: 0 }
         benefit: { $ref: '#/components/schemas/Benefit' }
+    CardTemplate:
+      type: string
+      enum: [COMIC_HQ, MINIMAL_PRO, POP_BADGE, PREMIUM_GOLD_CHECKS, DARK_LUXURY_CHECKS, PREMIUM_GOLD, DARK_LUXURY, POP_HEADER, COMIC_HQ_POINTS, MINIMAL_PRO_POINTS, POP_BADGE_POINTS, NEON_PULSE, SUNSET_GRADIENT]
     Pagination:
       type: object
       additionalProperties: false

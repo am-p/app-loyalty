@@ -19,6 +19,10 @@ func writeErr(c *gin.Context, err error) {
 		web.Error(c, http.StatusUnsupportedMediaType, "MEDIA_TYPE_UNSUPPORTED", "Formato de imagen no permitido", nil)
 	case errors.Is(err, service.ErrMediaUnavailable):
 		web.Error(c, http.StatusServiceUnavailable, "MEDIA_STORAGE_UNAVAILABLE", "El almacenamiento de imágenes no está disponible", nil)
+	case errors.Is(err, service.ErrBillingUnavailable):
+		web.Error(c, http.StatusServiceUnavailable, "BILLING_UNAVAILABLE", "La facturación todavía no está habilitada", nil)
+	case errors.Is(err, service.ErrSubscriptionExists):
+		web.Error(c, http.StatusConflict, "SUBSCRIPTION_EXISTS", "La marca ya tiene una suscripción activa o pendiente", nil)
 	case errors.Is(err, service.ErrInvalidRequest), errors.Is(err, repository.ErrInvalidRequest):
 		web.Error(c, http.StatusUnprocessableEntity, "INVALID_REQUEST", "Solicitud inválida", nil)
 	case errors.Is(err, service.ErrAccountTypeRequired):
@@ -31,8 +35,6 @@ func writeErr(c *gin.Context, err error) {
 		web.Error(c, http.StatusForbidden, "FORBIDDEN", "Acceso denegado", nil)
 	case errors.Is(err, service.ErrDemoDisabled):
 		web.Error(c, http.StatusForbidden, "DEMO_SIGNUP_DISABLED", "Las altas demo están cerradas", nil)
-	case errors.Is(err, service.ErrDemoAccess):
-		web.Error(c, http.StatusForbidden, "DEMO_ACCESS_DENIED", "Código de acceso inválido", nil)
 	case errors.Is(err, repository.ErrEmailExists):
 		web.Error(c, http.StatusConflict, "EMAIL_EXISTS", "El email ya está registrado", nil)
 	case errors.Is(err, repository.ErrIdempotencyConflict):

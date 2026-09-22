@@ -44,7 +44,7 @@ func TestAccountTypeRequiredUsesStableErrorOnGoogleRoutes(t *testing.T) {
 
 func TestDecodeGoogleAuthAcceptsAccountSelectionAndRejectsUnknownNestedFields(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	body := `{"id_token":"verified-token","account_type":"PERSONAL_MARCA","merchant_registration":{"brand_name":"Marca","branch_name":"Principal","branch_address":"Calle 1","program_type":"SELLOS","access_code":"demo-access-code"}}`
+	body := `{"id_token":"verified-token","account_type":"PERSONAL_MARCA","merchant_registration":{"brand_name":"Marca","branch_name":"Principal","branch_address":"Calle 1","program_type":"SELLOS"}}`
 	request := httptest.NewRequest(http.MethodPost, "/v1/auth/google", strings.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
@@ -57,7 +57,7 @@ func TestDecodeGoogleAuthAcceptsAccountSelectionAndRejectsUnknownNestedFields(t 
 		t.Fatalf("decoded request=%+v", got)
 	}
 
-	unknown := `{"id_token":"verified-token","account_type":"PERSONAL_MARCA","merchant_registration":{"brand_name":"Marca","branch_name":"Principal","program_type":"SELLOS","access_code":"demo-access-code","owner_name":"must-not-be-client-controlled"}}`
+	unknown := `{"id_token":"verified-token","account_type":"PERSONAL_MARCA","merchant_registration":{"brand_name":"Marca","branch_name":"Principal","program_type":"SELLOS","owner_name":"must-not-be-client-controlled"}}`
 	request = httptest.NewRequest(http.MethodPost, "/v1/auth/google", strings.NewReader(unknown))
 	request.Header.Set("Content-Type", "application/json")
 	c, _ = gin.CreateTestContext(httptest.NewRecorder())

@@ -7,6 +7,7 @@ import (
 
 	"clientesFrecuentes/internal/auth"
 	"clientesFrecuentes/internal/config"
+	"clientesFrecuentes/internal/model"
 	"clientesFrecuentes/internal/repository"
 )
 
@@ -16,13 +17,14 @@ var (
 	ErrAccountTypeRequired = errors.New("account type required")
 	ErrForbidden           = errors.New("forbidden")
 	ErrDemoDisabled        = errors.New("demo signup disabled")
-	ErrDemoAccess          = errors.New("demo access denied")
 	ErrEmailUnverified     = errors.New("email unverified")
 	ErrIdentityToken       = errors.New("identity token invalid")
 	ErrRecentAuthRequired  = errors.New("recent authentication required")
 	ErrMediaTooLarge       = errors.New("media too large")
 	ErrMediaType           = errors.New("unsupported media type")
 	ErrMediaUnavailable    = errors.New("media storage unavailable")
+	ErrBillingUnavailable  = errors.New("billing unavailable")
+	ErrSubscriptionExists  = errors.New("subscription already exists")
 )
 
 type MediaStore interface {
@@ -40,6 +42,13 @@ type Service struct {
 	Now               func() time.Time
 	Media             MediaStore
 	VerifyGoogleToken func(context.Context, string) (string, string, string, error)
+	Billing           BillingProvider
+}
+
+type BillingProvider interface {
+	CreateSubscription(context.Context, model.BillingSubscriptionRequest) (model.BillingSubscriptionResult, error)
+	GetSubscription(context.Context, string) (model.BillingSubscriptionResult, error)
+	CancelSubscription(context.Context, string, string) (model.BillingSubscriptionResult, error)
 }
 
 func New(repo *repository.Repository, tokens *auth.Tokens, cfg config.Config, media ...MediaStore) *Service {

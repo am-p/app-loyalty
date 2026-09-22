@@ -176,11 +176,8 @@ func (s *Service) LoginGoogle(ctx context.Context, req model.GoogleAuthRequest) 
 }
 
 func (s *Service) validateGoogleMerchant(registration *model.GoogleMerchantRegistration) (model.GoogleMerchantRegistration, error) {
-	if registration == nil || len(registration.AccessCode) < 12 || len(registration.AccessCode) > 128 {
+	if registration == nil {
 		return model.GoogleMerchantRegistration{}, ErrInvalidRequest
-	}
-	if bcrypt.CompareHashAndPassword([]byte(s.Config.DemoAccessCodeHash), []byte(registration.AccessCode)) != nil {
-		return model.GoogleMerchantRegistration{}, ErrDemoAccess
 	}
 	brand, err := cleanName(registration.BrandName, 120)
 	if err != nil {

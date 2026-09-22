@@ -5,12 +5,9 @@ import (
 	"errors"
 	"strings"
 	"testing"
-	"time"
 
 	"clientesFrecuentes/internal/config"
 	"clientesFrecuentes/internal/model"
-
-	"golang.org/x/crypto/bcrypt"
 )
 
 func TestRegisterCustomerRejectsWhenDemoSignupIsDisabled(t *testing.T) {
@@ -46,14 +43,10 @@ func TestValidPasswordHonorsBcryptByteLimit(t *testing.T) {
 	}
 }
 
-func TestAnonymizeRequiresExactConfirmationAndRecentAuthentication(t *testing.T) {
-	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
-	svc := &Service{Now: func() time.Time { return now }}
-	if _, err := svc.AnonymizeCurrentUser(context.Background(), 1, now, 1, model.AnonymizeAccountRequest{Confirmation: "BORRAR"}); !errors.Is(err, ErrInvalidRequest) {
+func TestAnonymizeRequiresExactConfirmation(t *testing.T) {
+	svc := &Service{}
+	if _, err := svc.AnonymizeCurrentUser(context.Background(), 1, 1, model.AnonymizeAccountRequest{Confirmation: "BORRAR"}); !errors.Is(err, ErrInvalidRequest) {
 		t.Fatalf("confirmation error=%v", err)
-	}
-	if _, err := svc.AnonymizeCurrentUser(context.Background(), 1, now.Add(-10*time.Minute-time.Second), 1, model.AnonymizeAccountRequest{Confirmation: "ANONIMIZAR"}); !errors.Is(err, ErrRecentAuthRequired) {
-		t.Fatalf("recent auth error=%v", err)
 	}
 }
 
@@ -63,7 +56,6 @@ func TestUpdateCurrentUserRejectsEmptyAndInvalidPartialPatches(t *testing.T) {
 		"empty":      {},
 		"null name":  {Name: model.NullStringPatch()},
 		"blank name": {Name: model.StringPatch("   ")},
-		"bad photo":  {PhotoURL: model.StringPatch("javascript:alert(1)")},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := svc.UpdateCurrentUser(context.Background(), 1, 1, patch); !errors.Is(err, ErrInvalidRequest) {
@@ -102,22 +94,18 @@ func TestRegisterInvitationValidatesTokenAndCredentialsBeforePersistence(t *test
 }
 
 func TestValidateGoogleMerchantNormalizesAcceptedRegistration(t *testing.T) {
-	hash, err := bcrypt.GenerateFromPassword([]byte("demo-access-code"), bcrypt.MinCost)
-	if err != nil {
-		t.Fatal(err)
-	}
 	address, locality, province, postalCode := "  Calle 123  ", "  Rosario  ", "  Santa Fe  ", "  S2000  "
 	latitude, longitude := -32.94682, -60.63932
-	svc := &Service{Config: config.Config{DemoAccessCodeHash: string(hash)}}
+	svc := &Service{}
 	got, err := svc.validateGoogleMerchant(&model.GoogleMerchantRegistration{
 		BrandName: "  Mi Marca  ", BranchName: "  Principal  ", BranchAddress: &address, BranchLocality: &locality,
 		BranchProvince: &province, BranchPostalCode: &postalCode, BranchLatitude: &latitude, BranchLongitude: &longitude,
-		ProgramType: " puntos ", AccessCode: "demo-access-code",
+		ProgramType: " puntos ",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.BrandName != "Mi Marca" || got.BranchName != "Principal" || got.BranchAddress == nil || *got.BranchAddress != "Calle 123" || got.BranchLocality == nil || *got.BranchLocality != "Rosario" || got.BranchProvince == nil || *got.BranchProvince != "Santa Fe" || got.BranchPostalCode == nil || *got.BranchPostalCode != "S2000" || got.BranchLatitude == nil || *got.BranchLatitude != latitude || got.BranchLongitude == nil || *got.BranchLongitude != longitude || got.ProgramType != "PUNTOS" || got.AccessCode != "" {
+	if got.BrandName != "Mi Marca" || got.BranchName != "Principal" || got.BranchAddress == nil || *got.BranchAddress != "Calle 123" || got.BranchLocality == nil || *got.BranchLocality != "Rosario" || got.BranchProvince == nil || *got.BranchProvince != "Santa Fe" || got.BranchPostalCode == nil || *got.BranchPostalCode != "S2000" || got.BranchLatitude == nil || *got.BranchLatitude != latitude || got.BranchLongitude == nil || *got.BranchLongitude != longitude || got.ProgramType != "PUNTOS" {
 		t.Fatalf("normalized registration=%+v", got)
 	}
 }
@@ -140,17 +128,22 @@ func TestCleanRegistrationBranchLocationRequiresCoordinatePairAndRanges(t *testi
 
 func float64Pointer(value float64) *float64 { return &value }
 
-func TestValidateGoogleMerchantRejectsMissingAndInvalidAccess(t *testing.T) {
-	hash, err := bcrypt.GenerateFromPassword([]byte("demo-access-code"), bcrypt.MinCost)
-	if err != nil {
-		t.Fatal(err)
-	}
-	svc := &Service{Config: config.Config{DemoAccessCodeHash: string(hash)}}
-	if _, err = svc.validateGoogleMerchant(nil); !errors.Is(err, ErrInvalidRequest) {
+func TestValidateGoogleMerchantRejectsMissingRegistration(t *testing.T) {
+	svc := &Service{}
+	if _, err := svc.validateGoogleMerchant(nil); !errors.Is(err, ErrInvalidRequest) {
 		t.Fatalf("missing registration error=%v", err)
 	}
-	if _, err = svc.validateGoogleMerchant(&model.GoogleMerchantRegistration{BrandName: "Marca", BranchName: "Principal", ProgramType: "SELLOS", AccessCode: "wrong-access-code"}); !errors.Is(err, ErrDemoAccess) {
-		t.Fatalf("invalid access error=%v", err)
+}
+
+func TestProfilePhotoObjectKeyOnlyAcceptsManagedProfileReferences(t *testing.T) {
+	key, ok := profilePhotoObjectKey("s3://puntazo/profiles/7/photo.png")
+	if !ok || key != "profiles/7/photo.png" {
+		t.Fatalf("key=%q ok=%t", key, ok)
+	}
+	for _, reference := range []string{"https://example.com/photo.png", "s3://puntazo/brands/7/logo.png", "s3://puntazo/profiles/../secret"} {
+		if _, accepted := profilePhotoObjectKey(reference); accepted {
+			t.Fatalf("accepted unsafe reference %q", reference)
+		}
 	}
 }
 

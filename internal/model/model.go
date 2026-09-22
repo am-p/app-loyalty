@@ -24,7 +24,6 @@ type RegisterDemoMerchantRequest struct {
 	BranchLatitude   *float64 `json:"branch_latitude,omitempty"`
 	BranchLongitude  *float64 `json:"branch_longitude,omitempty"`
 	ProgramType      string   `json:"program_type"`
-	AccessCode       string   `json:"access_code"`
 }
 type BranchRegistrationLocation struct {
 	BranchAddress    *string  `json:"branch_address,omitempty"`
@@ -56,7 +55,6 @@ type GoogleMerchantRegistration struct {
 	BranchLatitude   *float64 `json:"branch_latitude,omitempty"`
 	BranchLongitude  *float64 `json:"branch_longitude,omitempty"`
 	ProgramType      string   `json:"program_type"`
-	AccessCode       string   `json:"access_code"`
 }
 
 type User struct {
@@ -107,7 +105,20 @@ type UpdateAccountRequest struct {
 	Name     OptionalString `json:"nombre"`
 	LastName OptionalString `json:"apellido"`
 	Alias    OptionalString `json:"alias"`
-	PhotoURL OptionalString `json:"foto_url"`
+}
+
+type ProfilePhoto struct {
+	URL          string    `json:"url"`
+	URLExpiresAt time.Time `json:"url_expires_at"`
+	MIMEType     string    `json:"mime_type"`
+	ByteSize     int64     `json:"byte_size"`
+	Width        int       `json:"width"`
+	Height       int       `json:"height"`
+}
+
+type ProfilePhotoUpdate struct {
+	Current CurrentUser  `json:"current"`
+	Photo   ProfilePhoto `json:"photo"`
 }
 type AnonymizeAccountRequest struct {
 	Confirmation string `json:"confirmacion"`
@@ -246,6 +257,29 @@ type DemoAccess struct {
 	Active          bool      `json:"active"`
 	StartedAt       time.Time `json:"started_at"`
 }
+type Subscription struct {
+	BrandID            int64      `json:"brand_id"`
+	Provider           string     `json:"provider"`
+	Status             string     `json:"status"`
+	Currency           string     `json:"currency"`
+	UnitAmountCents    int64      `json:"unit_amount_cents"`
+	ActiveBranches     int64      `json:"active_branches"`
+	MonthlyAmountCents int64      `json:"monthly_amount_cents"`
+	CheckoutURL        string     `json:"checkout_url,omitempty"`
+	NextPaymentDate    *time.Time `json:"next_payment_date,omitempty"`
+	ProviderConfigured bool       `json:"provider_configured"`
+	TrialAvailable     bool       `json:"trial_available"`
+	UpdatedAt          time.Time  `json:"updated_at"`
+}
+type BillingSubscriptionRequest struct {
+	Reason, ExternalReference, PayerEmail, BackURL, IdempotencyKey, Currency string
+	Amount                                                                   float64
+	FreeTrialMonths                                                          int
+}
+type BillingSubscriptionResult struct {
+	ID, Status, ExternalReference, CheckoutURL string
+	NextPaymentDate                            *time.Time
+}
 type Branch struct {
 	ID         int64     `json:"id"`
 	BrandID    int64     `json:"brand_id"`
@@ -306,9 +340,11 @@ type Benefit struct {
 	Active         bool       `json:"active"`
 	Version        int        `json:"version"`
 	Description    string     `json:"descripcion"`
+	ImageURL       string     `json:"image_url,omitempty"`
 	DeletedAt      *time.Time `json:"deleted_at,omitempty"`
 	CreatedAt      time.Time  `json:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at"`
+	ImageObjectKey string     `json:"-"`
 }
 type BrandImage struct {
 	ID           string     `json:"id"`
@@ -353,6 +389,8 @@ type MerchantContext struct {
 	BrandDescription *string    `json:"brand_description,omitempty"`
 	PrimaryColor     *string    `json:"primary_color,omitempty"`
 	SecondaryColor   *string    `json:"secondary_color,omitempty"`
+	CardTemplate     *string    `json:"card_template,omitempty"`
+	RewardImage      *string    `json:"reward_image,omitempty"`
 	Timezone         string     `json:"timezone"`
 	BrandVersion     int        `json:"brand_version"`
 	Role             string     `json:"role"`
@@ -367,6 +405,8 @@ type UpdateBrandRequest struct {
 	Description    *string `json:"descripcion,omitempty"`
 	PrimaryColor   *string `json:"color_primario,omitempty"`
 	SecondaryColor *string `json:"color_secundario,omitempty"`
+	CardTemplate   *string `json:"card_template,omitempty"`
+	RewardImage    *string `json:"reward_image,omitempty"`
 	Timezone       *string `json:"zona_horaria,omitempty"`
 }
 type DemoMerchantData struct {
@@ -378,13 +418,20 @@ type DemoMerchantData struct {
 }
 
 type Card struct {
-	ID            int64   `json:"id"`
-	BrandID       int64   `json:"brand_id"`
-	BrandName     string  `json:"brand_name"`
-	ProgramType   string  `json:"program_type"`
-	BalanceStamps int64   `json:"balance_stamps"`
-	BalancePoints int64   `json:"balance_points"`
-	Benefit       Benefit `json:"benefit"`
+	ID                 int64     `json:"id"`
+	BrandID            int64     `json:"brand_id"`
+	BrandName          string    `json:"brand_name"`
+	BrandLogo          string    `json:"brand_logo,omitempty"`
+	PrimaryColor       *string   `json:"brand_primary_color,omitempty"`
+	SecondaryColor     *string   `json:"brand_secondary_color,omitempty"`
+	CardTemplate       *string   `json:"card_template,omitempty"`
+	RewardImage        *string   `json:"reward_image,omitempty"`
+	ProgramType        string    `json:"program_type"`
+	BalanceStamps      int64     `json:"balance_stamps"`
+	BalancePoints      int64     `json:"balance_points"`
+	Benefit            Benefit   `json:"benefit"`
+	Benefits           []Benefit `json:"benefits"`
+	BrandLogoObjectKey string    `json:"-"`
 }
 type BrandCustomer struct {
 	CustomerID     int64      `json:"customer_id"`
