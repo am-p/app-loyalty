@@ -21,8 +21,14 @@ func writeErr(c *gin.Context, err error) {
 		web.Error(c, http.StatusServiceUnavailable, "MEDIA_STORAGE_UNAVAILABLE", "El almacenamiento de imágenes no está disponible", nil)
 	case errors.Is(err, service.ErrBillingUnavailable):
 		web.Error(c, http.StatusServiceUnavailable, "BILLING_UNAVAILABLE", "La facturación todavía no está habilitada", nil)
+	case errors.Is(err, service.ErrBillingInProgress):
+		web.Error(c, http.StatusConflict, "BILLING_IN_PROGRESS", "El checkout se está verificando con Mercado Pago; actualizá el estado más tarde", nil)
+	case errors.Is(err, service.ErrBillingProviderFailure):
+		web.Error(c, http.StatusServiceUnavailable, "BILLING_PROVIDER_ERROR", "Mercado Pago no confirmó la operación; consultá el estado antes de reintentar", nil)
 	case errors.Is(err, service.ErrSubscriptionExists):
 		web.Error(c, http.StatusConflict, "SUBSCRIPTION_EXISTS", "La marca ya tiene una suscripción activa o pendiente", nil)
+	case errors.Is(err, repository.ErrSubscriptionChangeRequired):
+		web.Error(c, http.StatusConflict, "SUBSCRIPTION_CHANGE_REQUIRED", "Cancelá la suscripción antes de cambiar sucursales o eliminar la marca", nil)
 	case errors.Is(err, service.ErrInvalidRequest), errors.Is(err, repository.ErrInvalidRequest):
 		web.Error(c, http.StatusUnprocessableEntity, "INVALID_REQUEST", "Solicitud inválida", nil)
 	case errors.Is(err, service.ErrAccountTypeRequired):

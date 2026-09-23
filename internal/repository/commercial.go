@@ -53,6 +53,9 @@ func (r *Repository) DeleteBrand(ctx context.Context, actorID, brandID int64, ve
 	if !mutableRole(role) {
 		return ErrForbidden
 	}
+	if err = requireNoActiveSubscription(ctx, tx, brandID); err != nil {
+		return err
+	}
 	tag, err := tx.Exec(ctx, `UPDATE marcas SET activo=false,deleted_at=now(),version=version+1,updated_at=now() WHERE id=$1 AND version=$2`, brandID, version)
 	if err != nil {
 		return err
@@ -114,11 +117,16 @@ func (r *Repository) CreateBranch(ctx context.Context, actorID, brandID int64, r
 	}
 	defer tx.Rollback(ctx)
 	var role string
-	if err := tx.QueryRow(ctx, `SELECT mm.rol FROM membresias_marca mm JOIN marcas m ON m.id=mm.marca_id AND m.activo WHERE mm.usuario_id=$1 AND mm.marca_id=$2 AND mm.activo FOR UPDATE OF m`, actorID, brandID).Scan(&role); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT mm.rol FROM membresias_marca mm JOIN marcas m ON m.id=mm.marca_id AND m.activo WHERE mm.usuario_id=$1 AND mm.marca_id=$2 AND mm.activo FOR UPDATE OF m`, actorID, brandID).Scan(&role); errors.Is(err, pgx.ErrNoRows) {
 		return model.Branch{}, ErrNotFound
+	} else if err != nil {
+		return model.Branch{}, err
 	}
 	if !mutableRole(role) {
 		return model.Branch{}, ErrForbidden
+	}
+	if err = requireNoActiveSubscription(ctx, tx, brandID); err != nil {
+		return model.Branch{}, err
 	}
 	var b model.Branch
 	err = scanBranch(tx.QueryRow(ctx, `INSERT INTO sucursales(marca_id,nombre,direccion,localidad,provincia,codigo_postal,latitud,longitud) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id,marca_id,nombre,direccion,activo,localidad,provincia,codigo_postal,latitud,longitud,principal,version,created_at,updated_at`, brandID, req.Name, req.Address, req.Locality, req.Province, req.PostalCode, req.Latitude, req.Longitude), &b)
@@ -134,8 +142,10 @@ func (r *Repository) UpdateBranch(ctx context.Context, actorID, brandID, branchI
 	}
 	defer tx.Rollback(ctx)
 	var role string
-	if err = tx.QueryRow(ctx, `SELECT mm.rol FROM membresias_marca mm JOIN marcas m ON m.id=mm.marca_id WHERE mm.usuario_id=$1 AND mm.marca_id=$2 AND mm.activo FOR UPDATE OF m`, actorID, brandID).Scan(&role); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT mm.rol FROM membresias_marca mm JOIN marcas m ON m.id=mm.marca_id WHERE mm.usuario_id=$1 AND mm.marca_id=$2 AND mm.activo FOR UPDATE OF m`, actorID, brandID).Scan(&role); errors.Is(err, pgx.ErrNoRows) {
 		return model.Branch{}, ErrNotFound
+	} else if err != nil {
+		return model.Branch{}, err
 	}
 	if !mutableRole(role) {
 		return model.Branch{}, ErrForbidden
@@ -197,6 +207,9 @@ func (r *Repository) DeleteBranch(ctx context.Context, actorID, brandID, branchI
 	if !mutableRole(role) {
 		return ErrForbidden
 	}
+	if err = requireNoActiveSubscription(ctx, tx, brandID); err != nil {
+		return err
+	}
 	if primary || activeCount <= 1 {
 		return ErrConflict
 	}
@@ -229,14 +242,19 @@ func (r *Repository) UpdateProgram(ctx context.Context, actorID, brandID int64, 
 	defer tx.Rollback(ctx)
 	var role, current string
 	var id int64
-	err = tx.QueryRow(ctx, `SELECT mm.rol,p.id,p.tipo FROM membresias_marca mm JOIN programas_fidelidad p ON p.marca_id=mm.marca_id WHERE mm.usuario_id=$1 AND mm.marca_id=$2 AND mm.activo FOR UPDATE OF p`, actorID, brandID).Scan(&role, &id, &current)
-	if err != nil {
+	err = tx.QueryRow(ctx, `SELECT mm.rol,p.id,p.tipo FROM membresias_marca mm JOIN marcas m ON m.id=mm.marca_id JOIN programas_fidelidad p ON p.marca_id=mm.marca_id WHERE mm.usuario_id=$1 AND mm.marca_id=$2 AND mm.activo FOR UPDATE OF m,p`, actorID, brandID).Scan(&role, &id, &current)
+	if errors.Is(err, pgx.ErrNoRows) {
 		return model.Program{}, ErrNotFound
+	} else if err != nil {
+		return model.Program{}, err
 	}
 	if !mutableRole(role) {
 		return model.Program{}, ErrForbidden
 	}
 	if current != req.Type {
+		if err = requireNoActiveSubscription(ctx, tx, brandID); err != nil {
+			return model.Program{}, err
+		}
 		var moved, hasBenefits bool
 		if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM historial_movimientos WHERE marca_id=$1),EXISTS(SELECT 1 FROM beneficios WHERE programa_id=$2)`, brandID, id).Scan(&moved, &hasBenefits); err != nil {
 			return model.Program{}, err

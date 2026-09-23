@@ -24,6 +24,8 @@ var (
 	ErrMediaType           = errors.New("unsupported media type")
 	ErrMediaUnavailable    = errors.New("media storage unavailable")
 	ErrBillingUnavailable  = errors.New("billing unavailable")
+	ErrBillingInProgress   = errors.New("billing checkout awaiting provider reconciliation")
+	ErrBillingProviderFailure = errors.New("billing provider request failed")
 	ErrSubscriptionExists  = errors.New("subscription already exists")
 )
 

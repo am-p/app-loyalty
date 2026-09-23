@@ -75,7 +75,7 @@ ALLOW_MIGRATION_DOWN=true go run ./cmd/migrate down
 | `DEMO_SIGNUP_ENABLED` | Habilita o cierra nuevas altas gratuitas sin bloquear cuentas existentes. |
 | `CORS_ORIGINS` | Orígenes web exactos permitidos, separados por comas; habilita credenciales para la cookie HttpOnly de refresh. |
 | `GOOGLE_CLIENT_ID` | Audiencia web de Google; opcional para el alias legado. |
-| `EXPECTED_SCHEMA_VERSION` | Versión de esquema requerida por readiness; por defecto `0019`. |
+| `EXPECTED_SCHEMA_VERSION` | Versión de esquema requerida por readiness; por defecto `0020`. |
 | `MERCADO_PAGO_PROVIDER` | `api` habilita checkout y webhooks de suscripciones; `disabled` los mantiene apagados. |
 | `MERCADO_PAGO_ACCESS_TOKEN`, `MERCADO_PAGO_WEBHOOK_SECRET` | Secretos del backend para crear suscripciones y validar notificaciones. Nunca se exponen al frontend. |
 | `MERCADO_PAGO_BRANCH_PRICE_CENTS` | Precio mensual de Sellos por sucursal activa; por defecto `1500000` (ARS 15.000). |
@@ -105,7 +105,7 @@ La interfaz y la API pueden desplegarse con `MERCADO_PAGO_PROVIDER=disabled`: la
 sección Plan y facturación permanece visible y explica que el proveedor aún no está
 configurado, pero no permite iniciar ni cancelar cobros. Para habilitarla:
 
-1. Aplicar la migración `0019` y mantener `EXPECTED_SCHEMA_VERSION=0019`.
+1. Aplicar las migraciones hasta `0020` y mantener `EXPECTED_SCHEMA_VERSION=0020`.
 2. Cargar únicamente en el runtime del backend `MERCADO_PAGO_ACCESS_TOKEN` y
    `MERCADO_PAGO_WEBHOOK_SECRET`; no usar variables `EXPO_PUBLIC_*`.
 3. Cambiar `MERCADO_PAGO_PROVIDER=api` y reiniciar la API.
@@ -123,6 +123,15 @@ tarjeta. `POST /v1/marcas/{brand_id}/suscripcion/cancelacion` envía el estado
 El primer checkout de una marca Sellos o Puntos incluye una prueba gratuita de un mes.
 La elegibilidad es de una sola vez: si esa marca cancela y vuelve a contratar,
 el nuevo checkout comienza con la facturación mensual normal.
+
+El checkout reserva la marca antes de llamar a Mercado Pago y sólo permite un
+POST al proveedor por reserva. Si la respuesta se pierde, el estado queda en
+`CREATING`: el webhook puede completarlo usando la referencia externa. Si no
+llega, operaciones debe conciliar esa referencia con Mercado Pago antes de
+resolver la reserva; repetir el POST automáticamente podría crear dos
+suscripciones. Mientras el estado sea `CREATING`, `PENDING`, `AUTHORIZED` o
+`PAUSED`, la API impide agregar o desactivar sucursales, cambiar el tipo de
+programa o eliminar la marca. Primero debe cancelarse la suscripción.
 
 ## Primer acceso con Google
 

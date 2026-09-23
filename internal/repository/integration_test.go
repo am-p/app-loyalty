@@ -217,6 +217,18 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if _, err = pool.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES('0018')`); err != nil {
 		t.Fatal(err)
 	}
+	for _, version := range []string{"0019", "0020"} {
+		migration, readErr := os.ReadFile(filepath.Join("..", "..", "migrations", version+map[string]string{"0019": "_mercado_pago_subscriptions", "0020": "_subscription_checkout_reservation"}[version]+".up.sql"))
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if _, err = pool.Exec(ctx, string(migration)); err != nil {
+			t.Fatalf("migration %s: %v", version, err)
+		}
+		if _, err = pool.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES($1)`, version); err != nil {
+			t.Fatal(err)
+		}
+	}
 	var legacyPasswordVerified, legacyGoogleVerified bool
 	if err = pool.QueryRow(ctx, `SELECT email_verified_at IS NOT NULL FROM usuarios WHERE email='legacy-password@example.com'`).Scan(&legacyPasswordVerified); err != nil {
 		t.Fatal(err)
@@ -232,7 +244,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 		t.Fatalf("legacy session revoked=%t err=%v", legacySessionRevoked, err)
 	}
 	outboxKey := []byte("01234567890123456789012345678901")
-	cfg := config.Config{JWTSecret: "jwt-secret-0123456789012345678901", JWTIssuer: "puntazo", QRPepper: "qr-pepper-01234567890123456789012", DemoSignupEnabled: true, ExpectedSchemaVersion: "0018", PublicAppURL: "https://app.puntazo.test", OutboxEncryptionKey: outboxKey, MediaURLTTL: 5 * time.Minute}
+	cfg := config.Config{JWTSecret: "jwt-secret-0123456789012345678901", JWTIssuer: "puntazo", QRPepper: "qr-pepper-01234567890123456789012", DemoSignupEnabled: true, ExpectedSchemaVersion: "0020", PublicAppURL: "https://app.puntazo.test", OutboxEncryptionKey: outboxKey, MediaURLTTL: 5 * time.Minute, MercadoPagoBranchPrice: 12300, MercadoPagoPointsPrice: 45600}
 	repo := repository.New(pool, outboxKey)
 	blockedGoogleID := "blocked-google-signup"
 	blockedGoogleEmail := "blocked-google@example.com"
@@ -1213,6 +1225,14 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if err != nil || len(operatorBranches) != 1 || operatorBranches[0].ID != newBranch.ID {
 		t.Fatalf("operator branch scope=%+v err=%v", operatorBranches, err)
 	}
+	ownerMovements, ownerPage, err := svc.BrandMovements(ctx, merchant.User.ID, merchant.Merchant.BrandID, 1, 20)
+	if err != nil || ownerPage.TotalItems == 0 || len(ownerMovements) == 0 {
+		t.Fatalf("owner movement scope=%+v page=%+v err=%v", ownerMovements, ownerPage, err)
+	}
+	operatorMovements, operatorPage, err := svc.BrandMovements(ctx, operatorID, merchant.Merchant.BrandID, 1, 20)
+	if err != nil || operatorPage.TotalItems != 0 || len(operatorMovements) != 0 {
+		t.Fatalf("operator saw movements outside assigned branch: %+v page=%+v err=%v", operatorMovements, operatorPage, err)
+	}
 	racingA, err := svc.CreateBranch(ctx, merchant.User.ID, merchant.Merchant.BrandID, model.CreateBranchRequest{Name: "Carrera A"})
 	if err != nil {
 		t.Fatal(err)
@@ -1250,6 +1270,10 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	promotedStaff, err := svc.UpdateStaff(ctx, merchant.User.ID, merchant.Merchant.BrandID, staff.MembershipID, staff.Version, model.UpdateStaffRequest{Role: &adminRole})
 	if err != nil || len(promotedStaff.BranchIDs) != 0 {
 		t.Fatalf("promote staff=%+v err=%v", promotedStaff, err)
+	}
+	adminMovements, adminPage, err := svc.BrandMovements(ctx, operatorID, merchant.Merchant.BrandID, 1, 20)
+	if err != nil || adminPage.TotalItems != ownerPage.TotalItems || len(adminMovements) == 0 {
+		t.Fatalf("admin movement scope=%+v page=%+v err=%v", adminMovements, adminPage, err)
 	}
 	assignedWhileAdmin := []int64{newBranch.ID}
 	if _, err = svc.UpdateStaff(ctx, merchant.User.ID, merchant.Merchant.BrandID, promotedStaff.MembershipID, promotedStaff.Version, model.UpdateStaffRequest{BranchIDs: &assignedWhileAdmin}); !errors.Is(err, repository.ErrInvalidRequest) {
@@ -1344,6 +1368,43 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	accountExport, err := svc.ExportCurrentUser(ctx, customer.ID)
 	if err != nil || len(accountExport.Cards) != 2 || len(accountExport.Movements) != 13 || accountExport.User.Version != 5 {
 		t.Fatalf("account export=%+v err=%v", accountExport, err)
+	}
+	firstActivityPage, firstActivityMeta, err := svc.CustomerMovements(ctx, customer.ID, 1, 5)
+	if err != nil || len(firstActivityPage) != 5 || firstActivityMeta.TotalItems != 13 || firstActivityMeta.TotalPages != 3 {
+		t.Fatalf("customer activity page=%+v meta=%+v err=%v", firstActivityPage, firstActivityMeta, err)
+	}
+	lastActivityPage, lastActivityMeta, err := svc.CustomerMovements(ctx, customer.ID, 3, 5)
+	if err != nil || len(lastActivityPage) != 3 || lastActivityMeta.TotalItems != 13 || lastActivityPage[0].ID == firstActivityPage[0].ID {
+		t.Fatalf("customer last activity page=%+v meta=%+v err=%v", lastActivityPage, lastActivityMeta, err)
+	}
+	for _, benefitID := range []int64{benefit.ID, secondBenefit.ID} {
+		currentBenefit, benefitErr := svc.Benefit(ctx, merchant.User.ID, merchant.Merchant.BrandID, benefitID)
+		if benefitErr != nil {
+			t.Fatal(benefitErr)
+		}
+		if currentBenefit.RequiredStamps == nil {
+			t.Fatal("expected a stamps benefit")
+		}
+		_, benefitErr = svc.ReplaceBenefit(ctx, merchant.User.ID, merchant.Merchant.BrandID, benefitID, currentBenefit.Version, model.ReplaceBenefitRequest{Name: currentBenefit.Name, Description: currentBenefit.Description, Requirement: *currentBenefit.RequiredStamps, Active: false})
+		if benefitErr != nil {
+			t.Fatal(benefitErr)
+		}
+	}
+	cardsWithoutBenefits, _, err := svc.Cards(ctx, customer.ID, 1, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cardStillVisible bool
+	for _, card := range cardsWithoutBenefits {
+		if card.BrandID == merchant.Merchant.BrandID {
+			cardStillVisible = true
+			if card.Benefit != nil || len(card.Benefits) != 0 {
+				t.Fatalf("inactive rewards leaked into card: %+v", card)
+			}
+		}
+	}
+	if !cardStillVisible {
+		t.Fatal("card disappeared after its last benefit was deactivated")
 	}
 	if _, err = repo.AnonymizeAccount(ctx, merchant.User.ID, merchant.User.Version); !errors.Is(err, repository.ErrOwnershipTransfer) {
 		t.Fatalf("last owner deletion: %v", err)
@@ -1481,6 +1542,85 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if err = pool.QueryRow(ctx, `SELECT version FROM marcas WHERE id=$1`, merchant.Merchant.BrandID).Scan(&brandVersion); err != nil {
 		t.Fatal(err)
 	}
+	type checkoutReservation struct {
+		record repository.SubscriptionRecord
+		err    error
+	}
+	reservations := make(chan checkoutReservation, 2)
+	for range 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, record, reserveErr := repo.ReserveSubscriptionCheckout(ctx, merchant.User.ID, merchant.Merchant.BrandID,
+				fmt.Sprintf("puntazo:brand:%d:%s", merchant.Merchant.BrandID, uuid.NewString()), 12300, 45600)
+			reservations <- checkoutReservation{record, reserveErr}
+		}()
+	}
+	wg.Wait()
+	close(reservations)
+	var reservedReference string
+	for result := range reservations {
+		if result.err != nil || result.record.Subscription.Status != "CREATING" || result.record.TrialMonths != 1 || result.record.Subscription.ActiveBranches < 1 || result.record.Subscription.MonthlyAmountCents != 12300*result.record.Subscription.ActiveBranches {
+			t.Fatalf("checkout reservation=%+v err=%v", result.record, result.err)
+		}
+		if reservedReference == "" {
+			reservedReference = result.record.ExternalReference
+		}
+		if result.record.ExternalReference != reservedReference {
+			t.Fatalf("concurrent checkouts used different provider keys")
+		}
+	}
+	claimed, claimErr := repo.ClaimSubscriptionProviderCall(ctx, merchant.Merchant.BrandID, reservedReference)
+	if claimErr != nil || !claimed {
+		t.Fatalf("first provider claim=%t err=%v", claimed, claimErr)
+	}
+	claimed, claimErr = repo.ClaimSubscriptionProviderCall(ctx, merchant.Merchant.BrandID, reservedReference)
+	if claimErr != nil || claimed {
+		t.Fatalf("duplicate provider call allowed=%t err=%v", claimed, claimErr)
+	}
+	billingProbe := &fakeBillingProvider{}
+	svc.Billing = billingProbe
+	if _, err = svc.CreateSubscriptionCheckout(ctx, merchant.User.ID, merchant.Merchant.BrandID, uuid.NewString()); !errors.Is(err, service.ErrBillingInProgress) || billingProbe.createCalls != 0 {
+		t.Fatalf("uncertain checkout retried provider: calls=%d err=%v", billingProbe.createCalls, err)
+	}
+	if _, err = svc.CreateBranch(ctx, merchant.User.ID, merchant.Merchant.BrandID, model.CreateBranchRequest{Name: "No debe crearse"}); !errors.Is(err, repository.ErrSubscriptionChangeRequired) {
+		t.Fatalf("branch changed during checkout: %v", err)
+	}
+	if err = svc.DeleteBrand(ctx, merchant.User.ID, merchant.Merchant.BrandID, brandVersion); !errors.Is(err, repository.ErrSubscriptionChangeRequired) {
+		t.Fatalf("brand deleted during checkout: %v", err)
+	}
+	provider := model.BillingSubscriptionResult{ID: "provider-reservation-1", Status: "pending", ExternalReference: reservedReference, CheckoutURL: "https://mp.example/checkout"}
+	if _, err = repo.SaveSubscriptionCheckout(ctx, merchant.Merchant.BrandID, provider); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = repo.SaveSubscriptionCheckout(ctx, merchant.Merchant.BrandID, provider); !errors.Is(err, repository.ErrConflict) {
+		t.Fatalf("completed checkout overwritten: %v", err)
+	}
+	provider.Status = "cancelled"
+	if _, err = repo.UpdateSubscriptionFromProvider(ctx, provider); err != nil {
+		t.Fatal(err)
+	}
+	secondReference := fmt.Sprintf("puntazo:brand:%d:%s", merchant.Merchant.BrandID, uuid.NewString())
+	_, secondReservation, err := repo.ReserveSubscriptionCheckout(ctx, merchant.User.ID, merchant.Merchant.BrandID, secondReference, 12300, 45600)
+	if err != nil || secondReservation.TrialMonths != 0 || secondReservation.Subscription.Status != "CREATING" {
+		t.Fatalf("second checkout=%+v err=%v", secondReservation, err)
+	}
+	claimed, claimErr = repo.ClaimSubscriptionProviderCall(ctx, merchant.Merchant.BrandID, secondReference)
+	if claimErr != nil || !claimed {
+		t.Fatalf("second provider claim=%t err=%v", claimed, claimErr)
+	}
+	provider = model.BillingSubscriptionResult{ID: "provider-reservation-2", Status: "pending", ExternalReference: secondReference, CheckoutURL: "https://mp.example/recovered"}
+	if err = repo.RecordSubscriptionWebhook(ctx, "recovery-notification-1", "subscription_preapproval", provider); err != nil {
+		t.Fatalf("webhook could not reconcile uncertain checkout: %v", err)
+	}
+	recovered, err := repo.GetSubscriptionRecord(ctx, merchant.Merchant.BrandID)
+	if err != nil || recovered.ProviderID != provider.ID || recovered.Subscription.Status != "PENDING" {
+		t.Fatalf("webhook recovery=%+v err=%v", recovered, err)
+	}
+	provider.Status = "cancelled"
+	if _, err = repo.UpdateSubscriptionFromProvider(ctx, provider); err != nil {
+		t.Fatal(err)
+	}
 	if err = svc.DeleteBrand(ctx, merchant.User.ID, merchant.Merchant.BrandID, brandVersion); err != nil {
 		t.Fatal(err)
 	}
@@ -1499,7 +1639,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if _, err = svc.RegisterInvitation(ctx, retiredInvitationToken, model.RegisterInvitationRequest{Name: "Retired Brand Staff", Password: "retired-brand-pass"}); !errors.Is(err, service.ErrIdentityToken) {
 		t.Fatalf("registered invitation from deleted brand: %v", err)
 	}
-	if err = repo.CheckSchema(ctx, "0018"); err != nil {
+	if err = repo.CheckSchema(ctx, "0020"); err != nil {
 		t.Fatal(err)
 	}
 	if err = repo.CheckSchema(ctx, "9999"); err == nil {
@@ -1512,6 +1652,19 @@ type fakeMediaStore struct {
 	mu      sync.Mutex
 	objects map[string][]byte
 	signErr error
+}
+
+type fakeBillingProvider struct{ createCalls int }
+
+func (f *fakeBillingProvider) CreateSubscription(context.Context, model.BillingSubscriptionRequest) (model.BillingSubscriptionResult, error) {
+	f.createCalls++
+	return model.BillingSubscriptionResult{}, errors.New("unexpected provider create")
+}
+func (*fakeBillingProvider) GetSubscription(context.Context, string) (model.BillingSubscriptionResult, error) {
+	return model.BillingSubscriptionResult{}, errors.New("unexpected provider lookup")
+}
+func (*fakeBillingProvider) CancelSubscription(context.Context, string, string) (model.BillingSubscriptionResult, error) {
+	return model.BillingSubscriptionResult{}, errors.New("unexpected provider cancellation")
 }
 
 func (f *fakeMediaStore) Put(_ context.Context, key, _ string, body, _ []byte) error {

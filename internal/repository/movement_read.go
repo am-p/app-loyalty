@@ -14,7 +14,9 @@ func (r *Repository) ListCustomerMovements(ctx context.Context, actorID, cardID 
 	}
 	if total == 0 {
 		var exists bool
-		_ = r.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM tarjetas WHERE id=$1 AND usuario_id=$2)`, cardID, actorID).Scan(&exists)
+		if err := r.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM tarjetas WHERE id=$1 AND usuario_id=$2)`, cardID, actorID).Scan(&exists); err != nil {
+			return nil, 0, err
+		}
 		if !exists {
 			return nil, 0, ErrNotFound
 		}
@@ -22,17 +24,28 @@ func (r *Repository) ListCustomerMovements(ctx context.Context, actorID, cardID 
 	return r.listMovements(ctx, `h.tarjeta_id=$1 AND t.usuario_id=$2`, []any{cardID, actorID}, page, pageSize, total)
 }
 
+func (r *Repository) ListAllCustomerMovements(ctx context.Context, actorID int64, page, pageSize int) ([]model.Movement, int64, error) {
+	var total int64
+	if err := r.Pool.QueryRow(ctx, `SELECT count(*) FROM historial_movimientos h JOIN tarjetas t ON t.id=h.tarjeta_id WHERE t.usuario_id=$1`, actorID).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	return r.listMovements(ctx, `t.usuario_id=$1`, []any{actorID}, page, pageSize, total)
+}
+
 func (r *Repository) ListBrandMovements(ctx context.Context, actorID, brandID int64, page, pageSize int) ([]model.Movement, int64, error) {
 	var owns bool
-	_ = r.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM membresias_marca WHERE usuario_id=$1 AND marca_id=$2 AND activo)`, actorID, brandID).Scan(&owns)
+	if err := r.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM membresias_marca WHERE usuario_id=$1 AND marca_id=$2 AND activo)`, actorID, brandID).Scan(&owns); err != nil {
+		return nil, 0, err
+	}
 	if !owns {
 		return nil, 0, ErrNotFound
 	}
 	var total int64
-	if err := r.Pool.QueryRow(ctx, `SELECT count(*) FROM historial_movimientos h WHERE h.marca_id=$1 AND EXISTS(SELECT 1 FROM membresias_marca mm JOIN membresias_sucursales ms ON ms.membresia_id=mm.id AND ms.marca_id=mm.marca_id WHERE mm.usuario_id=$2 AND mm.marca_id=$1 AND mm.activo AND ms.activo AND ms.sucursal_id=h.sucursal_id)`, brandID, actorID).Scan(&total); err != nil {
+	const visibleMovement = `h.marca_id=$1 AND EXISTS(SELECT 1 FROM membresias_marca mm WHERE mm.usuario_id=$2 AND mm.marca_id=$1 AND mm.activo AND (mm.rol IN ('PROPIETARIO','ADMINISTRADOR') OR EXISTS(SELECT 1 FROM membresias_sucursales ms WHERE ms.membresia_id=mm.id AND ms.marca_id=mm.marca_id AND ms.activo AND ms.sucursal_id=h.sucursal_id)))`
+	if err := r.Pool.QueryRow(ctx, `SELECT count(*) FROM historial_movimientos h WHERE `+visibleMovement, brandID, actorID).Scan(&total); err != nil {
 		return nil, 0, err
 	}
-	return r.listMovements(ctx, `h.marca_id=$1 AND EXISTS(SELECT 1 FROM membresias_marca mm JOIN membresias_sucursales ms ON ms.membresia_id=mm.id AND ms.marca_id=mm.marca_id WHERE mm.usuario_id=$2 AND mm.marca_id=$1 AND mm.activo AND ms.activo AND ms.sucursal_id=h.sucursal_id)`, []any{brandID, actorID}, page, pageSize, total)
+	return r.listMovements(ctx, visibleMovement, []any{brandID, actorID}, page, pageSize, total)
 }
 
 func (r *Repository) listMovements(ctx context.Context, where string, args []any, page, pageSize int, total int64) ([]model.Movement, int64, error) {

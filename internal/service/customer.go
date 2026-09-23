@@ -94,7 +94,7 @@ func (s *Service) Cards(ctx context.Context, actorID int64, page, size int) ([]m
 			if len(items[i].Benefits) > 0 {
 				// Keep the legacy singular field aligned with the first reward while
 				// clients migrate to the complete benefits collection.
-				items[i].Benefit = items[i].Benefits[0]
+				items[i].Benefit = &items[i].Benefits[0]
 			}
 		}
 	}
@@ -103,5 +103,10 @@ func (s *Service) Cards(ctx context.Context, actorID int64, page, size int) ([]m
 
 func (s *Service) CardMovements(ctx context.Context, actorID, cardID int64, page, size int) ([]model.Movement, web.Pagination, error) {
 	items, total, err := s.Repo.ListCustomerMovements(ctx, actorID, cardID, page, size)
+	return items, pagination(page, size, total), err
+}
+
+func (s *Service) CustomerMovements(ctx context.Context, actorID int64, page, size int) ([]model.Movement, web.Pagination, error) {
+	items, total, err := s.Repo.ListAllCustomerMovements(ctx, actorID, page, size)
 	return items, pagination(page, size, total), err
 }
