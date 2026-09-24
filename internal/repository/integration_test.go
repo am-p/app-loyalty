@@ -904,6 +904,10 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 		brandCustomer.BalanceStamps != 0 || brandCustomer.MovementsCount != 12 || brandCustomer.LastMovementAt == nil || brandCustomer.JoinedAt.IsZero() {
 		t.Fatalf("unexpected brand customer %+v", brandCustomer)
 	}
+	customersByID, idPagination, err := svc.BrandCustomers(ctx, merchant.User.ID, merchant.Merchant.BrandID, 1, 1, fmt.Sprint(customer.ID))
+	if err != nil || len(customersByID) != 1 || idPagination.TotalItems != 1 || customersByID[0].CustomerID != customer.ID {
+		t.Fatalf("lookup by customer ID: page=%+v items=%+v err=%v", idPagination, customersByID, err)
+	}
 	emptyCustomers, emptyPagination, err := svc.BrandCustomers(ctx, merchant.User.ID, merchant.Merchant.BrandID, 1, 20, "not-present")
 	if err != nil || len(emptyCustomers) != 0 || emptyPagination.TotalItems != 0 || emptyPagination.TotalPages != 0 {
 		t.Fatalf("filtered customers page=%+v items=%+v err=%v", emptyPagination, emptyCustomers, err)

@@ -1077,7 +1077,7 @@ components:
     Search:
       name: search
       in: query
-      description: Búsqueda parcial por nombre o email del cliente
+      description: Búsqueda parcial por nombre o email, o coincidencia exacta por ID numérico del cliente
       schema: { type: string, maxLength: 120 }
   responses:
     Unauthenticated:
