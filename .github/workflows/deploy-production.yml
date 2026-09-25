@@ -33,6 +33,17 @@ jobs:
           test -n "$remote_head"
           test "$remote_head" = "$GITHUB_SHA"
 
+      - name: Confirm production schema is compatible
+        run: |
+          latest_schema="$(find migrations -maxdepth 1 -type f -name '*.up.sql' -printf '%f\n' | sort | tail -n 1 | cut -c 1-4)"
+          current_schema="$(curl --fail --silent --show-error --max-time 10 \
+            https://api.puntazo.pro/v1/version | jq -r '.schema_version // empty')"
+          test -n "$latest_schema"
+          if [ "$latest_schema" != "$current_schema" ]; then
+            echo "::error::Production schema $current_schema differs from required $latest_schema; migrate and update EXPECTED_SCHEMA_VERSION before deployment."
+            exit 1
+          fi
+
       - name: Deploy current main
         env:
           COOLIFY_DEPLOY_TOKEN: ${{ secrets.COOLIFY_DEPLOY_TOKEN }}
