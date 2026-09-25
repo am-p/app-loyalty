@@ -1,6 +1,7 @@
 name: Backend
 
 on:
+  workflow_call:
   pull_request:
     paths:
       - ".github/workflows/backend.yml"
