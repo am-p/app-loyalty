@@ -1,0 +1,69 @@
+name: Deploy backend to Puntazo production
+
+on:
+  workflow_dispatch:
+    inputs:
+      backup_reference:
+        description: Verified production database backup execution ID or URL
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: puntazo-api-production
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    uses: ./.github/workflows/backend.yml
+
+  deploy:
+    name: Deploy and verify production
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    environment: production
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Confirm backup reference and current remote main
+        env:
+          BACKUP_REFERENCE: ${{ inputs.backup_reference }}
+        run: |
+          test -n "$BACKUP_REFERENCE"
+          git fetch --no-tags origin main
+          remote_head="$(git rev-parse FETCH_HEAD)"
+          test -n "$remote_head"
+          test "$remote_head" = "$GITHUB_SHA"
+
+      - name: Deploy current main
+        env:
+          COOLIFY_DEPLOY_TOKEN: ${{ secrets.COOLIFY_DEPLOY_TOKEN }}
+          COOLIFY_DEPLOY_URL: https://coolify.puntazo.pro/api/v1/deploy?uuid=0yyhsbzttzprrrukoccrwfp6&force=false
+        run: |
+          test -n "$COOLIFY_DEPLOY_TOKEN"
+          curl --fail-with-body --silent --show-error \
+            --request POST \
+            --header "Authorization: Bearer $COOLIFY_DEPLOY_TOKEN" \
+            "$COOLIFY_DEPLOY_URL"
+
+      - name: Wait for the deployed commit and readiness
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          for attempt in $(seq 1 90); do
+            actual="$(curl --fail --silent --show-error --max-time 10 \
+              "https://api.puntazo.pro/v1/version" | jq -r '.commit // empty')" || actual=""
+            if [ "$actual" = "$EXPECTED_SHA" ] && \
+              curl --fail --silent --show-error --max-time 10 \
+                "https://api.puntazo.pro/v1/health/ready" > /dev/null; then
+              echo "Production backend serves $actual and is ready"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Production backend did not become ready at $EXPECTED_SHA within 15 minutes" >&2
+          exit 1
