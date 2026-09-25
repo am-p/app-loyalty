@@ -429,7 +429,7 @@ type Card struct {
 	ProgramType        string    `json:"program_type"`
 	BalanceStamps      int64     `json:"balance_stamps"`
 	BalancePoints      int64     `json:"balance_points"`
-	Benefit            Benefit   `json:"benefit"`
+	Benefit            *Benefit  `json:"benefit"`
 	Benefits           []Benefit `json:"benefits"`
 	BrandLogoObjectKey string    `json:"-"`
 }

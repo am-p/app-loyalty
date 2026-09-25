@@ -826,6 +826,22 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/CardPageEnvelope' }
         '403': { $ref: '#/components/responses/Forbidden' }
+  /clientes/me/movimientos:
+    get:
+      tags: [Clientes]
+      summary: Lista el historial de todas las tarjetas del cliente autenticado
+      operationId: listCurrentCustomerMovements
+      x-puntazo-implementation: IMPLEMENTED
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Historial paginado del cliente autenticado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MovementPageEnvelope' }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /clientes/me/tarjetas/{card_id}/movimientos:
     get:
       tags: [Clientes]
@@ -943,7 +959,7 @@ paths:
     post:
       tags: [Facturación]
       summary: Crea el checkout alojado para una suscripción mensual
-      description: El primer checkout de la marca incluye un mes gratuito. Los checkout posteriores no repiten la prueba.
+      description: El primer checkout de la marca incluye un mes gratuito. Los checkout posteriores no repiten la prueba. Si la llamada al proveedor queda incierta, responde BILLING_IN_PROGRESS y no vuelve a crear otra suscripción; el webhook puede conciliarla.
       operationId: createBrandSubscriptionCheckout
       x-puntazo-implementation: IMPLEMENTED
       parameters:
@@ -1061,7 +1077,7 @@ components:
     Search:
       name: search
       in: query
-      description: Búsqueda parcial por nombre o email del cliente
+      description: Búsqueda parcial por nombre o email, o coincidencia exacta por ID numérico del cliente
       schema: { type: string, maxLength: 120 }
   responses:
     Unauthenticated:
@@ -1108,7 +1124,7 @@ components:
       properties:
         brand_id: { type: integer, format: int64, minimum: 1 }
         provider: { type: string, enum: [MERCADO_PAGO] }
-        status: { type: string, enum: [NOT_CONFIGURED, PENDING, AUTHORIZED, PAUSED, CANCELLED] }
+        status: { type: string, enum: [NOT_CONFIGURED, CREATING, PENDING, AUTHORIZED, PAUSED, CANCELLED] }
         currency: { type: string, enum: [ARS] }
         unit_amount_cents: { type: integer, format: int64, minimum: 1 }
         active_branches: { type: integer, format: int64, minimum: 1 }
@@ -1841,7 +1857,7 @@ components:
     Card:
       type: object
       additionalProperties: false
-      required: [id, brand_id, brand_name, program_type, balance_stamps, balance_points, benefit]
+      required: [id, brand_id, brand_name, program_type, balance_stamps, balance_points, benefit, benefits]
       properties:
         id: { type: integer, format: int64 }
         brand_id: { type: integer, format: int64 }

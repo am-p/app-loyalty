@@ -116,7 +116,11 @@ func (r *Repository) ListBrandCustomers(ctx context.Context, actorID, brandID in
 	const cardsFrom = ` FROM tarjetas t
 		JOIN usuarios u ON u.id=t.usuario_id AND u.tipo_cuenta='CLIENTE_FINAL' AND u.activo AND u.deleted_at IS NULL`
 	const cardsWhere = ` WHERE t.marca_id=$1 AND t.activo AND t.deleted_at IS NULL
-		AND ($2='' OR strpos(lower(u.nombre),lower($2))>0 OR strpos(lower(u.email::text),lower($2))>0)`
+		AND CASE
+			WHEN $2='' THEN true
+			WHEN $2 ~ '^[0-9]{1,19}$' THEN u.id::text=$2
+			ELSE strpos(lower(u.nombre),lower($2))>0 OR strpos(lower(u.email::text),lower($2))>0
+		END`
 	var total int64
 	if err = tx.QueryRow(ctx, `SELECT count(*)`+cardsFrom+cardsWhere, brandID, search).Scan(&total); err != nil {
 		return nil, 0, err
