@@ -79,7 +79,7 @@ type apiError struct {
 
 type response struct {
 	Data   json.RawMessage `json:"data"`
-	Errors []apiError     `json:"errors"`
+	Errors []apiError      `json:"errors"`
 }
 
 // Send asks Expo to deliver a card refresh notification. Success means Expo
