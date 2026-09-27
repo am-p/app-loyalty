@@ -37,6 +37,10 @@ tags:
     description: Preview y confirmación transaccional del ledger
   - name: Facturación
     description: Suscripción mensual de la marca mediante Mercado Pago
+  - name: Referidos
+    description: Atribución de marcas y códigos compartibles
+  - name: Backoffice
+    description: Acceso exclusivo del equipo interno con MFA y cookie de sesión propia
 paths:
   /health/live:
     get:
@@ -1061,8 +1065,230 @@ paths:
         '204': { description: Notificación válida procesada o ignorada por no corresponder a suscripciones }
         '401': { description: Firma inválida }
         '503': { $ref: '#/components/responses/DependencyUnavailable' }
+  /marcas/{brand_id}/referidos/codigos:
+    get:
+      tags: [Referidos]
+      operationId: listMerchantReferralCodes
+      summary: Devuelve los códigos activos de la marca al propietario o administrador
+      x-puntazo-implementation: IMPLEMENTED
+      parameters:
+        - { name: brand_id, in: path, required: true, schema: { type: integer, format: int64, minimum: 1 } }
+      responses:
+        '200': { description: Códigos de comerciante vigentes, en data }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /backoffice/login:
+    post:
+      tags: [Backoffice]
+      operationId: loginBackoffice
+      summary: Autentica una cuenta interna con contraseña y TOTP
+      security: []
+      x-puntazo-implementation: IMPLEMENTED
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password, totp]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, format: password }
+                totp: { type: string, pattern: '^[0-9]{6}$' }
+      responses:
+        '200': { description: Identidad interna y cookie HttpOnly SameSite=Strict por ocho horas }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+  /backoffice/me:
+    get:
+      tags: [Backoffice]
+      operationId: getBackofficeIdentity
+      security: [{ backofficeCookie: [] }]
+      x-puntazo-implementation: IMPLEMENTED
+      responses:
+        '200': { description: ID, email y rol de la cuenta interna }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+  /backoffice/logout:
+    post:
+      tags: [Backoffice]
+      operationId: logoutBackoffice
+      security: [{ backofficeCookie: [] }]
+      x-puntazo-implementation: IMPLEMENTED
+      parameters: [{ $ref: '#/components/parameters/BackofficeRequest' }]
+      responses:
+        '204': { description: Sesión interna revocada }
+  /backoffice/campaigns:
+    get:
+      tags: [Backoffice]
+      operationId: listReferralCampaigns
+      security: [{ backofficeCookie: [] }]
+      x-puntazo-implementation: IMPLEMENTED
+      responses:
+        '200': { description: Hasta 200 campañas ordenadas por ID descendente, en data }
+    post:
+      tags: [Backoffice]
+      operationId: createReferralCampaign
+      summary: Requiere ADMIN_SISTEMA; rechaza ventanas superpuestas del mismo programa
+      security: [{ backofficeCookie: [] }]
+      x-puntazo-implementation: IMPLEMENTED
+      parameters: [{ $ref: '#/components/parameters/BackofficeRequest' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReferralCampaignInput' }
+      responses:
+        '201': { description: Campaña creada y códigos de comercios existentes generados }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { description: Ventana superpuesta }
+  /backoffice/campaigns/{id}/active:
+    patch:
+      tags: [Backoffice]
+      operationId: setReferralCampaignActive
+      summary: Requiere ADMIN_SISTEMA; no altera atribuciones previas
+      security: [{ backofficeCookie: [] }]
+      x-puntazo-implementation: IMPLEMENTED
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64, minimum: 1 } }
+        - { $ref: '#/components/parameters/BackofficeRequest' }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [active], properties: { active: { type: boolean } } } } }
+      responses:
+        '204': { description: Estado guardado y auditado }
+  /backoffice/influencers:
+    get:
+      tags: [Backoffice]
+      operationId: listReferralInfluencers
+      security: [{ backofficeCookie: [] }]
+      x-puntazo-implementation: IMPLEMENTED
+      responses:
+        '200': { description: Hasta 500 influencers, en data }
+    post:
+      tags: [Backoffice]
+      operationId: createReferralInfluencer
+      summary: Requiere ADMIN_SISTEMA
+      security: [{ backofficeCookie: [] }]
+      x-puntazo-implementation: IMPLEMENTED
+      parameters: [{ $ref: '#/components/parameters/BackofficeRequest' }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [name, contact], properties: { name: { type: string }, contact: { type: string } } } } }
+      responses:
+        '201': { description: Influencer creado y auditado }
+  /backoffice/codes:
+    get:
+      tags: [Backoffice]
+      operationId: listReferralCodes
+      security: [{ backofficeCookie: [] }]
+      x-puntazo-implementation: IMPLEMENTED
+      responses:
+        '200': { description: Hasta 1000 códigos, en data }
+    post:
+      tags: [Backoffice]
+      operationId: createInfluencerReferralCode
+      summary: Requiere ADMIN_SISTEMA; código único normalizado a mayúsculas
+      security: [{ backofficeCookie: [] }]
+      x-puntazo-implementation: IMPLEMENTED
+      parameters: [{ $ref: '#/components/parameters/BackofficeRequest' }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [code, campaign_id, influencer_id], properties: { code: { type: string }, campaign_id: { type: integer }, influencer_id: { type: integer } } } } }
+      responses:
+        '201': { description: Código creado y auditado }
+  /backoffice/codes/{id}/active:
+    patch:
+      tags: [Backoffice]
+      operationId: setReferralCodeActive
+      security: [{ backofficeCookie: [] }]
+      x-puntazo-implementation: IMPLEMENTED
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64, minimum: 1 } }
+        - { $ref: '#/components/parameters/BackofficeRequest' }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [active], properties: { active: { type: boolean } } } } }
+      responses:
+        '204': { description: Estado guardado y auditado }
+  /backoffice/attributions:
+    get:
+      tags: [Backoffice]
+      operationId: listReferralAttributions
+      security: [{ backofficeCookie: [] }]
+      x-puntazo-implementation: IMPLEMENTED
+      responses:
+        '200': { description: Hasta 1000 marcas atribuidas con condiciones congeladas, en data }
+  /backoffice/rewards:
+    get:
+      tags: [Backoffice]
+      operationId: listReferralRewards
+      security: [{ backofficeCookie: [] }]
+      x-puntazo-implementation: IMPLEMENTED
+      responses:
+        '200': { description: Hasta 1000 recompensas nacidas de cobros verificados, en data }
+  /backoffice/rewards/{invoice}/settle:
+    post:
+      tags: [Backoffice]
+      operationId: settleInfluencerReward
+      summary: Requiere FINANZAS; registra una comisión en efectivo como liquidada
+      security: [{ backofficeCookie: [] }]
+      x-puntazo-implementation: IMPLEMENTED
+      parameters:
+        - { name: invoice, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/BackofficeRequest' }
+      responses:
+        '204': { description: Liquidación auditada }
+  /backoffice/brands/{id}/credit-allocations:
+    get:
+      tags: [Backoffice]
+      operationId: getMerchantCreditAccount
+      summary: Requiere FINANZAS; saldo y ajustes manuales de una marca referente
+      security: [{ backofficeCookie: [] }]
+      x-puntazo-implementation: IMPLEMENTED
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64, minimum: 1 } }
+      responses:
+        '200':
+          description: Saldo disponible y hasta 200 asignaciones auditadas
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MerchantCreditAccountEnvelope' }
+    post:
+      tags: [Backoffice]
+      operationId: recordManualMerchantCredit
+      summary: Requiere FINANZAS; registra un reembolso externo ya realizado contra una factura pagada
+      description: La referencia externa es declarada por Finanzas y no verifica por sí misma una transferencia. No modifica el importe recurrente de Mercado Pago.
+      security: [{ backofficeCookie: [] }]
+      x-puntazo-implementation: IMPLEMENTED
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64, minimum: 1 } }
+        - { $ref: '#/components/parameters/BackofficeRequest' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MerchantCreditAllocationInput' }
+      responses:
+        '201':
+          description: Asignación registrada con idempotencia y auditoría
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MerchantCreditAllocationEnvelope' }
+        '409': { description: Saldo insuficiente, factura agotada o referencia duplicada }
+  /backoffice/metrics:
+    get:
+      tags: [Backoffice]
+      operationId: getReferralPilotMetrics
+      security: [{ backofficeCookie: [] }]
+      x-puntazo-implementation: IMPLEMENTED
+      responses:
+        '200': { description: Conteos de conversión y continuidad y costos en centavos, en data }
 components:
   securitySchemes:
+    backofficeCookie:
+      type: apiKey
+      in: cookie
+      name: puntazo_backoffice
     bearerAuth:
       type: http
       scheme: bearer
@@ -1072,6 +1298,11 @@ components:
       description: "true cuando la respuesta se reprodujo desde el registro idempotente"
       schema: { type: boolean }
   parameters:
+    BackofficeRequest:
+      name: X-Backoffice-Request
+      in: header
+      required: true
+      schema: { type: string, const: '1' }
     ClientPlatform:
       name: X-Client-Platform
       in: header
@@ -1164,6 +1395,56 @@ components:
       description: Altas cerradas o código de demo inválido
       content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } }
   schemas:
+    MerchantCreditAllocationInput:
+      type: object
+      required: [provider_invoice_id, amount_minor, external_settlement_reference]
+      properties:
+        provider_invoice_id: { type: string, minLength: 1 }
+        amount_minor: { type: integer, format: int64, minimum: 1, description: Centavos de ARS }
+        external_settlement_reference: { type: string, minLength: 6, maxLength: 120 }
+    MerchantCreditAllocation:
+      type: object
+      required: [id, brand_id, provider_invoice_id, provider_payment_id, amount_minor, currency, external_settlement_reference, status, created_at]
+      properties:
+        id: { type: integer, format: int64 }
+        brand_id: { type: integer, format: int64 }
+        provider_invoice_id: { type: string }
+        provider_payment_id: { type: string }
+        amount_minor: { type: integer, format: int64 }
+        currency: { type: string, enum: [ARS] }
+        external_settlement_reference: { type: string }
+        status: { type: string, enum: [RECORDED, RECOVERY_DUE] }
+        recovery_due_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+    MerchantCreditAllocationEnvelope:
+      type: object
+      required: [data]
+      properties:
+        data: { $ref: '#/components/schemas/MerchantCreditAllocation' }
+    MerchantCreditAccountEnvelope:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [balance_minor, allocations]
+          properties:
+            balance_minor: { type: integer, format: int64, description: Centavos de ARS; puede ser negativo tras una reversión }
+            allocations:
+              type: array
+              items: { $ref: '#/components/schemas/MerchantCreditAllocation' }
+    ReferralCampaignInput:
+      type: object
+      required: [name, program_type, discount_bps, discount_charges, reward_bps, reward_charges, starts_at, ends_at]
+      properties:
+        name: { type: string, minLength: 3, maxLength: 120 }
+        program_type: { type: string, enum: [SELLOS, PUNTOS] }
+        discount_bps: { type: integer, minimum: 0, maximum: 10000 }
+        discount_charges: { type: integer, minimum: 0, maximum: 36 }
+        reward_bps: { type: integer, minimum: 0, maximum: 10000 }
+        reward_charges: { type: integer, minimum: 0, maximum: 36 }
+        starts_at: { type: string, format: date-time }
+        ends_at: { type: string, format: date-time }
     Subscription:
       type: object
       additionalProperties: false
@@ -1176,6 +1457,8 @@ components:
         unit_amount_cents: { type: integer, format: int64, minimum: 1 }
         active_branches: { type: integer, format: int64, minimum: 1 }
         monthly_amount_cents: { type: integer, format: int64, minimum: 1 }
+        full_monthly_amount_cents: { type: integer, format: int64, minimum: 1 }
+        discount_remaining_charges: { type: integer, minimum: 0 }
         checkout_url: { type: string, format: uri }
         next_payment_date: { $ref: '#/components/schemas/Timestamp' }
         provider_configured: { type: boolean }
@@ -1471,6 +1754,7 @@ components:
         branch_latitude: { type: number, format: double, minimum: -90, maximum: 90, description: Debe enviarse junto con branch_longitude }
         branch_longitude: { type: number, format: double, minimum: -180, maximum: 180, description: Debe enviarse junto con branch_latitude }
         program_type: { type: string, enum: [SELLOS, PUNTOS] }
+        referral_code: { type: string, pattern: '^[A-Za-z0-9-]{4,40}$', description: Código opcional; se congela una única atribución por marca }
     LoginRequest:
       type: object
       additionalProperties: false
@@ -1513,6 +1797,7 @@ components:
         branch_latitude: { type: number, format: double, minimum: -90, maximum: 90, description: Debe enviarse junto con branch_longitude }
         branch_longitude: { type: number, format: double, minimum: -180, maximum: 180, description: Debe enviarse junto con branch_latitude }
         program_type: { type: string, enum: [SELLOS, PUNTOS] }
+        referral_code: { type: string, pattern: '^[A-Za-z0-9-]{4,40}$', description: Código opcional al crear la marca; se ignora al ingresar a una cuenta existente }
     CreateInvitationRequest:
       type: object
       additionalProperties: false

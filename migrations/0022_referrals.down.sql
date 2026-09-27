@@ -1,0 +1,9 @@
+DROP TABLE backoffice_audit;
+DROP TABLE backoffice_sessions;
+DROP TABLE backoffice_users;
+DROP TABLE referral_rewards;
+DROP TABLE referral_charges;
+DROP TABLE referral_attributions;
+DROP TABLE referral_codes;
+DROP TABLE referral_influencers;
+DROP TABLE referral_campaigns;

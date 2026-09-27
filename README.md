@@ -75,10 +75,10 @@ ALLOW_MIGRATION_DOWN=true go run ./cmd/migrate down
 | `DEMO_SIGNUP_ENABLED` | Habilita o cierra nuevas altas gratuitas sin bloquear cuentas existentes. |
 | `CORS_ORIGINS` | Orígenes web exactos permitidos, separados por comas; habilita credenciales para la cookie HttpOnly de refresh. |
 | `GOOGLE_CLIENT_ID` | Audiencia web de Google; opcional para el alias legado. |
-| `EXPECTED_SCHEMA_VERSION` | Versión de esquema requerida por readiness; por defecto `0021`. |
+| `EXPECTED_SCHEMA_VERSION` | Versión de esquema requerida por readiness; por defecto `0023`. |
 | `MERCADO_PAGO_PROVIDER` | `api` habilita checkout y webhooks de suscripciones; `disabled` los mantiene apagados. |
 | `MERCADO_PAGO_ACCESS_TOKEN`, `MERCADO_PAGO_WEBHOOK_SECRET` | Secretos del backend para crear suscripciones y validar notificaciones. Nunca se exponen al frontend. |
-| `MERCADO_PAGO_BRANCH_PRICE_CENTS` | Precio mensual de Sellos por sucursal activa; por defecto `1500000` (ARS 15.000). |
+| `MERCADO_PAGO_BRANCH_PRICE_CENTS` | Precio mensual de Sellos por sucursal activa; por defecto `2500000` (ARS 25.000) para el piloto; configurable por entorno. |
 | `MERCADO_PAGO_POINTS_BRANCH_PRICE_CENTS` | Precio mensual de Puntos por sucursal activa; por defecto `2000000` (ARS 20.000). |
 | `APP_VERSION` | Etiqueta de versión informada por `/v1/version`; por defecto `dev`. |
 | `GIT_COMMIT` | Revisión del código informada por `/v1/version`; `0000000` si no se proporciona. No ejecuta Git. |
@@ -125,13 +125,13 @@ La interfaz y la API pueden desplegarse con `MERCADO_PAGO_PROVIDER=disabled`: la
 sección Plan y facturación permanece visible y explica que el proveedor aún no está
 configurado, pero no permite iniciar ni cancelar cobros. Para habilitarla:
 
-1. Aplicar las migraciones hasta `0021` y mantener `EXPECTED_SCHEMA_VERSION=0021`.
+1. Aplicar las migraciones hasta `0023` y mantener `EXPECTED_SCHEMA_VERSION=0023`.
 2. Cargar únicamente en el runtime del backend `MERCADO_PAGO_ACCESS_TOKEN` y
    `MERCADO_PAGO_WEBHOOK_SECRET`; no usar variables `EXPO_PUBLIC_*`.
 3. Cambiar `MERCADO_PAGO_PROVIDER=api` y reiniciar la API.
 4. Registrar en Mercado Pago la URL pública
    `https://<host>/api/v1/mercado-pago/webhooks` para el evento
-   `subscription_preapproval`.
+   `subscription_preapproval`, `subscription_authorized_payment` y `payment`.
 5. Ejecutar un alta, retorno, webhook y cancelación completos con credenciales de
    prueba antes de usar credenciales productivas.
 
@@ -152,6 +152,58 @@ resolver la reserva; repetir el POST automáticamente podría crear dos
 suscripciones. Mientras el estado sea `CREATING`, `PENDING`, `AUTHORIZED` o
 `PAUSED`, la API impide agregar o desactivar sucursales, cambiar el tipo de
 programa o eliminar la marca. Primero debe cancelarse la suscripción.
+
+## Referidos y Backoffice
+
+Las migraciones `0022` y `0023` agregan campañas, influencers, códigos,
+atribuciones únicas por marca, cobros verificados, recompensas y usuarios
+internos. Las altas por email (`POST /v1/demo/comercios`) y Google
+(`POST /v1/auth/google`, dentro de `merchant_registration`) aceptan
+`referral_code` opcional. La API comprueba que el código y la campaña estén
+activos y en ventana para el programa elegido. Copia los porcentajes y la
+cantidad de cobros en la atribución antes de confirmar la marca. Pausar un
+código o campaña sólo detiene atribuciones nuevas. Las marcas reciben un código
+propio y sus propietarios/administradores pueden leerlo en
+`GET /v1/marcas/{brand_id}/referidos/codigos`.
+
+El Backoffice independiente usa `/v1/backoffice/*` y cuentas distintas de
+clientes/comercios. `ADMIN_SISTEMA` crea campañas, influencers y códigos;
+`FINANZAS` puede registrar la liquidación de una comisión en efectivo y una
+compensación manual de crédito comercial con referencia externa. Todas
+las mutaciones quedan en `backoffice_audit`. El acceso requiere contraseña,
+TOTP y cookie interna HttpOnly SameSite=Strict de ocho horas. El cookie es
+`Secure` cuando `APP_ENV` está definido, incluido `staging`; el gateway debe
+publicar esta web en HTTPS y reenviar `/v1/` al API en el mismo origen. Para
+crear una cuenta interna tras migrar el esquema:
+
+```bash
+DATABASE_URL='postgresql://...' BACKOFFICE_EMAIL='persona@puntazo.pro' \
+BACKOFFICE_PASSWORD='contraseña-larga' BACKOFFICE_ROLE='ADMIN_SISTEMA' \
+go run ./cmd/backoffice-user
+```
+
+El comando imprime una URI TOTP para configurar el autenticador una sola vez.
+No reutilizar cuentas de la app ni guardar esa URI en el repositorio.
+
+El piloto Sellos se configura desde el Backoffice con una ventana de 90 días,
+`discount_bps=5000`, `discount_charges=3`, `reward_bps=2000` y
+`reward_charges=12`. El precio público por sucursal se toma del entorno al
+abrir el checkout; `GET /suscripcion` muestra el precio promocional y el precio
+completo. Sólo facturas recurrentes aprobadas y verificadas ante Mercado Pago
+entran al registro. Al tercer cobro descontado se solicita el importe completo
+para el siguiente cobro. La recompensa usa el importe efectivamente cobrado,
+en centavos enteros. Los reembolsos anulan recompensas pendientes; si Finanzas
+ya pagó una, pasa a `RECOVERY_DUE` para gestionar su recuperación.
+
+Los créditos de marcas referentes quedan como saldo auditable en
+`referral_merchant_credit_balances`. Finanzas puede registrar un reembolso
+externo ya realizado contra una factura de suscripción pagada mediante
+`POST /v1/backoffice/brands/{id}/credit-allocations`; la API verifica la
+factura y el pago ante Mercado Pago, limita el importe al saldo disponible y
+audita la referencia externa declarada por el operador. La API no verifica esa
+transferencia externa ni descuenta automáticamente una próxima factura. Para
+este último flujo falta comprobar en qué ciclo Mercado Pago aplica el cambio de
+importe. Ver [liquidación manual de crédito](docs/referral-merchant-credit.md).
 
 ## Primer acceso con Google
 

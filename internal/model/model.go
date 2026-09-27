@@ -24,6 +24,7 @@ type RegisterDemoMerchantRequest struct {
 	BranchLatitude   *float64 `json:"branch_latitude,omitempty"`
 	BranchLongitude  *float64 `json:"branch_longitude,omitempty"`
 	ProgramType      string   `json:"program_type"`
+	ReferralCode     string   `json:"referral_code,omitempty"`
 }
 type BranchRegistrationLocation struct {
 	BranchAddress    *string  `json:"branch_address,omitempty"`
@@ -55,6 +56,7 @@ type GoogleMerchantRegistration struct {
 	BranchLatitude   *float64 `json:"branch_latitude,omitempty"`
 	BranchLongitude  *float64 `json:"branch_longitude,omitempty"`
 	ProgramType      string   `json:"program_type"`
+	ReferralCode     string   `json:"referral_code,omitempty"`
 }
 
 type User struct {
@@ -258,26 +260,30 @@ type DemoAccess struct {
 	StartedAt       time.Time `json:"started_at"`
 }
 type Subscription struct {
-	BrandID            int64      `json:"brand_id"`
-	Provider           string     `json:"provider"`
-	Status             string     `json:"status"`
-	Currency           string     `json:"currency"`
-	UnitAmountCents    int64      `json:"unit_amount_cents"`
-	ActiveBranches     int64      `json:"active_branches"`
-	MonthlyAmountCents int64      `json:"monthly_amount_cents"`
-	CheckoutURL        string     `json:"checkout_url,omitempty"`
-	NextPaymentDate    *time.Time `json:"next_payment_date,omitempty"`
-	ProviderConfigured bool       `json:"provider_configured"`
-	TrialAvailable     bool       `json:"trial_available"`
-	UpdatedAt          time.Time  `json:"updated_at"`
+	BrandID                  int64      `json:"brand_id"`
+	Provider                 string     `json:"provider"`
+	Status                   string     `json:"status"`
+	Currency                 string     `json:"currency"`
+	UnitAmountCents          int64      `json:"unit_amount_cents"`
+	ActiveBranches           int64      `json:"active_branches"`
+	MonthlyAmountCents       int64      `json:"monthly_amount_cents"`
+	FullMonthlyAmountCents   int64      `json:"full_monthly_amount_cents,omitempty"`
+	DiscountRemainingCharges int        `json:"discount_remaining_charges,omitempty"`
+	CheckoutURL              string     `json:"checkout_url,omitempty"`
+	NextPaymentDate          *time.Time `json:"next_payment_date,omitempty"`
+	ProviderConfigured       bool       `json:"provider_configured"`
+	TrialAvailable           bool       `json:"trial_available"`
+	UpdatedAt                time.Time  `json:"updated_at"`
 }
 type BillingSubscriptionRequest struct {
 	Reason, ExternalReference, PayerEmail, BackURL, IdempotencyKey, Currency string
 	Amount                                                                   float64
+	AmountMinor                                                              int64
 	FreeTrialMonths                                                          int
 }
 type BillingSubscriptionResult struct {
 	ID, Status, ExternalReference, CheckoutURL string
+	AmountMinor                                int64
 	NextPaymentDate                            *time.Time
 }
 type Branch struct {

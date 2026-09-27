@@ -39,6 +39,7 @@ func registerMerchantRoutes(r *gin.RouterGroup, h *handler.Handler) {
 	r.PATCH("/marcas/:brand_id/personal/:membership_id", h.UpdateStaff)
 	r.DELETE("/marcas/:brand_id/personal/:membership_id", h.DeleteStaff)
 	r.GET("/marcas/:brand_id/suscripcion", h.Subscription)
+	r.GET("/marcas/:brand_id/referidos/codigos", h.MerchantReferralCodes)
 	r.POST("/marcas/:brand_id/suscripcion/checkout", h.CreateSubscriptionCheckout)
 	r.POST("/marcas/:brand_id/suscripcion/cancelacion", h.CancelSubscription)
 }
