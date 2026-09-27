@@ -143,7 +143,7 @@ func (h *Handler) BackofficeCreateCampaign(c *gin.Context) {
 		return
 	}
 	in.Name = strings.TrimSpace(in.Name)
-	if len(in.Name) < 3 || len(in.Name) > 120 || (in.ProgramType != "SELLOS" && in.ProgramType != "PUNTOS") || in.DiscountBPS < 0 || in.DiscountBPS > 10000 || in.RewardBPS < 0 || in.RewardBPS > 10000 || in.DiscountCharges < 0 || in.DiscountCharges > 36 || in.RewardCharges < 0 || in.RewardCharges > 36 || !in.EndsAt.After(in.StartsAt) {
+	if len(in.Name) < 3 || len(in.Name) > 120 || (in.ProgramType != "SELLOS" && in.ProgramType != "PUNTOS") || in.DiscountBPS < 0 || in.DiscountBPS > 9999 || in.RewardBPS < 0 || in.RewardBPS > 10000 || in.DiscountCharges < 0 || in.DiscountCharges > 36 || in.RewardCharges < 0 || in.RewardCharges > 36 || !in.EndsAt.After(in.StartsAt) {
 		writeErr(c, repository.ErrInvalidRequest)
 		return
 	}
