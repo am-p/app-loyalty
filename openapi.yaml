@@ -19,6 +19,8 @@ servers:
 security:
   - bearerAuth: []
 tags:
+  - name: Reseñas
+    description: Invitaciones optativas a Google por compra confirmada y sucursal
   - name: Health
     description: Estado operativo y versión desplegada
   - name: Auth
@@ -2646,6 +2648,12 @@ components:
       additionalProperties: false
       required: [exported_at, usuario, membresias, tarjetas, movimientos]
       properties:
+        progreso_resenas:
+          type: array
+          items: { $ref: '#/components/schemas/ReviewProgressExport' }
+        invitaciones_resenas:
+          type: array
+          items: { $ref: '#/components/schemas/ReviewInvitationExport' }
         exported_at: { $ref: '#/components/schemas/Timestamp' }
         usuario: { $ref: '#/components/schemas/User' }
         membresias:

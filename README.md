@@ -172,7 +172,7 @@ clientes/comercios. `ADMIN_SISTEMA` crea campañas, influencers y códigos;
 compensación manual de crédito comercial con referencia externa. Todas
 las mutaciones quedan en `backoffice_audit`. El acceso requiere email y contraseña
 de una cuenta interna activa, con cookie HttpOnly SameSite=Strict de ocho horas. El cookie es
-`Secure` cuando `APP_ENV` está definido, incluido `staging`; el gateway debe
+`Secure` cuando `APP_ENV` está definido y es distinto de `development`, incluido `staging`; el gateway debe
 publicar esta web en HTTPS y reenviar `/v1/` al API en el mismo origen. Para
 crear una cuenta interna tras migrar el esquema:
 

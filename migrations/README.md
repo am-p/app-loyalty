@@ -19,3 +19,19 @@ La reversión 0022 elimina datos de reseñas; usar únicamente antes de habilita
 o restaurar un backup probado y aplicar un arreglo forward si ya hay actividad.
 `GOOGLE_PLACES_API_KEY` es opcional y exclusivo del servidor. Su ausencia conserva
 la edición y los enlaces manuales; búsqueda responde `DEPENDENCY_UNAVAILABLE`.
+
+## Backoffice compatible con reseñas
+
+El candidato conserva `0021_expo_push` y `0022_google_reviews`; agrega
+`0023_referrals`, `0024_referral_billing`, `0025_subscription_prices`,
+`0026_subscription_price_change_history`, `0027_referral_campaign_editing`
+y `0028_influencer_welcome_emails`. Readiness requiere `0028`.
+
+Aplicar esta secuencia sólo a bases con la numeración pública anterior
+(`0020`, `0021` o `0022`). Una demo local que ya aplicó referidos con la
+numeración experimental `0022`–`0027` necesita una base aislada nueva o una
+reconciliación explícita; no apuntar este migrador automáticamente a esa base.
+
+Las migraciones amplían las tablas existentes. Una reversión de `0028` con
+correos de influencers o de `0027` con campañas de ambos programas aborta
+para preservar evidencia; ante un incidente usar una corrección forward.
