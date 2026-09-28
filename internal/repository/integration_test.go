@@ -3,6 +3,7 @@ package repository_test
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,6 +21,7 @@ import (
 
 	"clientesFrecuentes/internal/auth"
 	"clientesFrecuentes/internal/config"
+	"clientesFrecuentes/internal/mailer"
 	"clientesFrecuentes/internal/middleware"
 	"clientesFrecuentes/internal/model"
 	"clientesFrecuentes/internal/repository"
@@ -217,8 +219,8 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if _, err = pool.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES('0018')`); err != nil {
 		t.Fatal(err)
 	}
-	for _, version := range []string{"0019", "0020", "0021"} {
-		migration, readErr := os.ReadFile(filepath.Join("..", "..", "migrations", version+map[string]string{"0019": "_mercado_pago_subscriptions", "0020": "_subscription_checkout_reservation", "0021": "_expo_push"}[version]+".up.sql"))
+	for _, version := range []string{"0019", "0020", "0021", "0022", "0023"} {
+		migration, readErr := os.ReadFile(filepath.Join("..", "..", "migrations", version+map[string]string{"0019": "_mercado_pago_subscriptions", "0020": "_subscription_checkout_reservation", "0021": "_expo_push", "0022": "_email_change", "0023": "_card_templates"}[version]+".up.sql"))
 		if readErr != nil {
 			t.Fatal(readErr)
 		}
@@ -244,7 +246,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 		t.Fatalf("legacy session revoked=%t err=%v", legacySessionRevoked, err)
 	}
 	outboxKey := []byte("01234567890123456789012345678901")
-	cfg := config.Config{JWTSecret: "jwt-secret-0123456789012345678901", JWTIssuer: "puntazo", QRPepper: "qr-pepper-01234567890123456789012", DemoSignupEnabled: true, ExpectedSchemaVersion: "0021", PublicAppURL: "https://app.puntazo.test", OutboxEncryptionKey: outboxKey, MediaURLTTL: 5 * time.Minute, MercadoPagoBranchPrice: 12300, MercadoPagoPointsPrice: 45600}
+	cfg := config.Config{JWTSecret: "jwt-secret-0123456789012345678901", JWTIssuer: "puntazo", QRPepper: "qr-pepper-01234567890123456789012", DemoSignupEnabled: true, ExpectedSchemaVersion: "0023", PublicAppURL: "https://app.puntazo.test", OutboxEncryptionKey: outboxKey, MediaURLTTL: 5 * time.Minute, MercadoPagoBranchPrice: 12300, MercadoPagoPointsPrice: 45600}
 	repo := repository.New(pool, outboxKey)
 	blockedGoogleID := "blocked-google-signup"
 	blockedGoogleEmail := "blocked-google@example.com"
@@ -1643,7 +1645,36 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if _, err = svc.RegisterInvitation(ctx, retiredInvitationToken, model.RegisterInvitationRequest{Name: "Retired Brand Staff", Password: "retired-brand-pass"}); !errors.Is(err, service.ErrIdentityToken) {
 		t.Fatalf("registered invitation from deleted brand: %v", err)
 	}
-	if err = repo.CheckSchema(ctx, "0021"); err != nil {
+	merchantAccount, err := svc.CurrentUser(ctx, merchant.User.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changeToken := "integration-email-change-token"
+	changeHash := sha256.Sum256([]byte(changeToken))
+	newEmail := "changed-merchant@example.com"
+	message := mailer.EmailChangeMessage(cfg.PublicAppURL, newEmail, changeToken)
+	if err = repo.EnqueueEmailChange(ctx, merchant.User.ID, merchantAccount.User.Version, newEmail, changeHash[:], time.Now().Add(time.Hour), message); err != nil {
+		t.Fatalf("email change request: %v", err)
+	}
+	merchantSessionID := uuid.New()
+	if _, err = pool.Exec(ctx, `INSERT INTO sesiones_auth(id,usuario_id,refresh_hash,expires_at,family_id,auth_time) VALUES($1,$2,decode(repeat('17',32),'hex'),now()+interval '1 hour',$1,now())`, merchantSessionID, merchant.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err = repo.ConfirmEmailChange(ctx, changeHash[:], time.Now()); err != nil {
+		t.Fatalf("email change confirmation: %v", err)
+	}
+	merchantAccount, err = svc.CurrentUser(ctx, merchant.User.ID)
+	if err != nil || merchantAccount.User.Email != newEmail || !merchantAccount.User.EmailVerified {
+		t.Fatalf("changed email=%+v err=%v", merchantAccount.User, err)
+	}
+	var sessionRevoked bool
+	if err = pool.QueryRow(ctx, `SELECT revoked_at IS NOT NULL FROM sesiones_auth WHERE id=$1`, merchantSessionID).Scan(&sessionRevoked); err != nil || !sessionRevoked {
+		t.Fatalf("email change session revoked=%t err=%v", sessionRevoked, err)
+	}
+	if err = repo.ConfirmEmailChange(ctx, changeHash[:], time.Now()); !errors.Is(err, repository.ErrIdentityTokenInvalid) {
+		t.Fatalf("email change token reused: %v", err)
+	}
+	if err = repo.CheckSchema(ctx, "0023"); err != nil {
 		t.Fatal(err)
 	}
 	if err = repo.CheckSchema(ctx, "9999"); err == nil {

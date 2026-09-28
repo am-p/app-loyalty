@@ -32,6 +32,7 @@ func newRouter(h *handler.Handler, tokens *auth.Tokens, logger *slog.Logger) *gi
 	authenticated.Use(middleware.RequireAuth(tokens, h.Repo))
 	authenticated.GET("/me", h.Me)
 	authenticated.PATCH("/me", h.UpdateMe)
+	authenticated.POST("/me/email-change/request", h.RequestEmailChange)
 	authenticated.GET("/me/foto", h.ProfilePhoto)
 	authenticated.POST("/me/foto", h.UploadProfilePhoto)
 	authenticated.GET("/me/export", h.ExportMe)

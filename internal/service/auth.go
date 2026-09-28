@@ -166,13 +166,20 @@ func (s *Service) LoginGoogle(ctx context.Context, req model.GoogleAuthRequest) 
 			return err
 		})
 	}
+	created := err == nil
 	if errors.Is(err, repository.ErrEmailExists) || repository.IsUniqueViolation(err) {
+		created = false
 		u, err = s.Repo.ResolveGoogleUser(ctx, googleID, email)
 	}
 	if err != nil {
 		return model.AuthData{}, err
 	}
-	return s.googleSession(ctx, u)
+	data, err := s.googleSession(ctx, u)
+	if err != nil {
+		return model.AuthData{}, err
+	}
+	data.AccountCreated = created
+	return data, nil
 }
 
 func (s *Service) validateGoogleMerchant(registration *model.GoogleMerchantRegistration) (model.GoogleMerchantRegistration, error) {

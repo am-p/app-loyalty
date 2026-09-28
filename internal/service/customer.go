@@ -3,8 +3,11 @@ package service
 import (
 	"context"
 	"strings"
+	"time"
 
+	"clientesFrecuentes/internal/mailer"
 	"clientesFrecuentes/internal/model"
+	"clientesFrecuentes/internal/repository"
 	"clientesFrecuentes/internal/web"
 
 	"github.com/google/uuid"
@@ -25,6 +28,36 @@ func (s *Service) UpdateCurrentUser(ctx context.Context, actorID int64, expected
 		return model.CurrentUser{}, ErrInvalidRequest
 	}
 	return s.Repo.UpdateAccount(ctx, actorID, expectedVersion, req)
+}
+
+func (s *Service) RequestEmailChange(ctx context.Context, actorID int64, expectedVersion int, authTime time.Time, req model.EmailRequest) error {
+	if s.Config.MailProvider != "smtp" || len(s.Config.OutboxEncryptionKey) != 32 {
+		return ErrEmailChangeUnavailable
+	}
+	if s.Now().Sub(authTime) > 15*time.Minute {
+		return ErrRecentAuthRequired
+	}
+	email, err := normalizeEmail(req.Email)
+	if err != nil {
+		return ErrInvalidRequest
+	}
+	token, hash, err := identityToken()
+	if err != nil {
+		return err
+	}
+	message := mailer.EmailChangeMessage(s.Config.PublicAppURL, email, token)
+	return s.Repo.EnqueueEmailChange(ctx, actorID, expectedVersion, email, hash, s.Now().Add(time.Hour), message)
+}
+
+func (s *Service) ConfirmEmailChange(ctx context.Context, req model.TokenRequest) error {
+	hash, err := parseIdentityToken(req.Token)
+	if err != nil {
+		return ErrIdentityToken
+	}
+	if err = s.Repo.ConfirmEmailChange(ctx, hash, s.Now()); err == repository.ErrIdentityTokenInvalid {
+		return ErrIdentityToken
+	}
+	return err
 }
 
 func normalizePatch(value *model.OptionalString, limit int) bool {
