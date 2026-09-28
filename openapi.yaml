@@ -1594,7 +1594,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
-        '409': { description: Invitación reservada, cerrada o cancelada; sucursal inactiva }
+        '409': { description: 'Invitación reservada, cerrada o cancelada; sucursal inactiva' }
         '422': { description: Solicitud inválida }
         '429': { description: Límite por actor excedido; incluye Retry-After }
         '503': { description: DEPENDENCY_UNAVAILABLE; Google Places opcional o control de tráfico no disponible }
@@ -1622,7 +1622,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
-        '409': { description: Invitación reservada, cerrada o cancelada; sucursal inactiva }
+        '409': { description: 'Invitación reservada, cerrada o cancelada; sucursal inactiva' }
         '422': { description: Solicitud inválida }
         '429': { description: Límite por actor excedido; incluye Retry-After }
         '503': { description: DEPENDENCY_UNAVAILABLE; Google Places opcional o control de tráfico no disponible }
@@ -1658,7 +1658,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
-        '409': { description: Invitación reservada, cerrada o cancelada; sucursal inactiva }
+        '409': { description: 'Invitación reservada, cerrada o cancelada; sucursal inactiva' }
         '422': { description: Solicitud inválida }
         '429': { description: Límite por actor excedido; incluye Retry-After }
         '503': { description: DEPENDENCY_UNAVAILABLE; Google Places opcional o control de tráfico no disponible }
@@ -1683,7 +1683,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
-        '409': { description: Invitación reservada, cerrada o cancelada; sucursal inactiva }
+        '409': { description: 'Invitación reservada, cerrada o cancelada; sucursal inactiva' }
         '422': { description: Solicitud inválida }
         '429': { description: Límite por actor excedido; incluye Retry-After }
         '503': { description: DEPENDENCY_UNAVAILABLE; Google Places opcional o control de tráfico no disponible }
@@ -1706,7 +1706,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
-        '409': { description: Invitación reservada, cerrada o cancelada; sucursal inactiva }
+        '409': { description: 'Invitación reservada, cerrada o cancelada; sucursal inactiva' }
         '422': { description: Solicitud inválida }
         '429': { description: Límite por actor excedido; incluye Retry-After }
         '503': { description: DEPENDENCY_UNAVAILABLE; Google Places opcional o control de tráfico no disponible }
@@ -1730,7 +1730,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
-        '409': { description: Invitación reservada, cerrada o cancelada; sucursal inactiva }
+        '409': { description: 'Invitación reservada, cerrada o cancelada; sucursal inactiva' }
         '422': { description: Solicitud inválida }
         '429': { description: Límite por actor excedido; incluye Retry-After }
         '503': { description: DEPENDENCY_UNAVAILABLE; Google Places opcional o control de tráfico no disponible }
@@ -1766,7 +1766,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
-        '409': { description: Invitación reservada, cerrada o cancelada; sucursal inactiva }
+        '409': { description: 'Invitación reservada, cerrada o cancelada; sucursal inactiva' }
         '422': { description: Solicitud inválida }
         '429': { description: Límite por actor excedido; incluye Retry-After }
         '503': { description: DEPENDENCY_UNAVAILABLE; Google Places opcional o control de tráfico no disponible }
