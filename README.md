@@ -197,3 +197,9 @@ TEST_DATABASE_URL='postgresql://...' \
 - Para frontend y backend en orígenes distintos, `CORS_ORIGINS` debe contener el origen HTTPS exacto del frontend.
 - Las imágenes aceptan JPEG, PNG y WebP por contenido real; se reencodean a JPEG/PNG, se limitan a 5 MiB y se reducen a 1024 px para logos o 512 px para iconos. El worker reconcilia uploads interrumpidos y borrados mediante leases persistidos.
 - Readiness comprueba PostgreSQL, versión de esquema, Redis y acceso al bucket privado cuando media está habilitado. Antes de abrir tráfico se debe verificar además un upload/listado/borrado real con credenciales de staging.
+
+### Audiencia Google para Android
+
+`GOOGLE_ANDROID_WEB_CLIENT_ID` permite explícitamente el cliente OAuth web usado
+por Android, además de `GOOGLE_CLIENT_ID`. Si está vacío se conserva una única
+audiencia web; los tokens de otras audiencias y emails no verificados se rechazan.
