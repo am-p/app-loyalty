@@ -259,8 +259,22 @@ func ValidateSignature(header, requestID, resourceID, secret string, now time.Ti
 	if err != nil || ts == "" || requestID == "" || resourceID == "" || secret == "" || len(provided) != sha256.Size {
 		return false
 	}
-	seconds, err := strconv.ParseInt(ts, 10, 64)
-	if err != nil || seconds < now.Add(-5*time.Minute).Unix() || seconds > now.Add(time.Minute).Unix() {
+	timestamp, err := strconv.ParseInt(ts, 10, 64)
+	if err != nil || timestamp <= 0 {
+		return false
+	}
+	// Mercado Pago documents both Unix seconds and milliseconds in x-signature.
+	// Convert only for freshness checks; the HMAC must retain the original ts.
+	var sentAt time.Time
+	switch len(ts) {
+	case 10:
+		sentAt = time.Unix(timestamp, 0)
+	case 13:
+		sentAt = time.UnixMilli(timestamp)
+	default:
+		return false
+	}
+	if sentAt.Before(now.Add(-5*time.Minute)) || sentAt.After(now.Add(time.Minute)) {
 		return false
 	}
 	manifest := "id:" + strings.ToLower(resourceID) + ";request-id:" + requestID + ";ts:" + ts + ";"

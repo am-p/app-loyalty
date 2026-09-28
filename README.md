@@ -295,3 +295,9 @@ de captura. Capture se rechaza en otros entornos y con verificación requerida.
 `GOOGLE_ANDROID_WEB_CLIENT_ID` permite explícitamente el cliente OAuth web usado
 por Android, además de `GOOGLE_CLIENT_ID`. Si está vacío se conserva una única
 audiencia web; los tokens de otras audiencias y emails no verificados se rechazan.
+
+### Firma webhook Mercado Pago
+
+La validación acepta timestamps Unix de 10 dígitos (segundos) y 13 dígitos
+(milisegundos), con la misma ventana de frescura. El HMAC conserva el valor
+original `ts`; no se normaliza el texto firmado.
