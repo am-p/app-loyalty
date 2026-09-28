@@ -21,6 +21,7 @@ import (
 
 	"clientesFrecuentes/internal/auth"
 	"clientesFrecuentes/internal/config"
+	"clientesFrecuentes/internal/mailer"
 	"clientesFrecuentes/internal/middleware"
 	"clientesFrecuentes/internal/model"
 	"clientesFrecuentes/internal/repository"
