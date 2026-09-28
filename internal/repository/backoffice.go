@@ -14,31 +14,32 @@ type BackofficeUser struct {
 	Email        string `json:"email"`
 	Role         string `json:"role"`
 	PasswordHash string `json:"-"`
-	TOTPSecret   string `json:"-"`
 }
 
 func (r *Repository) BackofficeUserByEmail(ctx context.Context, email string) (BackofficeUser, error) {
 	var u BackofficeUser
-	err := r.Pool.QueryRow(ctx, `SELECT id,email::text,role,password_hash,totp_secret FROM backoffice_users WHERE email=$1 AND active`, email).Scan(&u.ID, &u.Email, &u.Role, &u.PasswordHash, &u.TOTPSecret)
+	err := r.Pool.QueryRow(ctx, `SELECT id,email::text,role,password_hash FROM backoffice_users WHERE email=$1 AND active`, email).Scan(&u.ID, &u.Email, &u.Role, &u.PasswordHash)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return u, ErrNotFound
 	}
 	return u, err
 }
 
-func (r *Repository) CreateBackofficeSession(ctx context.Context, userID int64, token string, expires time.Time, totpStep int64) error {
+func (r *Repository) CreateBackofficeSession(ctx context.Context, userID int64, token string, expires time.Time) error {
 	digest := sha256.Sum256([]byte(token))
 	tx, err := r.Pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
-	tag, err := tx.Exec(ctx, `UPDATE backoffice_users SET last_totp_step=$2 WHERE id=$1 AND last_totp_step<$2 AND active`, userID, totpStep)
-	if err != nil {
+	// Keep the identity active until the session commits. Deactivation also
+	// invalidates existing sessions through BackofficeSession's active check.
+	var activeID int64
+	if err = tx.QueryRow(ctx, `SELECT id FROM backoffice_users WHERE id=$1 AND active FOR SHARE`, userID).Scan(&activeID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrConflict
+		}
 		return err
-	}
-	if tag.RowsAffected() != 1 {
-		return ErrConflict
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO backoffice_sessions(token_hash,user_id,expires_at) VALUES($1,$2,$3)`, digest[:], userID, expires); err != nil {
 		return err

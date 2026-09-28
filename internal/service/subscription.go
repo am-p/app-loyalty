@@ -23,6 +23,11 @@ func (s *Service) Subscription(ctx context.Context, actorID, brandID int64) (mod
 	}
 	record, err := s.Repo.GetSubscriptionRecord(ctx, brandID)
 	if errors.Is(err, repository.ErrNotFound) {
+		price, priceErr := s.Repo.SubscriptionPrice(ctx, billing.ProgramType, unitPrice)
+		if priceErr != nil {
+			return model.Subscription{}, priceErr
+		}
+		unitPrice = price.UnitPriceMinor
 		discounted, remaining, priceErr := s.Repo.ReferralCheckoutPrice(ctx, brandID, unitPrice)
 		if priceErr != nil {
 			return model.Subscription{}, priceErr

@@ -150,6 +150,7 @@ func (c *Client) GetAuthorizedPayment(ctx context.Context, id string) (model.Bil
 		PreapprovalID string      `json:"preapproval_id"`
 		Currency      string      `json:"currency_id"`
 		Amount        json.Number `json:"transaction_amount"`
+		CreatedAt     *time.Time  `json:"date_created"`
 		Payment       struct {
 			ID     json.Number `json:"id"`
 			Status string      `json:"status"`
@@ -162,7 +163,11 @@ func (c *Client) GetAuthorizedPayment(ctx context.Context, id string) (model.Bil
 	if err != nil {
 		return model.BillingInvoice{}, err
 	}
-	return model.BillingInvoice{ID: raw.ID.String(), SubscriptionID: raw.PreapprovalID, Currency: raw.Currency, AmountMinor: amount, PaymentID: raw.Payment.ID.String(), PaymentStatus: raw.Payment.Status}, nil
+	invoice := model.BillingInvoice{ID: raw.ID.String(), SubscriptionID: raw.PreapprovalID, Currency: raw.Currency, AmountMinor: amount, PaymentID: raw.Payment.ID.String(), PaymentStatus: raw.Payment.Status}
+	if raw.CreatedAt != nil {
+		invoice.CreatedAt = *raw.CreatedAt
+	}
+	return invoice, nil
 }
 
 func (c *Client) GetPayment(ctx context.Context, id string) (model.BillingPayment, error) {

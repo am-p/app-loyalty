@@ -5,16 +5,53 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 )
 
+// ReferralValidation is the only referral information exposed publicly.
+type ReferralValidation struct {
+	Code        string `json:"code"`
+	ProgramType string `json:"program_type"`
+}
+
+var referralCodePattern = regexp.MustCompile(`^[A-Z0-9-]{4,40}$`)
+
+func NormalizeReferralCode(raw string) (string, error) {
+	code := strings.ToUpper(strings.TrimSpace(raw))
+	if !referralCodePattern.MatchString(code) {
+		return "", ErrReferralCodeInvalid
+	}
+	return code, nil
+}
+
+// ValidateReferralCode only reads eligibility. Registration must still call
+// AttributeReferral in its own transaction, since campaigns can change later.
+func (r *Repository) ValidateReferralCode(ctx context.Context, rawCode, programType string) (ReferralValidation, error) {
+	code, err := NormalizeReferralCode(rawCode)
+	if err != nil {
+		return ReferralValidation{}, err
+	}
+	var out ReferralValidation
+	err = r.Pool.QueryRow(ctx, `SELECT rc.code,CASE WHEN $2='' THEN cp.program_type ELSE $2 END
+ FROM referral_codes rc JOIN referral_campaigns cp ON cp.id=rc.campaign_id
+ WHERE rc.code=$1 AND rc.active AND cp.active
+ AND ($2='' OR $2=ANY(COALESCE(cp.program_types,ARRAY[cp.program_type]))) AND now()>=cp.starts_at AND now()<cp.ends_at`, code, programType).Scan(&out.Code, &out.ProgramType)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ReferralValidation{}, ErrReferralCodeInvalid
+	}
+	return out, err
+}
+
 type ReferralCampaign struct {
 	ID              int64     `json:"id"`
 	Name            string    `json:"name"`
 	ProgramType     string    `json:"program_type"`
+	ProgramTypes    []string  `json:"program_types"`
+	Version         int64     `json:"version"`
 	DiscountBPS     int       `json:"discount_bps"`
 	DiscountCharges int       `json:"discount_charges"`
 	RewardBPS       int       `json:"reward_bps"`
@@ -48,8 +85,8 @@ func (r *Repository) ReferralMetrics(ctx context.Context) (ReferralMetrics, erro
 	var x ReferralMetrics
 	err := r.Pool.QueryRow(ctx, `SELECT
 	 (SELECT count(*) FROM referral_attributions),
-	 (SELECT count(DISTINCT brand_id) FROM referral_charges WHERE status='APPROVED'),
-	 (SELECT count(*) FROM (SELECT brand_id FROM referral_charges WHERE status='APPROVED' GROUP BY brand_id HAVING count(*)>=2) q),
+	 (SELECT count(DISTINCT c.brand_id) FROM referral_charges c JOIN referral_attributions a ON a.brand_id=c.brand_id WHERE c.status='APPROVED'),
+	 (SELECT count(*) FROM (SELECT c.brand_id FROM referral_charges c JOIN referral_attributions a ON a.brand_id=c.brand_id WHERE c.status='APPROVED' GROUP BY c.brand_id HAVING count(*)>=2) q),
 	 (SELECT count(DISTINCT c.brand_id) FROM referral_charges c JOIN referral_attributions a ON a.brand_id=c.brand_id WHERE c.status='APPROVED' AND c.paid_index>a.discount_charges),
 	 (SELECT count(*) FROM referral_attributions WHERE source_kind='MERCHANT'),
 	 (SELECT COALESCE(sum(greatest(full_amount_minor-amount_minor,0)),0) FROM referral_charges WHERE status='APPROVED'),
@@ -62,22 +99,25 @@ func (r *Repository) ReferralMetrics(ctx context.Context) (ReferralMetrics, erro
 func AttributeReferral(ctx context.Context, tx pgx.Tx, brandID int64, programType, rawCode string) error {
 	code := strings.ToUpper(strings.TrimSpace(rawCode))
 	if code != "" {
+		if _, err := NormalizeReferralCode(code); err != nil {
+			return err
+		}
 		var c ReferralCode
 		var discountBPS, discountCharges, rewardBPS, rewardCharges int
 		err := tx.QueryRow(ctx, `SELECT rc.id,rc.campaign_id,rc.source_kind,rc.influencer_id,rc.source_brand_id,
    cp.discount_bps,cp.discount_charges,cp.reward_bps,cp.reward_charges
    FROM referral_codes rc JOIN referral_campaigns cp ON cp.id=rc.campaign_id
-   WHERE rc.code=$1 AND rc.active AND cp.active AND cp.program_type=$2 AND
+   WHERE rc.code=$1 AND rc.active AND cp.active AND $2=ANY(COALESCE(cp.program_types,ARRAY[cp.program_type])) AND
    now()>=cp.starts_at AND now()<cp.ends_at FOR SHARE OF rc,cp`, code, programType).
 			Scan(&c.ID, &c.CampaignID, &c.SourceKind, &c.InfluencerID, &c.SourceBrandID, &discountBPS, &discountCharges, &rewardBPS, &rewardCharges)
 		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrInvalidRequest
+			return ErrReferralCodeInvalid
 		}
 		if err != nil {
 			return err
 		}
 		if c.SourceBrandID != nil && *c.SourceBrandID == brandID {
-			return ErrInvalidRequest
+			return ErrReferralCodeInvalid
 		}
 		_, err = tx.Exec(ctx, `INSERT INTO referral_attributions(brand_id,code_id,campaign_id,source_kind,influencer_id,source_brand_id,discount_bps,discount_charges,reward_bps,reward_charges)
    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, brandID, c.ID, c.CampaignID, c.SourceKind, c.InfluencerID, c.SourceBrandID, discountBPS, discountCharges, rewardBPS, rewardCharges)
@@ -86,7 +126,7 @@ func AttributeReferral(ctx context.Context, tx pgx.Tx, brandID int64, programTyp
 		}
 	}
 	// Every new brand receives a shareable merchant code for each open campaign.
-	rows, err := tx.Query(ctx, `SELECT id FROM referral_campaigns WHERE program_type=$1 AND active AND now()>=starts_at AND now()<ends_at`, programType)
+	rows, err := tx.Query(ctx, `SELECT id FROM referral_campaigns WHERE $1=ANY(COALESCE(program_types,ARRAY[program_type])) AND active AND now()>=starts_at AND now()<ends_at`, programType)
 	if err != nil {
 		return err
 	}
@@ -114,7 +154,7 @@ func AttributeReferral(ctx context.Context, tx pgx.Tx, brandID int64, programTyp
 }
 
 func (r *Repository) ListReferralCampaigns(ctx context.Context) ([]ReferralCampaign, error) {
-	rows, err := r.Pool.Query(ctx, `SELECT id,name,program_type,discount_bps,discount_charges,reward_bps,reward_charges,starts_at,ends_at,active FROM referral_campaigns ORDER BY id DESC LIMIT 200`)
+	rows, err := r.Pool.Query(ctx, `SELECT id,name,program_type,COALESCE(program_types,ARRAY[program_type]),version,discount_bps,discount_charges,reward_bps,reward_charges,starts_at,ends_at,active FROM referral_campaigns ORDER BY id DESC LIMIT 200`)
 	if err != nil {
 		return nil, err
 	}
@@ -122,96 +162,12 @@ func (r *Repository) ListReferralCampaigns(ctx context.Context) ([]ReferralCampa
 	out := []ReferralCampaign{}
 	for rows.Next() {
 		var x ReferralCampaign
-		if err = rows.Scan(&x.ID, &x.Name, &x.ProgramType, &x.DiscountBPS, &x.DiscountCharges, &x.RewardBPS, &x.RewardCharges, &x.StartsAt, &x.EndsAt, &x.Active); err != nil {
+		if err = rows.Scan(&x.ID, &x.Name, &x.ProgramType, &x.ProgramTypes, &x.Version, &x.DiscountBPS, &x.DiscountCharges, &x.RewardBPS, &x.RewardCharges, &x.StartsAt, &x.EndsAt, &x.Active); err != nil {
 			return nil, err
 		}
 		out = append(out, x)
 	}
 	return out, rows.Err()
-}
-
-func (r *Repository) CreateReferralCampaign(ctx context.Context, x ReferralCampaign, adminID int64) (ReferralCampaign, error) {
-	tx, err := r.Pool.Begin(ctx)
-	if err != nil {
-		return x, err
-	}
-	defer tx.Rollback(ctx)
-	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(42022,hashtext($1))`, x.ProgramType); err != nil {
-		return x, err
-	}
-	var overlaps bool
-	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM referral_campaigns WHERE program_type=$1 AND active AND tstzrange(starts_at,ends_at,'[)') && tstzrange($2::timestamptz,$3::timestamptz,'[)'))`, x.ProgramType, x.StartsAt, x.EndsAt).Scan(&overlaps); err != nil {
-		return x, err
-	}
-	if overlaps {
-		return x, ErrConflict
-	}
-	err = tx.QueryRow(ctx, `INSERT INTO referral_campaigns(name,program_type,discount_bps,discount_charges,reward_bps,reward_charges,starts_at,ends_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id,active`, x.Name, x.ProgramType, x.DiscountBPS, x.DiscountCharges, x.RewardBPS, x.RewardCharges, x.StartsAt, x.EndsAt).Scan(&x.ID, &x.Active)
-	if err != nil {
-		return x, err
-	}
-	// Existing brands can refer merchants as soon as the campaign opens.
-	_, err = tx.Exec(ctx, `INSERT INTO referral_codes(code,campaign_id,source_kind,source_brand_id)
- SELECT 'PZ-M-'||m.id||'-'||($1::bigint)::text,$1::bigint,'MERCHANT',m.id FROM marcas m JOIN programas_fidelidad p ON p.marca_id=m.id
- WHERE m.activo AND p.activo AND p.tipo=$2 ON CONFLICT DO NOTHING`, x.ID, x.ProgramType)
-	if err != nil {
-		return x, err
-	}
-	if err = auditReferral(ctx, tx, adminID, "campaign.create", "campaign", fmt.Sprint(x.ID), x); err != nil {
-		return x, err
-	}
-	return x, tx.Commit(ctx)
-}
-
-func (r *Repository) SetReferralCampaignActive(ctx context.Context, id, adminID int64, active bool) error {
-	tx, err := r.Pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-	if active {
-		var program string
-		var starts, ends time.Time
-		err = tx.QueryRow(ctx, `SELECT program_type,starts_at,ends_at FROM referral_campaigns WHERE id=$1`, id).Scan(&program, &starts, &ends)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrNotFound
-		}
-		if err != nil {
-			return err
-		}
-		if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(42022,hashtext($1))`, program); err != nil {
-			return err
-		}
-		var overlaps bool
-		if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM referral_campaigns WHERE id<>$1 AND program_type=$2 AND active AND tstzrange(starts_at,ends_at,'[)') && tstzrange($3::timestamptz,$4::timestamptz,'[)'))`, id, program, starts, ends).Scan(&overlaps); err != nil {
-			return err
-		}
-		if overlaps {
-			return ErrConflict
-		}
-	}
-	tag, err := tx.Exec(ctx, `UPDATE referral_campaigns SET active=$2 WHERE id=$1`, id, active)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrNotFound
-	}
-	if active {
-		// Brands created while this campaign was paused need a code when it reopens.
-		_, err = tx.Exec(ctx, `INSERT INTO referral_codes(code,campaign_id,source_kind,source_brand_id)
- SELECT 'PZ-M-'||m.id||'-'||c.id,c.id,'MERCHANT',m.id
- FROM referral_campaigns c JOIN programas_fidelidad p ON p.tipo=c.program_type
- JOIN marcas m ON m.id=p.marca_id
- WHERE c.id=$1 AND m.activo AND p.activo ON CONFLICT DO NOTHING`, id)
-		if err != nil {
-			return err
-		}
-	}
-	if err = auditReferral(ctx, tx, adminID, "campaign.active", "campaign", fmt.Sprint(id), map[string]any{"active": active}); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
 }
 
 func (r *Repository) CreateReferralInfluencer(ctx context.Context, name, contact string, adminID int64) (int64, error) {
@@ -244,7 +200,11 @@ func (r *Repository) ListReferralInfluencers(ctx context.Context) ([]map[string]
 		if err = rows.Scan(&id, &name, &contact); err != nil {
 			return nil, err
 		}
-		out = append(out, map[string]any{"id": id, "name": name, "contact": contact})
+		var email any
+		if value, err := normalizeInfluencerEmail(contact); err == nil {
+			email = value
+		}
+		out = append(out, map[string]any{"id": id, "name": name, "contact": contact, "email": email})
 	}
 	return out, rows.Err()
 }
@@ -291,7 +251,7 @@ func (r *Repository) MerchantReferralCodes(ctx context.Context, actorID, brandID
 }
 
 func (r *Repository) CreateReferralInfluencerCode(ctx context.Context, code string, campaignID, influencerID, adminID int64) (ReferralCode, error) {
-	if strings.HasPrefix(code, "PZ-M-") {
+	if strings.HasPrefix(strings.ToUpper(strings.TrimSpace(code)), "PZ-M-") {
 		return ReferralCode{}, ErrInvalidRequest
 	}
 	tx, err := r.Pool.Begin(ctx)
@@ -299,15 +259,11 @@ func (r *Repository) CreateReferralInfluencerCode(ctx context.Context, code stri
 		return ReferralCode{}, err
 	}
 	defer tx.Rollback(ctx)
-	x := ReferralCode{Code: code, CampaignID: campaignID, SourceKind: "INFLUENCER", InfluencerID: &influencerID}
-	err = tx.QueryRow(ctx, `INSERT INTO referral_codes(code,campaign_id,source_kind,influencer_id) VALUES($1,$2,'INFLUENCER',$3) RETURNING id,active`, code, campaignID, influencerID).Scan(&x.ID, &x.Active)
+	out, err := createReferralInfluencerCode(ctx, tx, code, campaignID, influencerID, adminID)
 	if err != nil {
-		return x, normalize(err)
+		return out, err
 	}
-	if err = auditReferral(ctx, tx, adminID, "code.create", "code", fmt.Sprint(x.ID), x); err != nil {
-		return x, err
-	}
-	return x, tx.Commit(ctx)
+	return out, tx.Commit(ctx)
 }
 
 func (r *Repository) SetReferralCodeActive(ctx context.Context, id, adminID int64, active bool) error {

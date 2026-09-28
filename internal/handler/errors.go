@@ -13,6 +13,8 @@ import (
 
 func writeErr(c *gin.Context, err error) {
 	switch {
+	case errors.Is(err, repository.ErrEmailUnavailable):
+		web.Error(c, http.StatusServiceUnavailable, "EMAIL_UNAVAILABLE", "El correo no está configurado. No se creó el influencer; intentá nuevamente cuando esté disponible", nil)
 	case errors.Is(err, service.ErrMediaTooLarge):
 		web.Error(c, http.StatusRequestEntityTooLarge, "MEDIA_TOO_LARGE", "La imagen supera el máximo permitido", nil)
 	case errors.Is(err, service.ErrMediaType):
@@ -22,13 +24,17 @@ func writeErr(c *gin.Context, err error) {
 	case errors.Is(err, service.ErrBillingUnavailable):
 		web.Error(c, http.StatusServiceUnavailable, "BILLING_UNAVAILABLE", "La facturación todavía no está habilitada", nil)
 	case errors.Is(err, service.ErrBillingInProgress):
-		web.Error(c, http.StatusConflict, "BILLING_IN_PROGRESS", "El checkout se está verificando con Mercado Pago; actualizá el estado más tarde", nil)
+		web.Error(c, http.StatusConflict, "BILLING_IN_PROGRESS", "La operación no se completó: la suscripción se está preparando o verificando con Mercado Pago; intentá nuevamente más tarde", nil)
 	case errors.Is(err, service.ErrBillingProviderFailure):
-		web.Error(c, http.StatusServiceUnavailable, "BILLING_PROVIDER_ERROR", "Mercado Pago no confirmó la operación; consultá el estado antes de reintentar", nil)
+		web.Error(c, http.StatusServiceUnavailable, "BILLING_PROVIDER_ERROR", "La operación no se completó: Mercado Pago no la confirmó; consultá el estado antes de reintentar", nil)
 	case errors.Is(err, service.ErrSubscriptionExists):
 		web.Error(c, http.StatusConflict, "SUBSCRIPTION_EXISTS", "La marca ya tiene una suscripción activa o pendiente", nil)
 	case errors.Is(err, repository.ErrSubscriptionChangeRequired):
 		web.Error(c, http.StatusConflict, "SUBSCRIPTION_CHANGE_REQUIRED", "Cancelá la suscripción antes de cambiar sucursales o eliminar la marca", nil)
+	case errors.Is(err, repository.ErrReferralCodeInvalid):
+		web.Error(c, http.StatusUnprocessableEntity, "REFERRAL_CODE_INVALID", "El código de referido no es válido o no está disponible", nil)
+	case errors.Is(err, service.ErrReferralValidationUnavailable):
+		web.Error(c, http.StatusServiceUnavailable, "DEPENDENCY_UNAVAILABLE", "La validación de referidos no está disponible", nil)
 	case errors.Is(err, service.ErrInvalidRequest), errors.Is(err, repository.ErrInvalidRequest):
 		web.Error(c, http.StatusUnprocessableEntity, "INVALID_REQUEST", "Solicitud inválida", nil)
 	case errors.Is(err, service.ErrAccountTypeRequired):
@@ -57,8 +63,6 @@ func writeErr(c *gin.Context, err error) {
 		web.Error(c, http.StatusConflict, "INSUFFICIENT_BALANCE", "Saldo insuficiente", nil)
 	case errors.Is(err, repository.ErrPreconditionFailed):
 		web.Error(c, http.StatusPreconditionFailed, "PRECONDITION_FAILED", "La versión del recurso cambió", nil)
-	case errors.Is(err, repository.ErrOwnershipTransfer):
-		web.Error(c, http.StatusConflict, "OWNERSHIP_TRANSFER_REQUIRED", "Transferí la propiedad antes de eliminar la cuenta", nil)
 	case errors.Is(err, repository.ErrProgramTypeImmutable):
 		web.Error(c, http.StatusConflict, "PROGRAM_TYPE_IMMUTABLE", "El tipo de programa no puede cambiar después del primer movimiento", nil)
 	case errors.Is(err, repository.ErrProgramTypeHasBenefits):
@@ -67,6 +71,10 @@ func writeErr(c *gin.Context, err error) {
 		web.Error(c, http.StatusConflict, "SELF_ROLE_CHANGE_FORBIDDEN", "Otro administrador o propietario debe cambiar tu acceso", nil)
 	case errors.Is(err, repository.ErrAccountModeConflict):
 		web.Error(c, http.StatusConflict, "ACCOUNT_MODE_CONFLICT", "La cuenta tiene actividad como cliente y no puede convertirse en personal", nil)
+	case errors.Is(err, repository.ErrCampaignOverlap):
+		web.Error(c, http.StatusConflict, "CAMPAIGN_OVERLAP", "Ya hay una campaña activa para alguno de los programas en esas fechas. Ajustá la ventana o pausá la otra campaña.", nil)
+	case errors.Is(err, repository.ErrCampaignChanged):
+		web.Error(c, http.StatusConflict, "CAMPAIGN_CHANGED", "La campaña cambió mientras la editabas. Cerrá el formulario y volvé a abrir Editar para revisar la versión actual.", nil)
 	case errors.Is(err, repository.ErrConflict):
 		web.Error(c, http.StatusConflict, "RESOURCE_CONFLICT", "La operación viola una invariante activa", nil)
 	case errors.Is(err, service.ErrIdentityToken):

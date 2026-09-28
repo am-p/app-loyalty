@@ -34,7 +34,7 @@ func TestVerifiedInvoicePaymentAndPriceUpdate(t *testing.T) {
 		}
 		switch r.Method + " " + r.URL.Path {
 		case "GET /authorized_payments/123":
-			fmt.Fprint(w, `{"id":123,"preapproval_id":"sub-1","currency_id":"ARS","transaction_amount":"24.50","payment":{"id":456,"status":"approved"}}`)
+			fmt.Fprint(w, `{"id":123,"preapproval_id":"sub-1","currency_id":"ARS","transaction_amount":"24.50","date_created":"2026-09-28T00:00:00Z","payment":{"id":456,"status":"approved"}}`)
 		case "GET /v1/payments/456":
 			fmt.Fprint(w, `{"id":456,"status":"approved","currency_id":"ARS","transaction_amount":24.50,"transaction_amount_refunded":0}`)
 		case "PUT /preapproval/sub-1":
@@ -55,7 +55,7 @@ func TestVerifiedInvoicePaymentAndPriceUpdate(t *testing.T) {
 	defer server.Close()
 	c := New(server.URL, "token", time.Second)
 	invoice, err := c.GetAuthorizedPayment(context.Background(), "123")
-	if err != nil || invoice.AmountMinor != 2450 || invoice.PaymentID != "456" {
+	if err != nil || invoice.AmountMinor != 2450 || invoice.PaymentID != "456" || invoice.CreatedAt.IsZero() {
 		t.Fatalf("invoice=%+v err=%v", invoice, err)
 	}
 	payment, err := c.GetPayment(context.Background(), "456")

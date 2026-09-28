@@ -3,6 +3,7 @@ package handler
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"net/http"
 	"os"
 	"regexp"
@@ -10,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"clientesFrecuentes/internal/backofficeauth"
 	"clientesFrecuentes/internal/repository"
 	"clientesFrecuentes/internal/web"
 	"github.com/gin-gonic/gin"
@@ -28,15 +28,13 @@ func (h *Handler) BackofficeLogin(c *gin.Context) {
 	var in struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
-		TOTP     string `json:"totp"`
 	}
 	if err := c.ShouldBindJSON(&in); err != nil {
 		writeErr(c, repository.ErrInvalidRequest)
 		return
 	}
 	u, err := h.Repo.BackofficeUserByEmail(c.Request.Context(), strings.ToLower(strings.TrimSpace(in.Email)))
-	step, validTOTP := backofficeauth.MatchingTOTPStep(u.TOTPSecret, in.TOTP, time.Now())
-	if err != nil || bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(in.Password)) != nil || !validTOTP {
+	if err != nil || bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(in.Password)) != nil {
 		web.Error(c, http.StatusUnauthorized, "UNAUTHENTICATED", "Credenciales inválidas", nil)
 		return
 	}
@@ -46,9 +44,9 @@ func (h *Handler) BackofficeLogin(c *gin.Context) {
 		return
 	}
 	token := base64.RawURLEncoding.EncodeToString(tokenBytes)
-	if err = h.Repo.CreateBackofficeSession(c.Request.Context(), u.ID, token, time.Now().Add(8*time.Hour), step); err != nil {
+	if err = h.Repo.CreateBackofficeSession(c.Request.Context(), u.ID, token, time.Now().Add(8*time.Hour)); err != nil {
 		if err == repository.ErrConflict {
-			web.Error(c, http.StatusUnauthorized, "UNAUTHENTICATED", "Código ya utilizado", nil)
+			web.Error(c, http.StatusUnauthorized, "UNAUTHENTICATED", "Credenciales inválidas", nil)
 			return
 		}
 		writeErr(c, err)
@@ -60,7 +58,9 @@ func (h *Handler) BackofficeLogin(c *gin.Context) {
 
 func (h *Handler) setBackofficeCookie(c *gin.Context, value string, maxAge int) {
 	c.SetSameSite(http.SameSiteStrictMode)
-	c.SetCookie(backofficeCookie, value, maxAge, "/v1/backoffice", "", os.Getenv("APP_ENV") != "", true)
+	environment := os.Getenv("APP_ENV")
+	secure := environment != "" && !strings.EqualFold(environment, "development")
+	c.SetCookie(backofficeCookie, value, maxAge, "/v1/backoffice", "", secure, true)
 }
 
 func (h *Handler) RequireBackoffice(c *gin.Context) {
@@ -142,11 +142,6 @@ func (h *Handler) BackofficeCreateCampaign(c *gin.Context) {
 		writeErr(c, repository.ErrInvalidRequest)
 		return
 	}
-	in.Name = strings.TrimSpace(in.Name)
-	if len(in.Name) < 3 || len(in.Name) > 120 || (in.ProgramType != "SELLOS" && in.ProgramType != "PUNTOS") || in.DiscountBPS < 0 || in.DiscountBPS > 9999 || in.RewardBPS < 0 || in.RewardBPS > 10000 || in.DiscountCharges < 0 || in.DiscountCharges > 36 || in.RewardCharges < 0 || in.RewardCharges > 36 || !in.EndsAt.After(in.StartsAt) {
-		writeErr(c, repository.ErrInvalidRequest)
-		return
-	}
 	out, err := h.Repo.CreateReferralCampaign(c.Request.Context(), in, backofficeUser(c).ID)
 	if err != nil {
 		writeErr(c, err)
@@ -154,6 +149,27 @@ func (h *Handler) BackofficeCreateCampaign(c *gin.Context) {
 	}
 	c.JSON(http.StatusCreated, web.Envelope[repository.ReferralCampaign]{Data: out, RequestID: web.RequestID(c)})
 }
+func (h *Handler) BackofficeUpdateCampaign(c *gin.Context) {
+	if !requireSystemAdmin(c) {
+		return
+	}
+	id, ok := backofficeID(c)
+	if !ok {
+		return
+	}
+	var in repository.ReferralCampaign
+	if c.ShouldBindJSON(&in) != nil {
+		writeErr(c, repository.ErrInvalidRequest)
+		return
+	}
+	out, err := h.Repo.UpdateReferralCampaign(c.Request.Context(), id, backofficeUser(c).ID, in)
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, web.Envelope[repository.ReferralCampaign]{Data: out, RequestID: web.RequestID(c)})
+}
+
 func (h *Handler) BackofficeCampaignActive(c *gin.Context) {
 	if !requireSystemAdmin(c) {
 		return
@@ -189,13 +205,34 @@ func (h *Handler) BackofficeCreateInfluencer(c *gin.Context) {
 		return
 	}
 	var in struct {
-		Name    string `json:"name"`
-		Contact string `json:"contact"`
+		Name       string  `json:"name"`
+		Contact    string  `json:"contact"`
+		Email      *string `json:"email"`
+		Code       *string `json:"code"`
+		CampaignID *int64  `json:"campaign_id"`
 	}
 	if c.ShouldBindJSON(&in) != nil {
 		writeErr(c, repository.ErrInvalidRequest)
 		return
 	}
+	if in.Email != nil || in.Code != nil || in.CampaignID != nil {
+		if in.Email == nil || in.Code == nil || in.CampaignID == nil {
+			writeErr(c, repository.ErrInvalidRequest)
+			return
+		}
+		out, err := h.Repo.CreateReferralInfluencerWithCode(c.Request.Context(), in.Name, *in.Email, *in.Code, *in.CampaignID, backofficeUser(c).ID)
+		if err != nil {
+			if errors.Is(err, repository.ErrConflict) {
+				web.Error(c, http.StatusConflict, "REFERRAL_CODE_EXISTS", "Ese código ya está en uso. Elegí otro nombre para el código.", nil)
+				return
+			}
+			writeErr(c, err)
+			return
+		}
+		c.JSON(http.StatusCreated, web.Envelope[repository.ReferralInfluencerWithCode]{Data: out, RequestID: web.RequestID(c)})
+		return
+	}
+	// Retain compatibility with the previous contact-only request.
 	in.Name = strings.TrimSpace(in.Name)
 	in.Contact = strings.TrimSpace(in.Contact)
 	if len(in.Name) < 2 || len(in.Name) > 120 || len(in.Contact) < 3 || len(in.Contact) > 200 {

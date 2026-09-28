@@ -217,8 +217,8 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if _, err = pool.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES('0018')`); err != nil {
 		t.Fatal(err)
 	}
-	for _, version := range []string{"0019", "0020", "0021", "0022", "0023"} {
-		migration, readErr := os.ReadFile(filepath.Join("..", "..", "migrations", version+map[string]string{"0019": "_mercado_pago_subscriptions", "0020": "_subscription_checkout_reservation", "0021": "_expo_push", "0022": "_referrals", "0023": "_referral_billing"}[version]+".up.sql"))
+	for _, version := range []string{"0019", "0020", "0021", "0023", "0024", "0025", "0026", "0027", "0028"} {
+		migration, readErr := os.ReadFile(filepath.Join("..", "..", "migrations", version+map[string]string{"0019": "_mercado_pago_subscriptions", "0020": "_subscription_checkout_reservation", "0021": "_expo_push", "0023": "_referrals", "0024": "_referral_billing", "0025": "_subscription_prices", "0026": "_subscription_price_change_history", "0027": "_referral_campaign_editing", "0028": "_influencer_welcome_emails"}[version]+".up.sql"))
 		if readErr != nil {
 			t.Fatal(readErr)
 		}
@@ -244,21 +244,20 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 		t.Fatalf("legacy session revoked=%t err=%v", legacySessionRevoked, err)
 	}
 	outboxKey := []byte("01234567890123456789012345678901")
-	cfg := config.Config{JWTSecret: "jwt-secret-0123456789012345678901", JWTIssuer: "puntazo", QRPepper: "qr-pepper-01234567890123456789012", DemoSignupEnabled: true, ExpectedSchemaVersion: "0023", PublicAppURL: "https://app.puntazo.test", OutboxEncryptionKey: outboxKey, MediaURLTTL: 5 * time.Minute, MercadoPagoBranchPrice: 12300, MercadoPagoPointsPrice: 45600}
+	cfg := config.Config{JWTSecret: "jwt-secret-0123456789012345678901", JWTIssuer: "puntazo", QRPepper: "qr-pepper-01234567890123456789012", DemoSignupEnabled: true, ExpectedSchemaVersion: "0028", PublicAppURL: "https://app.puntazo.test", OutboxEncryptionKey: outboxKey, MediaURLTTL: 5 * time.Minute, MercadoPagoBranchPrice: 12300, MercadoPagoPointsPrice: 45600}
 	repo := repository.New(pool, outboxKey)
 	var referralAdminID int64
 	if err = pool.QueryRow(ctx, `INSERT INTO backoffice_users(email,password_hash,totp_secret,role) VALUES('admin-referral@example.com','unused','ABCDEFGHIJKLMNOPQRSTUVWX23456789','ADMIN_SISTEMA') RETURNING id`).Scan(&referralAdminID); err != nil {
 		t.Fatal(err)
 	}
-	step := time.Now().Unix() / 30
-	if err = repo.CreateBackofficeSession(ctx, referralAdminID, "internal-token", time.Now().Add(time.Hour), step); err != nil {
+	if err = repo.CreateBackofficeSession(ctx, referralAdminID, "internal-token", time.Now().Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = repo.BackofficeSession(ctx, "internal-token"); err != nil {
 		t.Fatalf("internal session: %v", err)
 	}
-	if err = repo.CreateBackofficeSession(ctx, referralAdminID, "reused-totp-token", time.Now().Add(time.Hour), step); !errors.Is(err, repository.ErrConflict) {
-		t.Fatalf("reused TOTP step accepted: %v", err)
+	if err = repo.CreateBackofficeSession(ctx, referralAdminID, "second-internal-token", time.Now().Add(time.Hour)); err != nil {
+		t.Fatalf("second password login: %v", err)
 	}
 	if err = repo.DeleteBackofficeSession(ctx, "internal-token"); err != nil {
 		t.Fatal(err)
@@ -1496,8 +1495,8 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if !cardStillVisible {
 		t.Fatal("card disappeared after its last benefit was deactivated")
 	}
-	if _, err = repo.AnonymizeAccount(ctx, merchant.User.ID, merchant.User.Version); !errors.Is(err, repository.ErrOwnershipTransfer) {
-		t.Fatalf("last owner deletion: %v", err)
+	if _, err = repo.AnonymizeAccount(ctx, merchant.User.ID, 0); !errors.Is(err, repository.ErrPreconditionFailed) {
+		t.Fatalf("account deletion with stale version: %v", err)
 	}
 	deleteLogin, err := svc.Login(ctx, model.LoginRequest{Email: "client@example.com", Password: "customer-pass"})
 	if err != nil {
@@ -1754,7 +1753,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if err = pool.QueryRow(ctx, `SELECT count(*) FROM referral_codes WHERE campaign_id=$1 AND source_brand_id=$2 AND source_kind='MERCHANT'`, stampsCampaign.ID, pausedBrandEnvelope.Data.Merchant.BrandID).Scan(&codeCount); err != nil || codeCount != 1 {
 		t.Fatalf("reactivated campaign did not issue merchant code count=%d err=%v", codeCount, err)
 	}
-	if err = repo.CheckSchema(ctx, "0023"); err != nil {
+	if err = repo.CheckSchema(ctx, "0028"); err != nil {
 		t.Fatal(err)
 	}
 	if err = repo.CheckSchema(ctx, "9999"); err == nil {

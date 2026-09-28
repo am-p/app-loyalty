@@ -117,6 +117,17 @@ func (r *Repository) ReserveSubscriptionCheckout(ctx context.Context, actorID, b
 		return billing, record, ErrInvalidRequest
 	}
 	fullUnitPrice := unitPrice
+	var configuredPrice int64
+	priceErr := tx.QueryRow(ctx, `SELECT unit_price_minor FROM subscription_prices WHERE program_type=$1`, billing.ProgramType).Scan(&configuredPrice)
+	if priceErr == nil {
+		unitPrice = configuredPrice
+		fullUnitPrice = configuredPrice
+	} else if !errors.Is(priceErr, pgx.ErrNoRows) {
+		return billing, record, priceErr
+	}
+	if unitPrice > MaxSubscriptionAmountMinor/billing.ActiveBranches {
+		return billing, record, ErrInvalidRequest
+	}
 	var discountBPS, discountCharges, paidCount int
 	err = tx.QueryRow(ctx, `SELECT a.discount_bps,a.discount_charges,(SELECT count(*) FROM referral_charges c WHERE c.brand_id=$1) FROM referral_attributions a WHERE a.brand_id=$1`, brandID).Scan(&discountBPS, &discountCharges, &paidCount)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
@@ -128,12 +139,13 @@ func (r *Repository) ReserveSubscriptionCheckout(ctx context.Context, actorID, b
 	if unitPrice < 1 {
 		return billing, record, ErrInvalidRequest
 	}
-	err = tx.QueryRow(ctx, `SELECT estado,COALESCE(proveedor_suscripcion_id,''),referencia_externa,trial_months,marca_id,proveedor,moneda,precio_sucursal_minor,cantidad_sucursales,importe_mensual_minor,COALESCE(checkout_url,''),proximo_cobro_at,updated_at FROM suscripciones_marca WHERE marca_id=$1 FOR UPDATE`, brandID).Scan(&record.Subscription.Status, &record.ProviderID, &record.ExternalReference, &record.TrialMonths, &record.Subscription.BrandID, &record.Subscription.Provider, &record.Subscription.Currency, &record.Subscription.UnitAmountCents, &record.Subscription.ActiveBranches, &record.Subscription.MonthlyAmountCents, &record.Subscription.CheckoutURL, &record.Subscription.NextPaymentDate, &record.Subscription.UpdatedAt)
+	var storedFullUnit int64
+	err = tx.QueryRow(ctx, `SELECT estado,COALESCE(proveedor_suscripcion_id,''),referencia_externa,trial_months,marca_id,proveedor,moneda,precio_sucursal_minor,cantidad_sucursales,importe_mensual_minor,COALESCE(checkout_url,''),proximo_cobro_at,updated_at,COALESCE(full_unit_price_minor,precio_sucursal_minor) FROM suscripciones_marca WHERE marca_id=$1 FOR UPDATE`, brandID).Scan(&record.Subscription.Status, &record.ProviderID, &record.ExternalReference, &record.TrialMonths, &record.Subscription.BrandID, &record.Subscription.Provider, &record.Subscription.Currency, &record.Subscription.UnitAmountCents, &record.Subscription.ActiveBranches, &record.Subscription.MonthlyAmountCents, &record.Subscription.CheckoutURL, &record.Subscription.NextPaymentDate, &record.Subscription.UpdatedAt, &storedFullUnit)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return billing, record, err
 	}
 	if err == nil {
-		record.Subscription.FullMonthlyAmountCents = fullUnitPrice * record.Subscription.ActiveBranches
+		record.Subscription.FullMonthlyAmountCents = storedFullUnit * record.Subscription.ActiveBranches
 		record.Subscription.DiscountRemainingCharges = max(discountCharges-paidCount, 0)
 		if record.Subscription.Status == "CREATING" {
 			record.Subscription.TrialAvailable = record.TrialMonths > 0
@@ -150,8 +162,8 @@ func (r *Repository) ReserveSubscriptionCheckout(ctx context.Context, actorID, b
 	if errors.Is(err, pgx.ErrNoRows) {
 		trialMonths = 1
 	}
-	query := `INSERT INTO suscripciones_marca(marca_id,proveedor,proveedor_suscripcion_id,referencia_externa,estado,moneda,precio_sucursal_minor,cantidad_sucursales,importe_mensual_minor,trial_months,full_unit_price_minor) VALUES($1,'MERCADO_PAGO',NULL,$2,'CREATING','ARS',$3,$4,$3::bigint*$4::bigint,$5,$6) ON CONFLICT(marca_id) DO UPDATE SET proveedor_suscripcion_id=NULL,referencia_externa=EXCLUDED.referencia_externa,estado='CREATING',precio_sucursal_minor=EXCLUDED.precio_sucursal_minor,cantidad_sucursales=EXCLUDED.cantidad_sucursales,importe_mensual_minor=EXCLUDED.importe_mensual_minor,trial_months=0,full_unit_price_minor=EXCLUDED.full_unit_price_minor,price_transitioned_at=NULL,provider_call_started_at=NULL,checkout_url=NULL,proximo_cobro_at=NULL,updated_at=now() RETURNING marca_id,proveedor,estado,moneda,precio_sucursal_minor,cantidad_sucursales,importe_mensual_minor,COALESCE(checkout_url,''),proximo_cobro_at,updated_at,referencia_externa,trial_months`
-	err = tx.QueryRow(ctx, query, brandID, external, unitPrice, billing.ActiveBranches, trialMonths, fullUnitPrice).Scan(&record.Subscription.BrandID, &record.Subscription.Provider, &record.Subscription.Status, &record.Subscription.Currency, &record.Subscription.UnitAmountCents, &record.Subscription.ActiveBranches, &record.Subscription.MonthlyAmountCents, &record.Subscription.CheckoutURL, &record.Subscription.NextPaymentDate, &record.Subscription.UpdatedAt, &record.ExternalReference, &record.TrialMonths)
+	query := `INSERT INTO suscripciones_marca(marca_id,proveedor,proveedor_suscripcion_id,referencia_externa,estado,moneda,precio_sucursal_minor,cantidad_sucursales,importe_mensual_minor,trial_months,full_unit_price_minor,program_type,price_valid_from) VALUES($1,'MERCADO_PAGO',NULL,$2,'CREATING','ARS',$3,$4,$3::bigint*$4::bigint,$5,$6,$7,now()) ON CONFLICT(marca_id) DO UPDATE SET proveedor_suscripcion_id=NULL,referencia_externa=EXCLUDED.referencia_externa,estado='CREATING',precio_sucursal_minor=EXCLUDED.precio_sucursal_minor,cantidad_sucursales=EXCLUDED.cantidad_sucursales,importe_mensual_minor=EXCLUDED.importe_mensual_minor,trial_months=0,full_unit_price_minor=EXCLUDED.full_unit_price_minor,program_type=EXCLUDED.program_type,price_valid_from=now(),price_transitioned_at=NULL,provider_call_started_at=NULL,checkout_url=NULL,proximo_cobro_at=NULL,updated_at=now() RETURNING marca_id,proveedor,estado,moneda,precio_sucursal_minor,cantidad_sucursales,importe_mensual_minor,COALESCE(checkout_url,''),proximo_cobro_at,updated_at,referencia_externa,trial_months`
+	err = tx.QueryRow(ctx, query, brandID, external, unitPrice, billing.ActiveBranches, trialMonths, fullUnitPrice, billing.ProgramType).Scan(&record.Subscription.BrandID, &record.Subscription.Provider, &record.Subscription.Status, &record.Subscription.Currency, &record.Subscription.UnitAmountCents, &record.Subscription.ActiveBranches, &record.Subscription.MonthlyAmountCents, &record.Subscription.CheckoutURL, &record.Subscription.NextPaymentDate, &record.Subscription.UpdatedAt, &record.ExternalReference, &record.TrialMonths)
 	if err != nil {
 		return billing, record, err
 	}
@@ -187,10 +199,9 @@ func (r *Repository) RecordReferralInvoice(ctx context.Context, notificationID s
 	var sourceKind string
 	var influencerID, sourceBrandID *int64
 	err = tx.QueryRow(ctx, `SELECT discount_bps,discount_charges,reward_bps,reward_charges,source_kind,influencer_id,source_brand_id FROM referral_attributions WHERE brand_id=$1`, brandID).Scan(&discountBPS, &discountCharges, &rewardBPS, &rewardCharges, &sourceKind, &influencerID, &sourceBrandID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return tx.Commit(ctx)
-	}
-	if err != nil {
+	// Every verified subscription payment belongs in the charge ledger. A brand
+	// without attribution pays full price and generates no referral reward.
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return err
 	}
 	var oldStatus string
@@ -225,7 +236,22 @@ func (r *Repository) RecordReferralInvoice(ctx context.Context, notificationID s
 	if index <= discountCharges {
 		expectedUnit = discountedMinor(fullUnit, discountBPS)
 	}
-	if invoice.AmountMinor != payment.AmountMinor || invoice.AmountMinor != expectedUnit*branches {
+	fullAmountMinor := fullUnit * branches
+	validAmount := invoice.AmountMinor == expectedUnit*branches
+	// An invoice already issued before a bulk price update retains its old amount.
+	// Only the provider's authenticated creation timestamp and exact historical
+	// price can authorize that exception; an undated mismatch remains an error.
+	if !validAmount && !invoice.CreatedAt.IsZero() {
+		historyErr := tx.QueryRow(ctx, `SELECT full_unit_price_minor*branches FROM subscription_price_history
+ WHERE provider_subscription_id=$1 AND $2>=valid_from AND $2<valid_until AND unit_price_minor*branches=$3
+ ORDER BY valid_until DESC LIMIT 1`, invoice.SubscriptionID, invoice.CreatedAt, invoice.AmountMinor).Scan(&fullAmountMinor)
+		if historyErr == nil {
+			validAmount = true
+		} else if !errors.Is(historyErr, pgx.ErrNoRows) {
+			return historyErr
+		}
+	}
+	if invoice.AmountMinor != payment.AmountMinor || !validAmount {
 		return fmt.Errorf("referral invoice amount does not match price snapshot")
 	}
 	if index == discountCharges && discountCharges > 0 && expectedUnit != fullUnit {
@@ -237,7 +263,7 @@ func (r *Repository) RecordReferralInvoice(ctx context.Context, notificationID s
 			return err
 		}
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO referral_charges(provider_invoice_id,brand_id,provider_payment_id,amount_minor,full_amount_minor,currency,status,paid_index) VALUES($1,$2,$3,$4,$5,'ARS','APPROVED',$6)`, invoice.ID, brandID, payment.ID, payment.AmountMinor, fullUnit*branches, index); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO referral_charges(provider_invoice_id,brand_id,provider_payment_id,amount_minor,full_amount_minor,currency,status,paid_index) VALUES($1,$2,$3,$4,$5,'ARS','APPROVED',$6)`, invoice.ID, brandID, payment.ID, payment.AmountMinor, fullAmountMinor, index); err != nil {
 		return normalize(err)
 	}
 	if reward := referralRewardMinor(payment.AmountMinor, index, rewardBPS, rewardCharges); reward > 0 {
@@ -331,7 +357,9 @@ func (r *Repository) RecordSubscriptionWebhook(ctx context.Context, notification
 	if tag.RowsAffected() == 0 {
 		return tx.Commit(ctx)
 	}
-	tag, err = tx.Exec(ctx, `UPDATE suscripciones_marca SET proveedor_suscripcion_id=COALESCE(proveedor_suscripcion_id,$1),estado=$2,checkout_url=COALESCE(NULLIF($3,''),checkout_url),proximo_cobro_at=$4,updated_at=now() WHERE referencia_externa=$5 AND (proveedor_suscripcion_id=$1 OR (estado='CREATING' AND proveedor_suscripcion_id IS NULL AND provider_call_started_at IS NOT NULL))`, provider.ID, status, provider.CheckoutURL, provider.NextPaymentDate, provider.ExternalReference)
+	// A webhook can have read the provider before account deletion canceled it.
+	// Never let that delayed response reactivate a closed brand's subscription.
+	tag, err = tx.Exec(ctx, `UPDATE suscripciones_marca s SET proveedor_suscripcion_id=COALESCE(s.proveedor_suscripcion_id,$1),estado=CASE WHEN s.estado<>'CANCELLED' AND m.activo AND m.deleted_at IS NULL THEN $2 ELSE 'CANCELLED' END,checkout_url=CASE WHEN s.estado<>'CANCELLED' AND m.activo AND m.deleted_at IS NULL THEN COALESCE(NULLIF($3,''),s.checkout_url) ELSE NULL END,proximo_cobro_at=CASE WHEN s.estado<>'CANCELLED' AND m.activo AND m.deleted_at IS NULL THEN $4::timestamptz ELSE NULL END,updated_at=now() FROM marcas m WHERE m.id=s.marca_id AND s.referencia_externa=$5 AND (s.proveedor_suscripcion_id=$1 OR (s.estado='CREATING' AND s.proveedor_suscripcion_id IS NULL AND s.provider_call_started_at IS NOT NULL))`, provider.ID, status, provider.CheckoutURL, provider.NextPaymentDate, provider.ExternalReference)
 	if err != nil {
 		return err
 	}
@@ -347,7 +375,7 @@ func (r *Repository) UpdateSubscriptionFromProvider(ctx context.Context, provide
 		return model.Subscription{}, ErrInvalidRequest
 	}
 	var out model.Subscription
-	err := r.Pool.QueryRow(ctx, `UPDATE suscripciones_marca SET estado=$2,checkout_url=COALESCE(NULLIF($3,''),checkout_url),proximo_cobro_at=$4,updated_at=now() WHERE proveedor_suscripcion_id=$1 AND referencia_externa=$5 RETURNING marca_id,proveedor,estado,moneda,precio_sucursal_minor,cantidad_sucursales,importe_mensual_minor,COALESCE(checkout_url,''),proximo_cobro_at,updated_at`, provider.ID, status, provider.CheckoutURL, provider.NextPaymentDate, provider.ExternalReference).Scan(&out.BrandID, &out.Provider, &out.Status, &out.Currency, &out.UnitAmountCents, &out.ActiveBranches, &out.MonthlyAmountCents, &out.CheckoutURL, &out.NextPaymentDate, &out.UpdatedAt)
+	err := r.Pool.QueryRow(ctx, `UPDATE suscripciones_marca s SET estado=CASE WHEN s.estado<>'CANCELLED' AND m.activo AND m.deleted_at IS NULL THEN $2 ELSE 'CANCELLED' END,checkout_url=CASE WHEN s.estado<>'CANCELLED' AND m.activo AND m.deleted_at IS NULL THEN COALESCE(NULLIF($3,''),s.checkout_url) ELSE NULL END,proximo_cobro_at=CASE WHEN s.estado<>'CANCELLED' AND m.activo AND m.deleted_at IS NULL THEN $4::timestamptz ELSE NULL END,updated_at=now() FROM marcas m WHERE m.id=s.marca_id AND s.proveedor_suscripcion_id=$1 AND s.referencia_externa=$5 RETURNING s.marca_id,s.proveedor,s.estado,s.moneda,s.precio_sucursal_minor,s.cantidad_sucursales,s.importe_mensual_minor,COALESCE(s.checkout_url,''),s.proximo_cobro_at,s.updated_at`, provider.ID, status, provider.CheckoutURL, provider.NextPaymentDate, provider.ExternalReference).Scan(&out.BrandID, &out.Provider, &out.Status, &out.Currency, &out.UnitAmountCents, &out.ActiveBranches, &out.MonthlyAmountCents, &out.CheckoutURL, &out.NextPaymentDate, &out.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return out, ErrNotFound
 	}

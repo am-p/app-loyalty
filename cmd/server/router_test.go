@@ -26,16 +26,26 @@ func TestRouteInventoryAndAuthentication(t *testing.T) {
 		"POST /v1/auth/password-reset/request", "POST /v1/auth/password-reset/confirm",
 		"GET /v1/invitaciones/:token", "POST /v1/invitaciones/:token/registrar",
 		"POST /v1/mercado-pago/webhooks",
+		"POST /v1/referidos/validacion",
 		"POST /v1/backoffice/login",
 		"POST /auth/register", "POST /auth/login", "POST /auth/google",
 	}
 	protected := []struct{ method, pattern, request string }{
 		{"GET", "/v1/backoffice/me", "/v1/backoffice/me"},
+		{"GET", "/v1/backoffice/customers", "/v1/backoffice/customers"},
+		{"GET", "/v1/backoffice/prices", "/v1/backoffice/prices"},
+		{"GET", "/v1/backoffice/prices/:program/preview", "/v1/backoffice/prices/SELLOS/preview?unit_price_minor=2500000"},
+		{"PUT", "/v1/backoffice/prices/:program", "/v1/backoffice/prices/SELLOS"},
+		{"GET", "/v1/backoffice/price-changes", "/v1/backoffice/price-changes?limit=20"},
+		{"GET", "/v1/backoffice/price-changes/:id", "/v1/backoffice/price-changes/00000000-0000-4000-8000-000000000001"},
+		{"POST", "/v1/backoffice/price-changes/:id/retry", "/v1/backoffice/price-changes/00000000-0000-4000-8000-000000000001/retry"},
 		{"POST", "/v1/backoffice/logout", "/v1/backoffice/logout"},
 		{"GET", "/v1/backoffice/campaigns", "/v1/backoffice/campaigns"},
+		{"PUT", "/v1/backoffice/campaigns/:id", "/v1/backoffice/campaigns/:id"},
 		{"POST", "/v1/backoffice/campaigns", "/v1/backoffice/campaigns"},
 		{"PATCH", "/v1/backoffice/campaigns/:id/active", "/v1/backoffice/campaigns/1/active"},
 		{"GET", "/v1/backoffice/influencers", "/v1/backoffice/influencers"},
+		{"GET", "/v1/backoffice/influencers/:id/earnings", "/v1/backoffice/influencers/1/earnings"},
 		{"POST", "/v1/backoffice/influencers", "/v1/backoffice/influencers"},
 		{"GET", "/v1/backoffice/codes", "/v1/backoffice/codes"},
 		{"POST", "/v1/backoffice/codes", "/v1/backoffice/codes"},
@@ -136,7 +146,7 @@ func TestBackofficeRejectsCustomerAndMerchantAppTokens(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, route := range []string{"/v1/backoffice/me", "/v1/backoffice/campaigns", "/v1/backoffice/brands/1/credit-allocations"} {
+		for _, route := range []string{"/v1/backoffice/me", "/v1/backoffice/customers", "/v1/backoffice/campaigns", "/v1/backoffice/brands/1/credit-allocations"} {
 			request := httptest.NewRequest(http.MethodGet, route, nil)
 			request.Header.Set("Authorization", "Bearer "+token)
 			response := httptest.NewRecorder()

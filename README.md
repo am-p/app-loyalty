@@ -75,7 +75,7 @@ ALLOW_MIGRATION_DOWN=true go run ./cmd/migrate down
 | `DEMO_SIGNUP_ENABLED` | Habilita o cierra nuevas altas gratuitas sin bloquear cuentas existentes. |
 | `CORS_ORIGINS` | Orígenes web exactos permitidos, separados por comas; habilita credenciales para la cookie HttpOnly de refresh. |
 | `GOOGLE_CLIENT_ID` | Audiencia web de Google; opcional para el alias legado. |
-| `EXPECTED_SCHEMA_VERSION` | Versión de esquema requerida por readiness; por defecto `0023`. |
+| `EXPECTED_SCHEMA_VERSION` | Versión de esquema requerida por readiness; por defecto `0028`. |
 | `MERCADO_PAGO_PROVIDER` | `api` habilita checkout y webhooks de suscripciones; `disabled` los mantiene apagados. |
 | `MERCADO_PAGO_ACCESS_TOKEN`, `MERCADO_PAGO_WEBHOOK_SECRET` | Secretos del backend para crear suscripciones y validar notificaciones. Nunca se exponen al frontend. |
 | `MERCADO_PAGO_BRANCH_PRICE_CENTS` | Precio mensual de Sellos por sucursal activa; por defecto `2500000` (ARS 25.000) para el piloto; configurable por entorno. |
@@ -125,7 +125,7 @@ La interfaz y la API pueden desplegarse con `MERCADO_PAGO_PROVIDER=disabled`: la
 sección Plan y facturación permanece visible y explica que el proveedor aún no está
 configurado, pero no permite iniciar ni cancelar cobros. Para habilitarla:
 
-1. Aplicar las migraciones hasta `0023` y mantener `EXPECTED_SCHEMA_VERSION=0023`.
+1. Aplicar las migraciones hasta `0028` y mantener `EXPECTED_SCHEMA_VERSION=0028`.
 2. Cargar únicamente en el runtime del backend `MERCADO_PAGO_ACCESS_TOKEN` y
    `MERCADO_PAGO_WEBHOOK_SECRET`; no usar variables `EXPO_PUBLIC_*`.
 3. Cambiar `MERCADO_PAGO_PROVIDER=api` y reiniciar la API.
@@ -155,7 +155,7 @@ programa o eliminar la marca. Primero debe cancelarse la suscripción.
 
 ## Referidos y Backoffice
 
-Las migraciones `0022` y `0023` agregan campañas, influencers, códigos,
+Las migraciones `0023` y `0024` agregan campañas, influencers, códigos,
 atribuciones únicas por marca, cobros verificados, recompensas y usuarios
 internos. Las altas por email (`POST /v1/demo/comercios`) y Google
 (`POST /v1/auth/google`, dentro de `merchant_registration`) aceptan
@@ -170,8 +170,8 @@ El Backoffice independiente usa `/v1/backoffice/*` y cuentas distintas de
 clientes/comercios. `ADMIN_SISTEMA` crea campañas, influencers y códigos;
 `FINANZAS` puede registrar la liquidación de una comisión en efectivo y una
 compensación manual de crédito comercial con referencia externa. Todas
-las mutaciones quedan en `backoffice_audit`. El acceso requiere contraseña,
-TOTP y cookie interna HttpOnly SameSite=Strict de ocho horas. El cookie es
+las mutaciones quedan en `backoffice_audit`. El acceso requiere email y contraseña
+de una cuenta interna activa, con cookie HttpOnly SameSite=Strict de ocho horas. El cookie es
 `Secure` cuando `APP_ENV` está definido, incluido `staging`; el gateway debe
 publicar esta web en HTTPS y reenviar `/v1/` al API en el mismo origen. Para
 crear una cuenta interna tras migrar el esquema:
@@ -182,8 +182,9 @@ BACKOFFICE_PASSWORD='contraseña-larga' BACKOFFICE_ROLE='ADMIN_SISTEMA' \
 go run ./cmd/backoffice-user
 ```
 
-El comando imprime una URI TOTP para configurar el autenticador una sola vez.
-No reutilizar cuentas de la app ni guardar esa URI en el repositorio.
+El comando crea una cuenta interna para ingresar con email y contraseña.
+No reutilizar cuentas de la app. Los campos TOTP anteriores permanecen en la
+base por compatibilidad y no se consultan durante el acceso.
 
 El piloto Sellos se configura desde el Backoffice con una ventana de 90 días,
 `discount_bps=5000`, `discount_charges=3`, `reward_bps=2000` y
@@ -249,3 +250,42 @@ TEST_DATABASE_URL='postgresql://...' \
 - Para frontend y backend en orígenes distintos, `CORS_ORIGINS` debe contener el origen HTTPS exacto del frontend.
 - Las imágenes aceptan JPEG, PNG y WebP por contenido real; se reencodean a JPEG/PNG, se limitan a 5 MiB y se reducen a 1024 px para logos o 512 px para iconos. El worker reconcilia uploads interrumpidos y borrados mediante leases persistidos.
 - Readiness comprueba PostgreSQL, versión de esquema, Redis y acceso al bucket privado cuando media está habilitado. Antes de abrir tráfico se debe verificar además un upload/listado/borrado real con credenciales de staging.
+
+## Correo de bienvenida del influencer
+
+El alta ADMIN_SISTEMA con `name/email/code/campaign_id` guarda el perfil, primer
+código, auditoría y correo INFLUENCER_WELCOME en una única transacción.
+Responde `email_queued=true`: confirma la cola, no la entrega. El payload anterior
+`name/contact` sigue creando únicamente un perfil, sin correo. Los perfiles
+existentes y los códigos adicionales no disparan un envío retroactivo.
+
+La migración 0028 admite influencers sin cuenta de app en email_outbox, mantiene
+la propiedad obligatoria de los correos de identidad y garantiza un welcome
+por código. Copia las condiciones al alta bajo un lock compartido de campaña y
+cifra el JSON con AES-GCM usando la clave de outbox existente. Las columnas
+`token_*` transportan el payload cifrado sin crear un token de identidad.
+El worker valida la relación influencer/código/destinatario y su lease; rechaza
+un código desactivado. Borra el payload al completar o agotar cinco intentos.
+La ventana de entrega es de siete días; no es la vigencia del código. La cola
+conserva entrega al menos una vez: un fallo tras entregar y antes de confirmar
+SENT puede duplicar un correo. El down bloquea si hay evidencia de welcome;
+en ese caso corresponde una migración correctiva hacia adelante.
+
+El HTML comparte plantilla de contraseña y personaje CID. Incluye nombre,
+código, enlace PUBLIC_APP_URL con `?ref=...`, campaña, Sellos/Puntos/Sellos y
+puntos, porcentajes y cantidad de cobros, fechas en Argentina y pausa al alta.
+Explica que la comisión se calcula sobre el cobro aprobado y verificado, después
+del descuento; no promete un importe fijo ni una transferencia automática.
+
+**Operación:** SMTP usa el mismo remitente y proveedor de las contraseñas.
+Configurar MAIL_PROVIDER=smtp, MAIL_FROM_ADDRESS, SMTP y una clave base64 de
+32 bytes en OUTBOX_ENCRYPTION_KEY, incluso sin verificación de email requerida.
+Sin clave, el alta nueva responde 503 EMAIL_UNAVAILABLE y revierte todo. Con
+MAIL_PROVIDER=disabled y clave válida, los correos quedan pendientes.
+
+Para desarrollo: APP_ENV=development, MAIL_PROVIDER=capture,
+MAIL_CAPTURE_DIRECTORY=/ruta/absoluta/privada, remitente y clave válidos.
+Capture escribe MIME .eml con permisos 0600 y no contacta destinatarios. SENT
+en este modo significa guardado local. Conservar el directorio fuera de Git y
+borrar sus mensajes al terminar las pruebas; la retención DB no elimina archivos
+de captura. Capture se rechaza en otros entornos y con verificación requerida.

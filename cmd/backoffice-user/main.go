@@ -4,11 +4,8 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/base32"
 	"fmt"
 	"log"
-	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -31,20 +28,14 @@ func main() {
 		log.Fatal(err)
 	}
 	defer pool.Close()
-	raw := make([]byte, 20)
-	if _, err = rand.Read(raw); err != nil {
-		log.Fatal(err)
-	}
-	secret := base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(raw)
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		log.Fatal(err)
 	}
-	_, err = pool.Exec(ctx, `INSERT INTO backoffice_users(email,password_hash,totp_secret,role) VALUES($1,$2,$3,$4)`, email, string(hash), secret, role)
+	// The legacy TOTP column remains for schema compatibility and is unused.
+	_, err = pool.Exec(ctx, `INSERT INTO backoffice_users(email,password_hash,totp_secret,role) VALUES($1,$2,'',$3)`, email, string(hash), role)
 	if err != nil {
 		log.Fatal(err)
 	}
-	uri := "otpauth://totp/" + url.PathEscape("Puntazo:"+email) + "?secret=" + secret + "&issuer=Puntazo&digits=6&period=30"
-	fmt.Println("Add this URI to the staff member's authenticator once, then erase this terminal output:")
-	fmt.Println(uri)
+	fmt.Println("Internal account created. Sign in with email and password.")
 }

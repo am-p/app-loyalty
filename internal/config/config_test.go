@@ -98,6 +98,30 @@ func setRequiredEnv(t *testing.T) {
 	t.Setenv("MAIL_PROVIDER", "disabled")
 }
 
+func TestDevelopmentMailCaptureRequiresEncryptionAndRejectsProduction(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("OUTBOX_ENCRYPTION_KEY", "")
+	t.Setenv("MAIL_PROVIDER", "capture")
+	t.Setenv("MAIL_CAPTURE_DIRECTORY", t.TempDir())
+	t.Setenv("MAIL_FROM_ADDRESS", "no-reply@puntazo.test")
+	if _, err := Load(); err == nil {
+		t.Fatal("capture accepted missing cipher key")
+	}
+	t.Setenv("OUTBOX_ENCRYPTION_KEY", base64.StdEncoding.EncodeToString([]byte("01234567890123456789012345678901")))
+	if _, err := Load(); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("MAIL_CAPTURE_DIRECTORY", "relative-directory")
+	if _, err := Load(); err == nil {
+		t.Fatal("capture accepted relative directory")
+	}
+	t.Setenv("MAIL_CAPTURE_DIRECTORY", t.TempDir())
+	t.Setenv("APP_ENV", "production")
+	if _, err := Load(); err == nil {
+		t.Fatal("production accepted capture")
+	}
+}
+
 func setS3Env(t *testing.T) {
 	t.Helper()
 	t.Setenv("MEDIA_PROVIDER", "s3")
