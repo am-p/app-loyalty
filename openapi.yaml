@@ -1116,7 +1116,7 @@ paths:
         '422': { description: Solicitud inválida }
         '429': { description: Límite por actor excedido; incluye Retry-After }
         '503': { description: DEPENDENCY_UNAVAILABLE; Google Places opcional o control de tráfico no disponible }
-        '412': { description: PRECONDITION_FAILED; If-Match ausente, débil o desactualizado }
+        '412': { description: 'PRECONDITION_FAILED; If-Match ausente, débil o desactualizado' }
   /marcas/{brand_id}/sucursales/{resource_id}/resenas/busqueda:
     parameters:
       - { name: brand_id, in: path, required: true, schema: { type: integer, minimum: 1 } }
