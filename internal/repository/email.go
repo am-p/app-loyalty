@@ -58,6 +58,18 @@ func DecryptOutboxToken(item model.OutboxEmail, key []byte) (string, error) {
 // invitation: rotations, acceptance, revocation and expiry invalidate the
 // encrypted payload before it can leave the process.
 func (r *Repository) ValidateClaimedEmail(ctx context.Context, item model.OutboxEmail, token string) error {
+	if item.Kind == "CHANGE_EMAIL" {
+		hash := sha256.Sum256([]byte(token))
+		var valid bool
+		err := r.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM tokens_identidad_email t JOIN email_outbox e ON e.usuario_id=t.usuario_id AND e.destinatario=t.pending_email WHERE e.id=$1 AND e.estado='SENDING' AND e.lease_owner=$2 AND t.token_hash=$3 AND t.proposito='CHANGE_EMAIL' AND t.consumed_at IS NULL AND t.expires_at>now())`, item.ID, item.LeaseOwner, hash[:]).Scan(&valid)
+		if err != nil {
+			return err
+		}
+		if !valid {
+			return ErrIdentityTokenInvalid
+		}
+		return nil
+	}
 	if item.Kind == "SUBSCRIPTION_CONFIRMATION" {
 		return r.validateSubscriptionConfirmation(ctx, item, token)
 	}

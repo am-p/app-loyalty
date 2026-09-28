@@ -23,6 +23,8 @@ func writeErr(c *gin.Context, err error) {
 		web.Error(c, http.StatusUnsupportedMediaType, "MEDIA_TYPE_UNSUPPORTED", "Formato de imagen no permitido", nil)
 	case errors.Is(err, service.ErrMediaUnavailable):
 		web.Error(c, http.StatusServiceUnavailable, "MEDIA_STORAGE_UNAVAILABLE", "El almacenamiento de imágenes no está disponible", nil)
+	case errors.Is(err, service.ErrEmailChangeUnavailable):
+		web.Error(c, http.StatusServiceUnavailable, "EMAIL_CHANGE_UNAVAILABLE", "El cambio de correo requiere que el envío de emails esté habilitado", nil)
 	case errors.Is(err, service.ErrBillingUnavailable):
 		web.Error(c, http.StatusServiceUnavailable, "BILLING_UNAVAILABLE", "La facturación todavía no está habilitada", nil)
 	case errors.Is(err, service.ErrBillingInProgress):

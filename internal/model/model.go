@@ -139,8 +139,9 @@ type Session struct {
 	ExpiresIn    int    `json:"expires_in"`
 }
 type AuthData struct {
-	Session Session `json:"session"`
-	User    User    `json:"user"`
+	Session        Session `json:"session"`
+	User           User    `json:"user"`
+	AccountCreated bool    `json:"account_created,omitempty"`
 }
 type RegisterCustomerData struct {
 	User                 User     `json:"user"`

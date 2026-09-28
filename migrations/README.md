@@ -58,3 +58,17 @@ de confirmación tiene snapshot, deduplicación por suscripción y redacción de
 La migración `0029` conserva los correos de influencers de `0028`. Para una base de
 testing ya en `0029`, aplicar este mismo historial no renumera ni recrea tablas.
 La API requiere esquema `0029`; configurar explícitamente EXPECTED_SCHEMA_VERSION.
+
+## Reconciliación propuesta del PR14 (`0030`–`0031`)
+
+Este borrador integra el código de PR14/head `1c9f07c` sin modificar esa rama.
+Reserva `0030_email_change` y `0031_card_templates` después de `0029`, con
+EXPECTED_SCHEMA_VERSION=0031. La migración email conserva los tipos
+INFLUENCER_WELCOME y SUBSCRIPTION_CONFIRMATION en up y down; no basta renombrar
+los archivos experimentales `0022`/`0023`. El down0030 elimina sólo los datos
+CHANGE_EMAIL; down0031 restablece el catálogo previo y quita plantillas nuevas.
+
+No aplicar esta secuencia sobre una base que haya ejecutado PR14 bajo sus números
+experimentales; necesita diagnóstico y reconciliación específica. Testing vigente
+no se renumera: mantiene 0022–0029. Este borrador requiere los PR13/17/18, además
+de los ajustes independientes Google Android y timestamps MP de PR15/16.

@@ -59,6 +59,13 @@ func VerificationMessage(appURL, to, token string) model.EmailMessage {
 	return message
 }
 
+func EmailChangeMessage(appURL, to, token string) model.EmailMessage {
+	link := actionURL(appURL, "/confirmar-cambio-email", token)
+	message := transactional("CHANGE_EMAIL", to, "Confirmá tu nuevo correo en Puntazo", "Solicitaste usar este correo para tu cuenta de Puntazo. Confirmá el cambio: "+link+"\n\nEl enlace vence en 1 hora. Si no lo solicitaste, ignorá este mensaje.", "Confirmá tu nuevo correo", "Confirmar cambio", link, "Este enlace vence en 1 hora.")
+	message.Token = token
+	return message
+}
+
 func PasswordResetMessage(appURL, to, token string) model.EmailMessage {
 	link := actionURL(appURL, "/reset-password", token)
 	text := "Recibimos una solicitud para restablecer la contraseña de tu cuenta de Puntazo.\n\nCrear nueva contraseña: " + link + "\n\nEl enlace vence en 1 hora y puede usarse una sola vez. Si no solicitaste este cambio, ignorá este correo: tu contraseña actual seguirá funcionando."

@@ -19,6 +19,7 @@ var (
 	ErrForbidden              = errors.New("forbidden")
 	ErrDemoDisabled           = errors.New("demo signup disabled")
 	ErrEmailUnverified        = errors.New("email unverified")
+	ErrEmailChangeUnavailable = errors.New("email change unavailable")
 	ErrIdentityToken          = errors.New("identity token invalid")
 	ErrRecentAuthRequired     = errors.New("recent authentication required")
 	ErrMediaTooLarge          = errors.New("media too large")
