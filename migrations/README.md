@@ -35,3 +35,17 @@ reconciliación explícita; no apuntar este migrador automáticamente a esa base
 Las migraciones amplían las tablas existentes. Una reversión de `0028` con
 correos de influencers o de `0027` con campañas de ambos programas aborta
 para preservar evidencia; ante un incidente usar una corrección forward.
+
+## Promoción al repositorio oficial
+
+Esta secuencia depende de las reseñas del PR13 (`0022`) y conserva byte a byte
+las migraciones `0023`–`0028` aplicadas en testing. No se renumera la base desplegada.
+El retorno y correo de confirmación de suscripción se integra después como `0029`.
+El PR14 de cambio de email/plantillas usa provisionalmente `0022`/`0023`: no
+mezclarlo directamente con este stack. La copia de reconciliación reservará
+`0030`/`0031` y preservará los tipos de outbox añadidos en `0028`/`0029`.
+
+`schema_migrations` registra sólo el número de cuatro dígitos: archivos distintos
+con el mismo prefijo pueden omitirse silenciosamente. Antes de aplicar migraciones,
+verificar que existe exactamente un archivo up/down por versión y comprobar el
+historial del ambiente. No adoptar automáticamente la numeración de demos antiguas.
