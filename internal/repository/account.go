@@ -87,6 +87,42 @@ func (r *Repository) ExportAccount(ctx context.Context, id int64) (model.Account
 		return model.AccountExport{}, err
 	}
 	rows.Close()
+	out.ReviewProgress = []model.ReviewProgressExport{}
+	rows, err = tx.Query(ctx, `SELECT sucursal_id,purchases FROM progreso_resenas WHERE usuario_id=$1 ORDER BY sucursal_id`, id)
+	if err != nil {
+		return model.AccountExport{}, err
+	}
+	for rows.Next() {
+		var progress model.ReviewProgressExport
+		if err = rows.Scan(&progress.BranchID, &progress.Purchases); err != nil {
+			rows.Close()
+			return model.AccountExport{}, err
+		}
+		out.ReviewProgress = append(out.ReviewProgress, progress)
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return model.AccountExport{}, err
+	}
+	rows.Close()
+	out.ReviewInvitations = []model.ReviewInvitationExport{}
+	rows, err = tx.Query(ctx, `SELECT id::text,sucursal_id,tarjeta_id,operation_id::text,occurred_at,cancelled_at,shown_at,skipped_at,clicked_at FROM invitaciones_resenas WHERE usuario_id=$1 ORDER BY occurred_at,id`, id)
+	if err != nil {
+		return model.AccountExport{}, err
+	}
+	for rows.Next() {
+		var invitation model.ReviewInvitationExport
+		if err = rows.Scan(&invitation.ID, &invitation.BranchID, &invitation.CardID, &invitation.OperationID, &invitation.OccurredAt, &invitation.CancelledAt, &invitation.ShownAt, &invitation.SkippedAt, &invitation.ClickedAt); err != nil {
+			rows.Close()
+			return model.AccountExport{}, err
+		}
+		out.ReviewInvitations = append(out.ReviewInvitations, invitation)
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return model.AccountExport{}, err
+	}
+	rows.Close()
 	if err = tx.Commit(ctx); err != nil {
 		return model.AccountExport{}, err
 	}
@@ -198,6 +234,13 @@ func (r *Repository) AnonymizeAccount(ctx context.Context, id int64, expectedVer
 		if _, err = tx.Exec(ctx, statement, id, deletedAt); err != nil {
 			return time.Time{}, err
 		}
+	}
+	// Retain anonymous branch metrics, remove links to the user's loyalty ledger.
+	if _, err = tx.Exec(ctx, `UPDATE invitaciones_resenas SET usuario_id=NULL,tarjeta_id=NULL,operation_id=NULL,reservation_token=NULL,lease_until=NULL,cancelled_at=COALESCE(cancelled_at,$2) WHERE usuario_id=$1`, id, deletedAt); err != nil {
+		return time.Time{}, err
+	}
+	if _, err = tx.Exec(ctx, `DELETE FROM progreso_resenas WHERE usuario_id=$1`, id); err != nil {
+		return time.Time{}, err
 	}
 	// Account deletion revokes device destinations and cascades queued pushes.
 	if _, err = tx.Exec(ctx, `DELETE FROM push_tokens WHERE usuario_id=$1`, id); err != nil {

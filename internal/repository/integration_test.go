@@ -217,8 +217,8 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if _, err = pool.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES('0018')`); err != nil {
 		t.Fatal(err)
 	}
-	for _, version := range []string{"0019", "0020", "0021", "0023", "0024", "0025", "0026", "0027", "0028"} {
-		migration, readErr := os.ReadFile(filepath.Join("..", "..", "migrations", version+map[string]string{"0019": "_mercado_pago_subscriptions", "0020": "_subscription_checkout_reservation", "0021": "_expo_push", "0023": "_referrals", "0024": "_referral_billing", "0025": "_subscription_prices", "0026": "_subscription_price_change_history", "0027": "_referral_campaign_editing", "0028": "_influencer_welcome_emails"}[version]+".up.sql"))
+	for _, version := range []string{"0019", "0020", "0021", "0022", "0023", "0024", "0025", "0026", "0027", "0028"} {
+		migration, readErr := os.ReadFile(filepath.Join("..", "..", "migrations", version+map[string]string{"0019": "_mercado_pago_subscriptions", "0020": "_subscription_checkout_reservation", "0021": "_expo_push", "0022": "_google_reviews", "0023": "_referrals", "0024": "_referral_billing", "0025": "_subscription_prices", "0026": "_subscription_price_change_history", "0027": "_referral_campaign_editing", "0028": "_influencer_welcome_emails"}[version]+".up.sql"))
 		if readErr != nil {
 			t.Fatal(readErr)
 		}
@@ -889,6 +889,10 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	again, err := svc.ConfirmAccumulation(ctx, merchant.User.ID, confirmKey, uuid.NewString(), confirmReq)
 	if err != nil || !again.Replayed || !bytes.Equal(confirmed.Body, again.Body) {
 		t.Fatalf("movement replay: %v", err)
+	}
+	var reviewPurchaseCount int64
+	if err = pool.QueryRow(ctx, `SELECT purchases FROM progreso_resenas WHERE usuario_id=$1 AND sucursal_id=$2`, customer.ID, merchant.Merchant.Branch.ID).Scan(&reviewPurchaseCount); err != nil || reviewPurchaseCount != 1 {
+		t.Fatalf("idempotent review purchases=%d err=%v", reviewPurchaseCount, err)
 	}
 	if _, err = svc.ConfirmAccumulation(ctx, merchant.User.ID, uuid.NewString(), uuid.NewString(), confirmReq); !errors.Is(err, repository.ErrPreviewConsumed) {
 		t.Fatalf("consumed preview: %v", err)

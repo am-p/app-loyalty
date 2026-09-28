@@ -15,6 +15,7 @@ import (
 const MaxJSONBytes int64 = 1 << 20
 
 type Config struct {
+	GooglePlacesAPIKey        string
 	DatabaseURL               string
 	JWTSecret                 string
 	JWTIssuer                 string
@@ -79,7 +80,7 @@ type Config struct {
 func Load() (Config, error) {
 	s3Endpoint := strings.TrimSpace(os.Getenv("S3_ENDPOINT"))
 	c := Config{
-		DatabaseURL: os.Getenv("DATABASE_URL"), JWTSecret: os.Getenv("JWT_SECRET"), JWTIssuer: envDefault("JWT_ISSUER", "puntazo"),
+		GooglePlacesAPIKey: strings.TrimSpace(os.Getenv("GOOGLE_PLACES_API_KEY")), DatabaseURL: os.Getenv("DATABASE_URL"), JWTSecret: os.Getenv("JWT_SECRET"), JWTIssuer: envDefault("JWT_ISSUER", "puntazo"),
 		QRPepper:          os.Getenv("QR_PEPPER"),
 		DemoSignupEnabled: envBool("DEMO_SIGNUP_ENABLED", false), AppVersion: envDefault("APP_VERSION", "dev"),
 		EmailVerificationRequired: envBool("EMAIL_VERIFICATION_REQUIRED", false), PublicAppURL: envDefault("PUBLIC_APP_URL", "http://localhost:8081"),

@@ -1571,6 +1571,203 @@ paths:
       x-puntazo-implementation: IMPLEMENTED
       responses:
         '200': { description: 'Conteos de conversión y continuidad y costos en centavos, en data' }
+  /marcas/{brand_id}/sucursales/{resource_id}/resenas:
+    parameters:
+      - { name: brand_id, in: path, required: true, schema: { type: integer, minimum: 1 } }
+      - { name: resource_id, in: path, required: true, schema: { type: integer, minimum: 1 } }
+    get:
+      tags: [Reseñas]
+      summary: Configuración editable de reseñas; sólo propietario o administrador
+      operationId: getReviewSettings
+      x-puntazo-implementation: IMPLEMENTED
+      responses:
+        '200':
+          description: Operación completada
+          headers:
+            ETag: { schema: { type: string }, description: Versión fuerte de configuración en GET y PUT de reseñas }
+            Cache-Control: { schema: { type: string, const: no-store } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReviewSettingsEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: Invitación reservada, cerrada o cancelada; sucursal inactiva }
+        '422': { description: Solicitud inválida }
+        '429': { description: Límite por actor excedido; incluye Retry-After }
+        '503': { description: DEPENDENCY_UNAVAILABLE; Google Places opcional o control de tráfico no disponible }
+    put:
+      tags: [Reseñas]
+      summary: Reemplaza configuración usando If-Match fuerte; versión inicial 1
+      operationId: putReviewSettings
+      x-puntazo-implementation: IMPLEMENTED
+      parameters:
+        - { name: If-Match, in: header, required: true, schema: { type: string }, example: '"1"' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReviewSettingsInput' }
+      responses:
+        '200':
+          description: Operación completada
+          headers:
+            ETag: { schema: { type: string }, description: Versión fuerte de configuración en GET y PUT de reseñas }
+            Cache-Control: { schema: { type: string, const: no-store } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReviewSettingsEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: Invitación reservada, cerrada o cancelada; sucursal inactiva }
+        '422': { description: Solicitud inválida }
+        '429': { description: Límite por actor excedido; incluye Retry-After }
+        '503': { description: DEPENDENCY_UNAVAILABLE; Google Places opcional o control de tráfico no disponible }
+        '412': { description: PRECONDITION_FAILED; If-Match ausente, débil o desactualizado }
+  /marcas/{brand_id}/sucursales/{resource_id}/resenas/busqueda:
+    parameters:
+      - { name: brand_id, in: path, required: true, schema: { type: integer, minimum: 1 } }
+      - { name: resource_id, in: path, required: true, schema: { type: integer, minimum: 1 } }
+    post:
+      tags: [Reseñas]
+      summary: Busca lugares con Places New; resultados transitorios atribuidos a Google
+      operationId: searchReviewPlaces
+      x-puntazo-implementation: IMPLEMENTED
+      description: Requiere GOOGLE_PLACES_API_KEY del servidor. Consulta predeterminada con nombre y dirección de sucursal. No persiste contenido ni URLs de Google.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                query: { type: string, minLength: 3, maxLength: 300 }
+      responses:
+        '200':
+          description: Operación completada
+          headers:
+            ETag: { schema: { type: string }, description: Versión fuerte de configuración en GET y PUT de reseñas }
+            Cache-Control: { schema: { type: string, const: no-store } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReviewPlacesEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: Invitación reservada, cerrada o cancelada; sucursal inactiva }
+        '422': { description: Solicitud inválida }
+        '429': { description: Límite por actor excedido; incluye Retry-After }
+        '503': { description: DEPENDENCY_UNAVAILABLE; Google Places opcional o control de tráfico no disponible }
+  /marcas/{brand_id}/sucursales/{resource_id}/resenas/metricas:
+    parameters:
+      - { name: brand_id, in: path, required: true, schema: { type: integer, minimum: 1 } }
+      - { name: resource_id, in: path, required: true, schema: { type: integer, minimum: 1 } }
+    get:
+      tags: [Reseñas]
+      summary: Cuenta invitaciones únicas presentadas, omitidas y con clic
+      operationId: getReviewMetrics
+      x-puntazo-implementation: IMPLEMENTED
+      responses:
+        '200':
+          description: Operación completada
+          headers:
+            ETag: { schema: { type: string }, description: Versión fuerte de configuración en GET y PUT de reseñas }
+            Cache-Control: { schema: { type: string, const: no-store } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReviewMetricsEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: Invitación reservada, cerrada o cancelada; sucursal inactiva }
+        '422': { description: Solicitud inválida }
+        '429': { description: Límite por actor excedido; incluye Retry-After }
+        '503': { description: DEPENDENCY_UNAVAILABLE; Google Places opcional o control de tráfico no disponible }
+  /clientes/me/resenas/pendientes:
+    get:
+      tags: [Reseñas]
+      summary: Invitaciones propias resolubles, activas y sin lease vigente; orden antiguo primero
+      operationId: getPendingReviews
+      x-puntazo-implementation: IMPLEMENTED
+      description: Sólo CLIENTE_FINAL. Un proveedor indisponible conserva invitaciones pendientes y las omite de la respuesta. No hay polling obligatorio.
+      responses:
+        '200':
+          description: Operación completada
+          headers:
+            ETag: { schema: { type: string }, description: Versión fuerte de configuración en GET y PUT de reseñas }
+            Cache-Control: { schema: { type: string, const: no-store } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReviewInvitationsEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: Invitación reservada, cerrada o cancelada; sucursal inactiva }
+        '422': { description: Solicitud inválida }
+        '429': { description: Límite por actor excedido; incluye Retry-After }
+        '503': { description: DEPENDENCY_UNAVAILABLE; Google Places opcional o control de tráfico no disponible }
+  /clientes/me/resenas/{invitation_id}/reserva:
+    parameters:
+      - { name: invitation_id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Reseñas]
+      summary: Reserva atómica de 60 segundos; resuelve enlace antes de la transacción
+      operationId: reserveReview
+      x-puntazo-implementation: IMPLEMENTED
+      responses:
+        '200':
+          description: Operación completada
+          headers:
+            ETag: { schema: { type: string }, description: Versión fuerte de configuración en GET y PUT de reseñas }
+            Cache-Control: { schema: { type: string, const: no-store } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReviewReservationEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: Invitación reservada, cerrada o cancelada; sucursal inactiva }
+        '422': { description: Solicitud inválida }
+        '429': { description: Límite por actor excedido; incluye Retry-After }
+        '503': { description: DEPENDENCY_UNAVAILABLE; Google Places opcional o control de tráfico no disponible }
+  /clientes/me/resenas/{invitation_id}/eventos:
+    parameters:
+      - { name: invitation_id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Reseñas]
+      summary: Registra render o respuesta idempotente con token de reserva
+      operationId: recordReviewEvent
+      x-puntazo-implementation: IMPLEMENTED
+      description: PRESENTADA requiere lease vigente y se envía después del render. OMITIDA y CLIC requieren PRESENTADA y el mismo token; el token sigue válido después del vencimiento para esa respuesta. CLIC registra apertura exitosa, nunca una reseña confirmada en Google.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reservation_token, event]
+              properties:
+                reservation_token: { type: string, format: uuid }
+                event: { type: string, enum: [PRESENTADA, OMITIDA, CLIC] }
+      responses:
+        '200':
+          description: Operación completada
+          headers:
+            ETag: { schema: { type: string }, description: Versión fuerte de configuración en GET y PUT de reseñas }
+            Cache-Control: { schema: { type: string, const: no-store } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReviewEventsEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: Invitación reservada, cerrada o cancelada; sucursal inactiva }
+        '422': { description: Solicitud inválida }
+        '429': { description: Límite por actor excedido; incluye Retry-After }
+        '503': { description: DEPENDENCY_UNAVAILABLE; Google Places opcional o control de tráfico no disponible }
 components:
   securitySchemes:
     backofficeCookie:
@@ -2977,3 +3174,142 @@ components:
           items: { $ref: '#/components/schemas/Movement' }
         pagination: { $ref: '#/components/schemas/Pagination' }
         request_id: { $ref: '#/components/schemas/RequestId' }
+    ReviewSettingsInput:
+      type: object
+      additionalProperties: false
+      required: [enabled, purchase_threshold, message, destination_type]
+      properties:
+        enabled: { type: boolean, default: false }
+        purchase_threshold: { type: integer, minimum: 1, maximum: 1000000, default: 1 }
+        message: { type: string, minLength: 1, maxLength: 500, default: '¿Cómo fue tu experiencia? Compartí tu opinión en Google.' }
+        destination_type: { type: string, enum: [GOOGLE_PLACE, MANUAL_LINK], default: MANUAL_LINK }
+        google_place_id: { type: [string, 'null'], maxLength: 300, pattern: '^[A-Za-z0-9_-]+$' }
+        manual_review_url:
+          type: [string, 'null']
+          description: HTTPS sin credenciales ni puerto, host exacto g.page, maps.app.goo.gl, maps.google.com, www.google.com, search.google.com o share.google. Se exige sólo el destino seleccionado cuando enabled=true.
+    ReviewSettings:
+      type: object
+      required: [branch_id, enabled, purchase_threshold, message, destination_type, google_place_id, manual_review_url, version, places_available, review_url]
+      properties:
+        branch_id: { type: integer }
+        enabled: { type: boolean }
+        purchase_threshold: { type: integer }
+        message: { type: string }
+        destination_type: { type: string, enum: [GOOGLE_PLACE, MANUAL_LINK] }
+        google_place_id: { type: [string, 'null'] }
+        manual_review_url: { type: [string, 'null'] }
+        version: { type: integer, minimum: 1 }
+        places_available: { type: boolean }
+        review_url: { type: [string, 'null'], description: Resuelto transitoriamente; null si proveedor no disponible }
+    ReviewAttribution:
+      type: object
+      required: [provider, provider_uri]
+      properties:
+        provider: { type: string }
+        provider_uri: { type: string, format: uri, description: Enlace HTTPS del proveedor de atribución }
+    ReviewPlace:
+      type: object
+      required: [place_id, name, address, review_url]
+      properties:
+        attributions:
+          type: array
+          items: { $ref: '#/components/schemas/ReviewAttribution' }
+        place_id: { type: string }
+        name: { type: string }
+        address: { type: string }
+        review_url: { type: [string, 'null'] }
+    ReviewPlaces:
+      type: array
+      items: { $ref: '#/components/schemas/ReviewPlace' }
+    ReviewInvitation:
+      type: object
+      required: [id, card_id, brand_id, branch_id, branch_name, operation_id, message, review_url, occurred_at]
+      properties:
+        id: { type: string, format: uuid }
+        card_id: { type: integer }
+        brand_id: { type: integer }
+        branch_id: { type: integer }
+        branch_name: { type: string }
+        operation_id: { type: string, format: uuid }
+        message: { type: string }
+        review_url: { type: string, format: uri }
+        occurred_at: { type: string, format: date-time }
+    ReviewInvitations:
+      type: array
+      items: { $ref: '#/components/schemas/ReviewInvitation' }
+    ReviewMetrics:
+      type: object
+      required: [shown, skipped, clicked]
+      properties:
+        shown: { type: integer, minimum: 0 }
+        skipped: { type: integer, minimum: 0 }
+        clicked: { type: integer, minimum: 0 }
+    ReviewReservation:
+      type: object
+      required: [invitation, reservation_token, expires_at]
+      properties:
+        invitation: { $ref: '#/components/schemas/ReviewInvitation' }
+        reservation_token: { type: string, format: uuid }
+        expires_at: { type: string, format: date-time }
+    ReviewEvents:
+      type: object
+      required: [id, shown, skipped, clicked]
+      properties:
+        id: { type: string, format: uuid }
+        shown: { type: boolean }
+        skipped: { type: boolean }
+        clicked: { type: boolean }
+    ReviewProgressExport:
+      type: object
+      required: [branch_id, purchases]
+      properties:
+        branch_id: { type: integer }
+        purchases: { type: integer }
+    ReviewInvitationExport:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        branch_id: { type: integer }
+        card_id: { type: [integer, 'null'] }
+        operation_id: { type: [string, 'null'], format: uuid }
+        occurred_at: { type: string, format: date-time }
+        cancelled_at: { type: [string, 'null'], format: date-time }
+        shown_at: { type: [string, 'null'], format: date-time }
+        skipped_at: { type: [string, 'null'], format: date-time }
+        clicked_at: { type: [string, 'null'], format: date-time }
+    ReviewSettingsEnvelope:
+      type: object
+      required: [data, request_id]
+      properties:
+        data: { $ref: '#/components/schemas/ReviewSettings' }
+        request_id: { type: string }
+    ReviewPlacesEnvelope:
+      type: object
+      required: [data, request_id]
+      properties:
+        data: { $ref: '#/components/schemas/ReviewPlaces' }
+        request_id: { type: string }
+    ReviewMetricsEnvelope:
+      type: object
+      required: [data, request_id]
+      properties:
+        data: { $ref: '#/components/schemas/ReviewMetrics' }
+        request_id: { type: string }
+    ReviewInvitationsEnvelope:
+      type: object
+      required: [data, request_id]
+      properties:
+        data: { $ref: '#/components/schemas/ReviewInvitations' }
+        request_id: { type: string }
+    ReviewReservationEnvelope:
+      type: object
+      required: [data, request_id]
+      properties:
+        data: { $ref: '#/components/schemas/ReviewReservation' }
+        request_id: { type: string }
+    ReviewEventsEnvelope:
+      type: object
+      required: [data, request_id]
+      properties:
+        data: { $ref: '#/components/schemas/ReviewEvents' }
+        request_id: { type: string }

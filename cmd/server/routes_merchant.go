@@ -8,6 +8,10 @@ import (
 
 func registerMerchantRoutes(r *gin.RouterGroup, h *handler.Handler) {
 	r.GET("/marcas", h.ListBrands)
+	r.GET("/marcas/:brand_id/sucursales/:resource_id/resenas", h.ReviewSettings)
+	r.PUT("/marcas/:brand_id/sucursales/:resource_id/resenas", h.PutReviewSettings)
+	r.POST("/marcas/:brand_id/sucursales/:resource_id/resenas/busqueda", h.SearchReviewPlaces)
+	r.GET("/marcas/:brand_id/sucursales/:resource_id/resenas/metricas", h.ReviewMetrics)
 	r.GET("/marcas/:brand_id", h.Brand)
 	r.PATCH("/marcas/:brand_id", h.UpdateBrand)
 	r.DELETE("/marcas/:brand_id", h.DeleteBrand)

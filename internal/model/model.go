@@ -238,11 +238,13 @@ type AccountExportCard struct {
 	CreatedAt     time.Time `json:"created_at"`
 }
 type AccountExport struct {
-	ExportedAt  time.Time           `json:"exported_at"`
-	User        User                `json:"usuario"`
-	Memberships []Membership        `json:"membresias"`
-	Cards       []AccountExportCard `json:"tarjetas"`
-	Movements   []Movement          `json:"movimientos"`
+	ReviewProgress    []ReviewProgressExport   `json:"progreso_resenas"`
+	ReviewInvitations []ReviewInvitationExport `json:"invitaciones_resenas"`
+	ExportedAt        time.Time                `json:"exported_at"`
+	User              User                     `json:"usuario"`
+	Memberships       []Membership             `json:"membresias"`
+	Cards             []AccountExportCard      `json:"tarjetas"`
+	Movements         []Movement               `json:"movimientos"`
 }
 type Customer struct {
 	ID      int64  `json:"id"`
