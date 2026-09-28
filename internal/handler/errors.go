@@ -13,6 +13,8 @@ import (
 
 func writeErr(c *gin.Context, err error) {
 	switch {
+	case errors.Is(err, service.ErrPlacesUnavailable):
+		web.Error(c, http.StatusServiceUnavailable, "DEPENDENCY_UNAVAILABLE", "Google Places no está disponible", nil)
 	case errors.Is(err, service.ErrMediaTooLarge):
 		web.Error(c, http.StatusRequestEntityTooLarge, "MEDIA_TOO_LARGE", "La imagen supera el máximo permitido", nil)
 	case errors.Is(err, service.ErrMediaType):

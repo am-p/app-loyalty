@@ -8,6 +8,9 @@ import (
 
 func registerCustomerRoutes(r *gin.RouterGroup, h *handler.Handler) {
 	r.GET("/clientes/me", h.Customer)
+	r.GET("/clientes/me/resenas/pendientes", h.PendingReviews)
+	r.POST("/clientes/me/resenas/:invitation_id/reserva", h.ReserveReview)
+	r.POST("/clientes/me/resenas/:invitation_id/eventos", h.ReviewEvent)
 	r.GET("/clientes/me/tarjetas", h.Cards)
 	r.POST("/clientes/me/push-token", h.SavePushToken)
 	r.GET("/clientes/me/movimientos", h.CustomerMovements)
