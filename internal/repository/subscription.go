@@ -341,6 +341,14 @@ func (r *Repository) SaveSubscriptionCheckout(ctx context.Context, brandID int64
 }
 
 func (r *Repository) RecordSubscriptionWebhook(ctx context.Context, notificationID, topic string, provider model.BillingSubscriptionResult) error {
+	return r.recordSubscriptionWebhook(ctx, notificationID, topic, provider, false)
+}
+
+func (r *Repository) RecordSubscriptionWebhookWithConfirmation(ctx context.Context, notificationID, topic string, provider model.BillingSubscriptionResult) error {
+	return r.recordSubscriptionWebhook(ctx, notificationID, topic, provider, true)
+}
+
+func (r *Repository) recordSubscriptionWebhook(ctx context.Context, notificationID, topic string, provider model.BillingSubscriptionResult, notify bool) error {
 	status, ok := providerStatus(provider.Status)
 	if !ok {
 		return ErrInvalidRequest
@@ -365,6 +373,15 @@ func (r *Repository) RecordSubscriptionWebhook(ctx context.Context, notification
 	}
 	if tag.RowsAffected() != 1 {
 		return ErrNotFound
+	}
+	if notify && status == "AUTHORIZED" {
+		var brandID int64
+		if err = tx.QueryRow(ctx, `SELECT marca_id FROM suscripciones_marca WHERE proveedor_suscripcion_id=$1`, provider.ID).Scan(&brandID); err != nil {
+			return err
+		}
+		if err = r.enqueueSubscriptionConfirmation(ctx, tx, brandID); err != nil {
+			return err
+		}
 	}
 	return tx.Commit(ctx)
 }

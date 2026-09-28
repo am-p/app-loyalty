@@ -45,5 +45,7 @@ func registerMerchantRoutes(r *gin.RouterGroup, h *handler.Handler) {
 	r.GET("/marcas/:brand_id/suscripcion", h.Subscription)
 	r.GET("/marcas/:brand_id/referidos/codigos", h.MerchantReferralCodes)
 	r.POST("/marcas/:brand_id/suscripcion/checkout", h.CreateSubscriptionCheckout)
+	r.GET("/suscripciones/:provider_subscription_id/resultado", h.SubscriptionResult)
+	r.POST("/marcas/:brand_id/suscripcion/confirmacion-email", h.RequestSubscriptionConfirmation)
 	r.POST("/marcas/:brand_id/suscripcion/cancelacion", h.CancelSubscription)
 }

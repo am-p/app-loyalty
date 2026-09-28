@@ -58,6 +58,9 @@ func DecryptOutboxToken(item model.OutboxEmail, key []byte) (string, error) {
 // invitation: rotations, acceptance, revocation and expiry invalidate the
 // encrypted payload before it can leave the process.
 func (r *Repository) ValidateClaimedEmail(ctx context.Context, item model.OutboxEmail, token string) error {
+	if item.Kind == "SUBSCRIPTION_CONFIRMATION" {
+		return r.validateSubscriptionConfirmation(ctx, item, token)
+	}
 	if item.Kind == "INFLUENCER_WELCOME" {
 		return r.validateInfluencerWelcome(ctx, item, token)
 	}

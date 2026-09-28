@@ -49,3 +49,12 @@ mezclarlo directamente con este stack. La copia de reconciliación reservará
 con el mismo prefijo pueden omitirse silenciosamente. Antes de aplicar migraciones,
 verificar que existe exactamente un archivo up/down por versión y comprobar el
 historial del ambiente. No adoptar automáticamente la numeración de demos antiguas.
+
+## Confirmación de suscripción (`0029`)
+
+La consulta autenticada de resultado verifica la propiedad de la marca y solicita
+el estado al proveedor; un retorno de navegador no acredita un cobro. El email
+de confirmación tiene snapshot, deduplicación por suscripción y redacción del outbox.
+La migración `0029` conserva los correos de influencers de `0028`. Para una base de
+testing ya en `0029`, aplicar este mismo historial no renumera ni recrea tablas.
+La API requiere esquema `0029`; configurar explícitamente EXPECTED_SCHEMA_VERSION.
