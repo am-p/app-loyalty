@@ -208,14 +208,21 @@ func (c *Client) GetSubscription(ctx context.Context, id string) (model.BillingS
 }
 
 func (c *Client) CancelSubscription(ctx context.Context, id, idempotencyKey string) (model.BillingSubscriptionResult, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, c.baseURL+"/preapproval/"+id, strings.NewReader(`{"status":"canceled"}`))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, c.baseURL+"/preapproval/"+id, strings.NewReader(`{"status":"cancelled"}`))
 	if err != nil {
 		return model.BillingSubscriptionResult{}, err
 	}
 	req.Header.Set("Authorization", "Bearer "+c.accessToken)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Idempotency-Key", idempotencyKey)
-	return c.do(req)
+	out, err := c.do(req)
+	if err != nil {
+		return model.BillingSubscriptionResult{}, err
+	}
+	if out.Status != "cancelled" && out.Status != "canceled" {
+		return model.BillingSubscriptionResult{}, errors.New("mercado pago did not confirm cancellation")
+	}
+	return out, nil
 }
 
 func (c *Client) do(req *http.Request) (model.BillingSubscriptionResult, error) {
