@@ -1050,7 +1050,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { description: La suscripción todavía no está autorizada }
-        '503': { description: EMAIL_UNAVAILABLE, proveedor de correo no disponible }
+        '503': { description: 'EMAIL_UNAVAILABLE, proveedor de correo no disponible' }
   /marcas/{brand_id}/suscripcion/checkout:
     parameters: [{ $ref: '#/components/parameters/BrandId' }]
     post:
