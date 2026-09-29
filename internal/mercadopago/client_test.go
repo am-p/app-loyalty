@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -28,6 +29,42 @@ func TestValidateSignature(t *testing.T) {
 	}
 	if ValidateSignature(header, requestID, resourceID, secret, now.Add(10*time.Minute)) {
 		t.Fatal("stale signature accepted")
+	}
+}
+
+func TestValidateSignatureTimestampFormats(t *testing.T) {
+	now := time.Unix(1_800_000_000, 0)
+	resourceID, requestID, secret := "abc-123", "req-9", "webhook-secret"
+	tests := []struct {
+		name string
+		ts   string
+		want bool
+	}{
+		{"seconds", strconv.FormatInt(now.Unix(), 10), true},
+		{"milliseconds", strconv.FormatInt(now.UnixMilli(), 10), true},
+		{"milliseconds with fraction", strconv.FormatInt(now.Add(-123*time.Millisecond).UnixMilli(), 10), true},
+		{"oldest allowed milliseconds", strconv.FormatInt(now.Add(-5*time.Minute).UnixMilli(), 10), true},
+		{"latest allowed milliseconds", strconv.FormatInt(now.Add(time.Minute).UnixMilli(), 10), true},
+		{"stale seconds", strconv.FormatInt(now.Add(-5*time.Minute-time.Second).Unix(), 10), false},
+		{"stale milliseconds", strconv.FormatInt(now.Add(-5*time.Minute-time.Millisecond).UnixMilli(), 10), false},
+		{"future seconds", strconv.FormatInt(now.Add(time.Minute+time.Second).Unix(), 10), false},
+		{"future milliseconds", strconv.FormatInt(now.Add(time.Minute+time.Millisecond).UnixMilli(), 10), false},
+		{"microseconds", strconv.FormatInt(now.UnixMicro(), 10), false},
+		{"overflow", "9223372036854775808", false},
+		{"non numeric", "not-a-time", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mac := hmac.New(sha256.New, []byte(secret))
+			_, _ = mac.Write([]byte("id:" + resourceID + ";request-id:" + requestID + ";ts:" + tt.ts + ";"))
+			header := "ts=" + tt.ts + ",v1=" + hex.EncodeToString(mac.Sum(nil))
+			if got := ValidateSignature(header, requestID, resourceID, secret, now); got != tt.want {
+				t.Fatalf("signature accepted = %v, want %v", got, tt.want)
+			}
+			if tt.want && ValidateSignature(header, requestID, resourceID, "wrong-secret", now) {
+				t.Fatal("signature accepted with wrong secret")
+			}
+		})
 	}
 }
 

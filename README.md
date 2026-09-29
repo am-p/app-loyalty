@@ -198,6 +198,12 @@ TEST_DATABASE_URL='postgresql://...' \
 - Las imágenes aceptan JPEG, PNG y WebP por contenido real; se reencodean a JPEG/PNG, se limitan a 5 MiB y se reducen a 1024 px para logos o 512 px para iconos. El worker reconcilia uploads interrumpidos y borrados mediante leases persistidos.
 - Readiness comprueba PostgreSQL, versión de esquema, Redis y acceso al bucket privado cuando media está habilitado. Antes de abrir tráfico se debe verificar además un upload/listado/borrado real con credenciales de staging.
 
+### Firma webhook Mercado Pago
+
+La validación acepta timestamps Unix de 10 dígitos (segundos) y 13 dígitos
+(milisegundos), con la misma ventana de frescura. El HMAC conserva el valor
+original `ts`; no se normaliza el texto firmado.
+
 ### Audiencia Google para Android
 
 `GOOGLE_ANDROID_WEB_CLIENT_ID` permite explícitamente el cliente OAuth web usado
