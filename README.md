@@ -289,3 +289,9 @@ Capture escribe MIME .eml con permisos 0600 y no contacta destinatarios. SENT
 en este modo significa guardado local. Conservar el directorio fuera de Git y
 borrar sus mensajes al terminar las pruebas; la retención DB no elimina archivos
 de captura. Capture se rechaza en otros entornos y con verificación requerida.
+
+### Audiencia Google para Android
+
+`GOOGLE_ANDROID_WEB_CLIENT_ID` permite explícitamente el cliente OAuth web usado
+por Android, además de `GOOGLE_CLIENT_ID`. Si está vacío se conserva una única
+audiencia web; los tokens de otras audiencias y emails no verificados se rechazan.
