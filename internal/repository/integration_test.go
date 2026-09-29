@@ -244,7 +244,17 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 		t.Fatalf("legacy session revoked=%t err=%v", legacySessionRevoked, err)
 	}
 	outboxKey := []byte("01234567890123456789012345678901")
-	cfg := config.Config{JWTSecret: "jwt-secret-0123456789012345678901", JWTIssuer: "puntazo", QRPepper: "qr-pepper-01234567890123456789012", DemoSignupEnabled: true, ExpectedSchemaVersion: "0021", PublicAppURL: "https://app.puntazo.test", OutboxEncryptionKey: outboxKey, MediaURLTTL: 5 * time.Minute, MercadoPagoBranchPrice: 12300, MercadoPagoPointsPrice: 45600}
+	reviewMigration, err := os.ReadFile(filepath.Join("..", "..", "migrations", "0022_google_reviews.up.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, string(reviewMigration)); err != nil {
+		t.Fatalf("migration 0022: %v", err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES('0022')`); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Config{JWTSecret: "jwt-secret-0123456789012345678901", JWTIssuer: "puntazo", QRPepper: "qr-pepper-01234567890123456789012", DemoSignupEnabled: true, ExpectedSchemaVersion: "0022", PublicAppURL: "https://app.puntazo.test", OutboxEncryptionKey: outboxKey, MediaURLTTL: 5 * time.Minute, MercadoPagoBranchPrice: 12300, MercadoPagoPointsPrice: 45600}
 	repo := repository.New(pool, outboxKey)
 	blockedGoogleID := "blocked-google-signup"
 	blockedGoogleEmail := "blocked-google@example.com"
@@ -804,6 +814,10 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	again, err := svc.ConfirmAccumulation(ctx, merchant.User.ID, confirmKey, uuid.NewString(), confirmReq)
 	if err != nil || !again.Replayed || !bytes.Equal(confirmed.Body, again.Body) {
 		t.Fatalf("movement replay: %v", err)
+	}
+	var reviewPurchaseCount int64
+	if err = pool.QueryRow(ctx, `SELECT purchases FROM progreso_resenas WHERE usuario_id=$1 AND sucursal_id=$2`, customer.ID, merchant.Merchant.Branch.ID).Scan(&reviewPurchaseCount); err != nil || reviewPurchaseCount != 1 {
+		t.Fatalf("idempotent review purchases=%d err=%v", reviewPurchaseCount, err)
 	}
 	if _, err = svc.ConfirmAccumulation(ctx, merchant.User.ID, uuid.NewString(), uuid.NewString(), confirmReq); !errors.Is(err, repository.ErrPreviewConsumed) {
 		t.Fatalf("consumed preview: %v", err)
@@ -1643,7 +1657,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if _, err = svc.RegisterInvitation(ctx, retiredInvitationToken, model.RegisterInvitationRequest{Name: "Retired Brand Staff", Password: "retired-brand-pass"}); !errors.Is(err, service.ErrIdentityToken) {
 		t.Fatalf("registered invitation from deleted brand: %v", err)
 	}
-	if err = repo.CheckSchema(ctx, "0021"); err != nil {
+	if err = repo.CheckSchema(ctx, "0022"); err != nil {
 		t.Fatal(err)
 	}
 	if err = repo.CheckSchema(ctx, "9999"); err == nil {
