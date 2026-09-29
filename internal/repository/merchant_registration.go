@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-func (r *Repository) CreateDemoMerchant(ctx context.Context, key string, fingerprint []byte, email, passwordHash, ownerName, brandName, branchName string, location model.BranchRegistrationLocation, programType, sessionID string, refreshHash []byte, sessionExpiresAt, authTime time.Time, verifiedAt *time.Time, verificationHash []byte, verificationExpires time.Time, message *model.EmailMessage, build func(model.User, model.MerchantContext) ([]byte, error)) (IdempotentResult, error) {
+func (r *Repository) CreateDemoMerchant(ctx context.Context, key string, fingerprint []byte, email, passwordHash, ownerName, brandName, branchName string, location model.BranchRegistrationLocation, programType, referralCode, sessionID string, refreshHash []byte, sessionExpiresAt, authTime time.Time, verifiedAt *time.Time, verificationHash []byte, verificationExpires time.Time, message *model.EmailMessage, build func(model.User, model.MerchantContext) ([]byte, error)) (IdempotentResult, error) {
 	tx, err := r.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return IdempotentResult{}, err
@@ -31,6 +31,9 @@ func (r *Repository) CreateDemoMerchant(ctx context.Context, key string, fingerp
 	}
 	merchant, err := createMerchantResources(ctx, tx, u.ID, brandName, branchName, location, programType)
 	if err != nil {
+		return IdempotentResult{}, err
+	}
+	if err = AttributeReferral(ctx, tx, merchant.BrandID, programType, referralCode); err != nil {
 		return IdempotentResult{}, err
 	}
 	if message != nil {
@@ -95,7 +98,7 @@ func createMerchantResources(ctx context.Context, tx pgx.Tx, userID int64, brand
 	}, nil
 }
 
-func (r *Repository) CreateGoogleMerchant(ctx context.Context, googleID, email, ownerName, brandName, branchName string, location model.BranchRegistrationLocation, programType string) (model.User, error) {
+func (r *Repository) CreateGoogleMerchant(ctx context.Context, googleID, email, ownerName, brandName, branchName string, location model.BranchRegistrationLocation, programType string, referralCode ...string) (model.User, error) {
 	tx, err := r.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return model.User{}, err
@@ -107,7 +110,15 @@ func (r *Repository) CreateGoogleMerchant(ctx context.Context, googleID, email, 
 	if err != nil {
 		return model.User{}, normalize(err)
 	}
-	if _, err = createMerchantResources(ctx, tx, u.ID, brandName, branchName, location, programType); err != nil {
+	merchant, err := createMerchantResources(ctx, tx, u.ID, brandName, branchName, location, programType)
+	if err != nil {
+		return model.User{}, err
+	}
+	code := ""
+	if len(referralCode) > 0 {
+		code = referralCode[0]
+	}
+	if err = AttributeReferral(ctx, tx, merchant.BrandID, programType, code); err != nil {
 		return model.User{}, err
 	}
 	if err = tx.Commit(ctx); err != nil {

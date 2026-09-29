@@ -1,2 +1,5 @@
 .env
 *~
+
+# Local auxiliary Git worktrees
+/.worktrees/

@@ -2,6 +2,7 @@ package repository
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -16,10 +17,10 @@ var (
 	ErrPreviewChanged             = errors.New("preview changed")
 	ErrInsufficientBalance        = errors.New("insufficient balance")
 	ErrInvalidRequest             = errors.New("invalid request")
+	ErrReferralCodeInvalid        = fmt.Errorf("referral code invalid: %w", ErrInvalidRequest)
 	ErrForbidden                  = errors.New("forbidden")
 	ErrSessionReuse               = errors.New("session refresh reuse")
 	ErrPreconditionFailed         = errors.New("precondition failed")
-	ErrOwnershipTransfer          = errors.New("ownership transfer required")
 	ErrConflict                   = errors.New("resource conflict")
 	ErrSubscriptionChangeRequired = errors.New("cancel the subscription before changing billable resources")
 	ErrProgramTypeImmutable       = errors.New("program type immutable")

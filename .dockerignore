@@ -9,3 +9,6 @@ Dockerfile*
 docker-compose*.yml
 README.md
 openapi.yaml
+
+# Local auxiliary Git worktrees
+.worktrees/
