@@ -78,8 +78,12 @@ func main() {
 			os.Exit(1)
 		}
 	}
-	if cfg.MailProvider == "smtp" {
-		go (mailer.Worker{Repo: repo, Sender: mailer.NewSMTP(cfg), Logger: logger, Interval: cfg.MailPollInterval, PublicAppURL: cfg.PublicAppURL, CipherKey: cfg.OutboxEncryptionKey, LogoStore: mediaStore}).Run(workerCtx)
+	if cfg.MailProvider != "disabled" {
+		var sender mailer.Sender = mailer.NewSMTP(cfg)
+		if cfg.MailProvider == "capture" {
+			sender = mailer.CaptureSender{Directory: cfg.MailCaptureDirectory, FromName: cfg.MailFromName, FromAddress: cfg.MailFromAddress}
+		}
+		go (mailer.Worker{Repo: repo, Sender: sender, Logger: logger, Interval: cfg.MailPollInterval, PublicAppURL: cfg.PublicAppURL, CipherKey: cfg.OutboxEncryptionKey, LogoStore: mediaStore}).Run(workerCtx)
 	}
 	go (push.Worker{Repo: repo, Sender: push.NewClient(&http.Client{Timeout: 10 * time.Second}), Logger: logger, Interval: time.Second}).Run(workerCtx)
 	go (maintenance.Worker{Repo: repo, Store: mediaStore, Logger: logger, Config: cfg}).Run(workerCtx)
@@ -87,6 +91,7 @@ func main() {
 	if cfg.MercadoPagoProvider == "api" {
 		svc.Billing = mercadopago.New(cfg.MercadoPagoAPIURL, cfg.MercadoPagoAccessToken, cfg.MercadoPagoTimeout)
 	}
+	go svc.RunSubscriptionPriceChanges(workerCtx, logger)
 	h := &handler.Handler{Service: svc, Repo: repo, Tokens: tokens, CardEvents: cardEvents, Limiter: limiter, Uploads: middleware.NewUploadSemaphore(cfg.MediaUploadGlobalLimit, cfg.MediaUploadActorLimit), Logger: logger, TrustedProxyCount: cfg.TrustedProxyCount}
 	router := newRouter(h, tokens, logger)
 	server := &http.Server{Addr: ":" + cfg.Port, Handler: router, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: cfg.ReadTimeout, WriteTimeout: cfg.WriteTimeout, IdleTimeout: cfg.IdleTimeout, MaxHeaderBytes: 32 << 10}

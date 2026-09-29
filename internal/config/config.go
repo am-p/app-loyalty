@@ -6,6 +6,7 @@ import (
 	"net/mail"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -23,6 +24,7 @@ type Config struct {
 	EmailVerificationRequired bool
 	PublicAppURL              string
 	MailProvider              string
+	MailCaptureDirectory      string
 	MailFromAddress           string
 	MailFromName              string
 	SMTPHost                  string
@@ -83,14 +85,15 @@ func Load() (Config, error) {
 		DemoSignupEnabled: envBool("DEMO_SIGNUP_ENABLED", false), AppVersion: envDefault("APP_VERSION", "dev"),
 		EmailVerificationRequired: envBool("EMAIL_VERIFICATION_REQUIRED", false), PublicAppURL: envDefault("PUBLIC_APP_URL", "http://localhost:8081"),
 		MailProvider: strings.ToLower(envDefault("MAIL_PROVIDER", "disabled")), MailFromAddress: strings.TrimSpace(os.Getenv("MAIL_FROM_ADDRESS")), MailFromName: envDefault("MAIL_FROM_NAME", "Puntazo"),
-		SMTPHost: strings.TrimSpace(os.Getenv("SMTP_HOST")), SMTPPort: envInt("SMTP_PORT", 587), SMTPUsername: os.Getenv("SMTP_USERNAME"), SMTPPassword: os.Getenv("SMTP_PASSWORD"), SMTPTLSMode: strings.ToLower(envDefault("SMTP_TLS_MODE", "starttls")), MailPollInterval: time.Duration(envInt("MAIL_POLL_INTERVAL_SECONDS", 5)) * time.Second,
+		MailCaptureDirectory: strings.TrimSpace(os.Getenv("MAIL_CAPTURE_DIRECTORY")),
+		SMTPHost:             strings.TrimSpace(os.Getenv("SMTP_HOST")), SMTPPort: envInt("SMTP_PORT", 587), SMTPUsername: os.Getenv("SMTP_USERNAME"), SMTPPassword: os.Getenv("SMTP_PASSWORD"), SMTPTLSMode: strings.ToLower(envDefault("SMTP_TLS_MODE", "starttls")), MailPollInterval: time.Duration(envInt("MAIL_POLL_INTERVAL_SECONDS", 5)) * time.Second,
 		MediaProvider: strings.ToLower(envDefault("MEDIA_PROVIDER", "disabled")), S3Endpoint: s3Endpoint, S3PublicEndpoint: strings.TrimSpace(envDefault("S3_PUBLIC_ENDPOINT", s3Endpoint)), S3Region: envDefault("S3_REGION", "us-east-1"), S3Bucket: strings.TrimSpace(os.Getenv("S3_BUCKET")), S3AccessKeyID: os.Getenv("S3_ACCESS_KEY_ID"), S3SecretAccessKey: os.Getenv("S3_SECRET_ACCESS_KEY"), S3ServerSideEncryption: strings.ToUpper(envDefault("S3_SERVER_SIDE_ENCRYPTION", "AES256")), MediaURLTTL: time.Duration(envInt("MEDIA_URL_TTL_SECONDS", 300)) * time.Second, MediaCleanupInterval: time.Duration(envInt("MEDIA_CLEANUP_INTERVAL_SECONDS", 60)) * time.Second, MediaUploadGlobalLimit: envInt("MEDIA_UPLOAD_GLOBAL_CONCURRENCY", 8), MediaUploadActorLimit: envInt("MEDIA_UPLOAD_ACTOR_CONCURRENCY", 2),
 		RetentionInterval: time.Duration(envInt("RETENTION_INTERVAL_SECONDS", 300)) * time.Second, RetentionBatchSize: envInt("RETENTION_BATCH_SIZE", 500), PreviewRetention: time.Duration(envInt("PREVIEW_RETENTION_HOURS", 168)) * time.Hour, IdempotencyRetention: time.Duration(envInt("IDEMPOTENCY_RETENTION_HOURS", 720)) * time.Hour, SessionRetention: time.Duration(envInt("SESSION_RETENTION_HOURS", 720)) * time.Hour, IdentityTokenRetention: time.Duration(envInt("IDENTITY_TOKEN_RETENTION_HOURS", 168)) * time.Hour, OutboxRedactAfter: time.Duration(envInt("OUTBOX_REDACT_AFTER_HOURS", 168)) * time.Hour, OutboxRetention: time.Duration(envInt("OUTBOX_RETENTION_HOURS", 720)) * time.Hour,
-		GitCommit: envDefault("GIT_COMMIT", "0000000"), ExpectedSchemaVersion: envDefault("EXPECTED_SCHEMA_VERSION", "0022"),
+		GitCommit: envDefault("GIT_COMMIT", "0000000"), ExpectedSchemaVersion: envDefault("EXPECTED_SCHEMA_VERSION", "0028"),
 		Port: envDefault("PORT", "8080"), TrustedProxyCount: envInt("TRUSTED_PROXY_COUNT", 0),
 		ReadTimeout: 10 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second,
 		RateLimitProvider: strings.ToLower(envDefault("RATE_LIMIT_PROVIDER", "memory")), RedisURL: strings.TrimSpace(os.Getenv("REDIS_URL")), RateLimitPrefix: strings.TrimSpace(os.Getenv("RATE_LIMIT_PREFIX")), RateLimitTimeout: time.Duration(envInt("RATE_LIMIT_TIMEOUT_MS", 200)) * time.Millisecond, RateLimitDevFallback: envBool("RATE_LIMIT_DEV_FALLBACK", false),
-		MercadoPagoProvider: strings.ToLower(envDefault("MERCADO_PAGO_PROVIDER", "disabled")), MercadoPagoAccessToken: strings.TrimSpace(os.Getenv("MERCADO_PAGO_ACCESS_TOKEN")), MercadoPagoWebhookSecret: strings.TrimSpace(os.Getenv("MERCADO_PAGO_WEBHOOK_SECRET")), MercadoPagoAPIURL: strings.TrimRight(envDefault("MERCADO_PAGO_API_URL", "https://api.mercadopago.com"), "/"), MercadoPagoBranchPrice: int64(envInt("MERCADO_PAGO_BRANCH_PRICE_CENTS", 1500000)), MercadoPagoPointsPrice: int64(envInt("MERCADO_PAGO_POINTS_BRANCH_PRICE_CENTS", 2000000)), MercadoPagoTimeout: time.Duration(envInt("MERCADO_PAGO_TIMEOUT_MS", 10000)) * time.Millisecond,
+		MercadoPagoProvider: strings.ToLower(envDefault("MERCADO_PAGO_PROVIDER", "disabled")), MercadoPagoAccessToken: strings.TrimSpace(os.Getenv("MERCADO_PAGO_ACCESS_TOKEN")), MercadoPagoWebhookSecret: strings.TrimSpace(os.Getenv("MERCADO_PAGO_WEBHOOK_SECRET")), MercadoPagoAPIURL: strings.TrimRight(envDefault("MERCADO_PAGO_API_URL", "https://api.mercadopago.com"), "/"), MercadoPagoBranchPrice: int64(envInt("MERCADO_PAGO_BRANCH_PRICE_CENTS", 2500000)), MercadoPagoPointsPrice: int64(envInt("MERCADO_PAGO_POINTS_BRANCH_PRICE_CENTS", 2000000)), MercadoPagoTimeout: time.Duration(envInt("MERCADO_PAGO_TIMEOUT_MS", 10000)) * time.Millisecond,
 	}
 	if c.DatabaseURL == "" {
 		return Config{}, errors.New("DATABASE_URL is required")
@@ -134,14 +137,20 @@ func Load() (Config, error) {
 	if production && (string(c.OutboxEncryptionKey) == c.JWTSecret || string(c.OutboxEncryptionKey) == c.QRPepper) {
 		return Config{}, errors.New("a separate 32-byte OUTBOX_ENCRYPTION_KEY is required in production")
 	}
-	if c.MailProvider != "disabled" && c.MailProvider != "smtp" {
-		return Config{}, errors.New("MAIL_PROVIDER must be disabled or smtp")
+	if c.MailProvider != "disabled" && c.MailProvider != "smtp" && c.MailProvider != "capture" {
+		return Config{}, errors.New("MAIL_PROVIDER must be disabled, smtp or capture (development only)")
+	}
+	if c.MailProvider == "capture" && (!strings.EqualFold(os.Getenv("APP_ENV"), "development") || !filepath.IsAbs(c.MailCaptureDirectory)) {
+		return Config{}, errors.New("mail capture requires APP_ENV=development and absolute MAIL_CAPTURE_DIRECTORY")
+	}
+	if c.MailProvider != "disabled" && len(c.OutboxEncryptionKey) != 32 {
+		return Config{}, errors.New("OUTBOX_ENCRYPTION_KEY is required while mail delivery is enabled")
 	}
 	if c.EmailVerificationRequired && c.MailProvider != "smtp" {
 		return Config{}, errors.New("MAIL_PROVIDER=smtp is required while email verification is required")
 	}
-	if c.MailProvider == "smtp" {
-		if c.MailFromAddress == "" || c.SMTPHost == "" || c.SMTPPort < 1 || c.SMTPPort > 65535 {
+	if c.MailProvider != "disabled" {
+		if c.MailFromAddress == "" || (c.MailProvider == "smtp" && (c.SMTPHost == "" || c.SMTPPort < 1 || c.SMTPPort > 65535)) {
 			return Config{}, errors.New("MAIL_FROM_ADDRESS, SMTP_HOST and valid SMTP_PORT are required")
 		}
 		if c.SMTPTLSMode != "starttls" && c.SMTPTLSMode != "tls" {

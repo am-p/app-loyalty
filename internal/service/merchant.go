@@ -63,8 +63,8 @@ func (s *Service) RegisterDemoMerchant(ctx context.Context, key, requestID strin
 		BranchPostalCode                                  *string  `json:",omitempty"`
 		BranchLatitude                                    *float64 `json:",omitempty"`
 		BranchLongitude                                   *float64 `json:",omitempty"`
-		ProgramType                                       string
-	}{email, req.Password, owner, brand, branch, location.BranchAddress, location.BranchLocality, location.BranchProvince, location.BranchPostalCode, location.BranchLatitude, location.BranchLongitude, programType})
+		ProgramType, ReferralCode                         string
+	}{email, req.Password, owner, brand, branch, location.BranchAddress, location.BranchLocality, location.BranchProvince, location.BranchPostalCode, location.BranchLatitude, location.BranchLongitude, programType, strings.ToUpper(strings.TrimSpace(req.ReferralCode))})
 	credentials, err := newSessionCredentials()
 	if err != nil {
 		return repository.IdempotentResult{}, err
@@ -88,7 +88,7 @@ func (s *Service) RegisterDemoMerchant(ctx context.Context, key, requestID strin
 	var result repository.IdempotentResult
 	err = retry(ctx, func() error {
 		var e error
-		result, e = s.Repo.CreateDemoMerchant(ctx, key, fingerprint, email, string(passwordHash), owner, brand, branch, location, programType, credentials.id, credentials.hash, credentials.expiresAt, credentials.authTime, verifiedAt, verificationHash, verificationExpires, verificationMessage, func(u model.User, m model.MerchantContext) ([]byte, error) {
+		result, e = s.Repo.CreateDemoMerchant(ctx, key, fingerprint, email, string(passwordHash), owner, brand, branch, location, programType, req.ReferralCode, credentials.id, credentials.hash, credentials.expiresAt, credentials.authTime, verifiedAt, verificationHash, verificationExpires, verificationMessage, func(u model.User, m model.MerchantContext) ([]byte, error) {
 			if s.Config.EmailVerificationRequired {
 				return json.Marshal(web.Envelope[model.DemoMerchantData]{Data: model.DemoMerchantData{User: u, Merchant: m, VerificationRequired: true}, RequestID: requestID})
 			}

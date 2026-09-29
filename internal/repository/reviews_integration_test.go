@@ -29,7 +29,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func reviewsDB(t *testing.T) *pgxpool.Pool {
+func reviewsDB(t *testing.T, historical ...bool) *pgxpool.Pool {
 	t.Helper()
 	dsn := os.Getenv("TEST_DATABASE_URL")
 	if dsn == "" {
@@ -67,7 +67,9 @@ func reviewsDB(t *testing.T) *pgxpool.Pool {
 	}
 	sort.Strings(files)
 	for _, f := range files {
-		if strings.HasPrefix(filepath.Base(f), "0022") {
+		// Preserve the 0021 fixture for the reviews migration upgrade test.
+		// Other tests include later candidate migrations for account compatibility.
+		if strings.HasPrefix(filepath.Base(f), "0022") || (len(historical) > 0 && historical[0] && filepath.Base(f)[:4] > "0021") {
 			continue
 		}
 		sql, e := os.ReadFile(f)
@@ -154,7 +156,7 @@ func enabledReviewInput(threshold int) model.ReviewSettingsInput {
 	return model.ReviewSettingsInput{Enabled: true, PurchaseThreshold: threshold, Message: "Contanos tu experiencia", DestinationType: "MANUAL_LINK", ManualReviewURL: &url}
 }
 func TestReviewsMigrationBackfillAndThreshold(t *testing.T) {
-	p := reviewsDB(t)
+	p := reviewsDB(t, true)
 	f := fixtureReviews(t, p)
 	insertReviewMovement(t, p, f, true)
 	insertReviewMovement(t, p, f, true)

@@ -26,9 +26,36 @@ func TestRouteInventoryAndAuthentication(t *testing.T) {
 		"POST /v1/auth/password-reset/request", "POST /v1/auth/password-reset/confirm",
 		"GET /v1/invitaciones/:token", "POST /v1/invitaciones/:token/registrar",
 		"POST /v1/mercado-pago/webhooks",
+		"POST /v1/referidos/validacion",
+		"POST /v1/backoffice/login",
 		"POST /auth/register", "POST /auth/login", "POST /auth/google",
 	}
 	protected := []struct{ method, pattern, request string }{
+		{"GET", "/v1/backoffice/me", "/v1/backoffice/me"},
+		{"GET", "/v1/backoffice/customers", "/v1/backoffice/customers"},
+		{"GET", "/v1/backoffice/prices", "/v1/backoffice/prices"},
+		{"GET", "/v1/backoffice/prices/:program/preview", "/v1/backoffice/prices/SELLOS/preview?unit_price_minor=2500000"},
+		{"PUT", "/v1/backoffice/prices/:program", "/v1/backoffice/prices/SELLOS"},
+		{"GET", "/v1/backoffice/price-changes", "/v1/backoffice/price-changes?limit=20"},
+		{"GET", "/v1/backoffice/price-changes/:id", "/v1/backoffice/price-changes/00000000-0000-4000-8000-000000000001"},
+		{"POST", "/v1/backoffice/price-changes/:id/retry", "/v1/backoffice/price-changes/00000000-0000-4000-8000-000000000001/retry"},
+		{"POST", "/v1/backoffice/logout", "/v1/backoffice/logout"},
+		{"GET", "/v1/backoffice/campaigns", "/v1/backoffice/campaigns"},
+		{"PUT", "/v1/backoffice/campaigns/:id", "/v1/backoffice/campaigns/:id"},
+		{"POST", "/v1/backoffice/campaigns", "/v1/backoffice/campaigns"},
+		{"PATCH", "/v1/backoffice/campaigns/:id/active", "/v1/backoffice/campaigns/1/active"},
+		{"GET", "/v1/backoffice/influencers", "/v1/backoffice/influencers"},
+		{"GET", "/v1/backoffice/influencers/:id/earnings", "/v1/backoffice/influencers/1/earnings"},
+		{"POST", "/v1/backoffice/influencers", "/v1/backoffice/influencers"},
+		{"GET", "/v1/backoffice/codes", "/v1/backoffice/codes"},
+		{"POST", "/v1/backoffice/codes", "/v1/backoffice/codes"},
+		{"PATCH", "/v1/backoffice/codes/:id/active", "/v1/backoffice/codes/1/active"},
+		{"GET", "/v1/backoffice/attributions", "/v1/backoffice/attributions"},
+		{"GET", "/v1/backoffice/rewards", "/v1/backoffice/rewards"},
+		{"GET", "/v1/backoffice/metrics", "/v1/backoffice/metrics"},
+		{"POST", "/v1/backoffice/rewards/:invoice/settle", "/v1/backoffice/rewards/1/settle"},
+		{"GET", "/v1/backoffice/brands/:id/credit-allocations", "/v1/backoffice/brands/1/credit-allocations"},
+		{"POST", "/v1/backoffice/brands/:id/credit-allocations", "/v1/backoffice/brands/1/credit-allocations"},
 		{"GET", "/v1/marcas/:brand_id/sucursales/:resource_id/resenas", "/v1/marcas/1/sucursales/1/resenas"},
 		{"PUT", "/v1/marcas/:brand_id/sucursales/:resource_id/resenas", "/v1/marcas/1/sucursales/1/resenas"},
 		{"POST", "/v1/marcas/:brand_id/sucursales/:resource_id/resenas/busqueda", "/v1/marcas/1/sucursales/1/resenas/busqueda"},
@@ -76,6 +103,7 @@ func TestRouteInventoryAndAuthentication(t *testing.T) {
 		{"PATCH", "/v1/marcas/:brand_id/personal/:membership_id", "/v1/marcas/1/personal/1"},
 		{"DELETE", "/v1/marcas/:brand_id/personal/:membership_id", "/v1/marcas/1/personal/1"},
 		{"GET", "/v1/marcas/:brand_id/suscripcion", "/v1/marcas/1/suscripcion"},
+		{"GET", "/v1/marcas/:brand_id/referidos/codigos", "/v1/marcas/1/referidos/codigos"},
 		{"POST", "/v1/marcas/:brand_id/suscripcion/checkout", "/v1/marcas/1/suscripcion/checkout"},
 		{"POST", "/v1/marcas/:brand_id/suscripcion/cancelacion", "/v1/marcas/1/suscripcion/cancelacion"},
 		{"GET", "/v1/clientes/me", "/v1/clientes/me"},
@@ -112,5 +140,27 @@ func TestRouteInventoryAndAuthentication(t *testing.T) {
 	}
 	for key := range expected {
 		t.Errorf("missing route %s", key)
+	}
+}
+
+func TestBackofficeRejectsCustomerAndMerchantAppTokens(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	tokens := auth.NewTokens("01234567890123456789012345678901", "puntazo")
+	h := &handler.Handler{Service: &service.Service{}, Limiter: middleware.NewRateLimiter(), Logger: logger}
+	r := newRouter(h, tokens, logger)
+	for _, accountType := range []string{"CLIENTE_FINAL", "PERSONAL_MARCA"} {
+		token, err := tokens.Generate(42, accountType)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, route := range []string{"/v1/backoffice/me", "/v1/backoffice/customers", "/v1/backoffice/campaigns", "/v1/backoffice/brands/1/credit-allocations"} {
+			request := httptest.NewRequest(http.MethodGet, route, nil)
+			request.Header.Set("Authorization", "Bearer "+token)
+			response := httptest.NewRecorder()
+			r.ServeHTTP(response, request)
+			if response.Code != http.StatusUnauthorized {
+				t.Fatalf("%s on %s: expected 401, got %d", accountType, route, response.Code)
+			}
+		}
 	}
 }

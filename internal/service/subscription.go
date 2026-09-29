@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"clientesFrecuentes/internal/model"
@@ -22,7 +23,16 @@ func (s *Service) Subscription(ctx context.Context, actorID, brandID int64) (mod
 	}
 	record, err := s.Repo.GetSubscriptionRecord(ctx, brandID)
 	if errors.Is(err, repository.ErrNotFound) {
-		return model.Subscription{BrandID: brandID, Provider: "MERCADO_PAGO", Status: "NOT_CONFIGURED", Currency: "ARS", UnitAmountCents: unitPrice, ActiveBranches: billing.ActiveBranches, MonthlyAmountCents: unitPrice * billing.ActiveBranches, ProviderConfigured: s.Billing != nil, TrialAvailable: true, UpdatedAt: s.Now()}, nil
+		price, priceErr := s.Repo.SubscriptionPrice(ctx, billing.ProgramType, unitPrice)
+		if priceErr != nil {
+			return model.Subscription{}, priceErr
+		}
+		unitPrice = price.UnitPriceMinor
+		discounted, remaining, priceErr := s.Repo.ReferralCheckoutPrice(ctx, brandID, unitPrice)
+		if priceErr != nil {
+			return model.Subscription{}, priceErr
+		}
+		return model.Subscription{BrandID: brandID, Provider: "MERCADO_PAGO", Status: "NOT_CONFIGURED", Currency: "ARS", UnitAmountCents: discounted, ActiveBranches: billing.ActiveBranches, MonthlyAmountCents: discounted * billing.ActiveBranches, FullMonthlyAmountCents: unitPrice * billing.ActiveBranches, DiscountRemainingCharges: remaining, ProviderConfigured: s.Billing != nil, TrialAvailable: true, UpdatedAt: s.Now()}, nil
 	}
 	if err != nil {
 		return model.Subscription{}, err
@@ -70,7 +80,7 @@ func (s *Service) CreateSubscriptionCheckout(ctx context.Context, actorID, brand
 	created, err := s.Billing.CreateSubscription(ctx, model.BillingSubscriptionRequest{
 		Reason: fmt.Sprintf("Puntazo %s mensual · %d sucursal(es)", billing.ProgramType, reserved.Subscription.ActiveBranches), ExternalReference: reserved.ExternalReference,
 		PayerEmail: billing.PayerEmail, BackURL: strings.TrimRight(s.Config.PublicAppURL, "/") + "/suscripcion/resultado",
-		IdempotencyKey: providerKey, Currency: "ARS", Amount: float64(reserved.Subscription.MonthlyAmountCents) / 100, FreeTrialMonths: reserved.TrialMonths,
+		IdempotencyKey: providerKey, Currency: "ARS", AmountMinor: reserved.Subscription.MonthlyAmountCents, FreeTrialMonths: reserved.TrialMonths,
 	})
 	if err != nil {
 		return model.Subscription{}, ErrBillingProviderFailure
@@ -86,15 +96,28 @@ func (s *Service) CreateSubscriptionCheckout(ctx context.Context, actorID, brand
 			return existing.Subscription, nil
 		}
 	}
-	out.ProviderConfigured = true
-	return out, err
+	if err != nil {
+		return out, err
+	}
+	current, err := s.Repo.GetSubscriptionRecord(ctx, brandID)
+	if err != nil {
+		return out, err
+	}
+	current.Subscription.ProviderConfigured = true
+	return current.Subscription, nil
 }
 
 func (s *Service) ApplySubscriptionWebhook(ctx context.Context, notificationID, topic, resourceID string) error {
 	if s.Billing == nil {
 		return ErrBillingUnavailable
 	}
-	if notificationID == "" || topic != "subscription_preapproval" || resourceID == "" {
+	if notificationID == "" || resourceID == "" {
+		return ErrInvalidRequest
+	}
+	if topic == "subscription_authorized_payment" || topic == "payment" {
+		return s.applyReferralPaymentWebhook(ctx, notificationID, topic, resourceID)
+	}
+	if topic != "subscription_preapproval" {
 		return ErrInvalidRequest
 	}
 	provider, err := s.Billing.GetSubscription(ctx, resourceID)
@@ -105,6 +128,95 @@ func (s *Service) ApplySubscriptionWebhook(ctx context.Context, notificationID, 
 		return ErrInvalidRequest
 	}
 	return s.Repo.RecordSubscriptionWebhook(ctx, notificationID, topic, provider)
+}
+
+type referralBillingProvider interface {
+	GetAuthorizedPayment(context.Context, string) (model.BillingInvoice, error)
+	GetPayment(context.Context, string) (model.BillingPayment, error)
+	UpdateSubscriptionAmount(context.Context, string, int64, string) (model.BillingSubscriptionResult, error)
+}
+
+var settlementReferencePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9/_:-]{5,119}$`)
+
+// RecordManualMerchantCredit records a Finance attestation of a completed
+// external reimbursement. The provider invoice and payment are read back here;
+// the external settlement itself remains an operator-supplied reference.
+func (s *Service) RecordManualMerchantCredit(ctx context.Context, brandID, financeUserID, amountMinor int64, idempotencyKey, invoiceID, externalReference string) (repository.MerchantCreditAllocation, error) {
+	var zero repository.MerchantCreditAllocation
+	provider, ok := s.Billing.(referralBillingProvider)
+	if !ok {
+		return zero, ErrBillingUnavailable
+	}
+	key, err := uuid.Parse(strings.TrimSpace(idempotencyKey))
+	if err != nil || brandID < 1 || financeUserID < 1 || amountMinor < 1 || !settlementReferencePattern.MatchString(externalReference) {
+		return zero, ErrInvalidRequest
+	}
+	invoice, err := provider.GetAuthorizedPayment(ctx, invoiceID)
+	if err != nil {
+		return zero, ErrBillingProviderFailure
+	}
+	if invoice.ID != invoiceID || invoice.SubscriptionID == "" || invoice.Currency != "ARS" || invoice.PaymentID == "" || invoice.AmountMinor < 1 {
+		return zero, ErrInvalidRequest
+	}
+	payment, err := provider.GetPayment(ctx, invoice.PaymentID)
+	if err != nil {
+		return zero, ErrBillingProviderFailure
+	}
+	if payment.ID != invoice.PaymentID || payment.Status != "approved" || payment.Currency != "ARS" || payment.AmountMinor != invoice.AmountMinor || payment.RefundedMinor != 0 {
+		return zero, ErrInvalidRequest
+	}
+	return s.Repo.RecordMerchantCreditAllocation(ctx, brandID, financeUserID, amountMinor, key, externalReference, invoice, payment)
+}
+
+func (s *Service) applyReferralPaymentWebhook(ctx context.Context, notificationID, topic, resourceID string) error {
+	provider, ok := s.Billing.(referralBillingProvider)
+	if !ok {
+		return ErrBillingUnavailable
+	}
+	if topic == "payment" {
+		if _, err := s.Repo.ReferralInvoiceForPayment(ctx, resourceID); errors.Is(err, repository.ErrNotFound) {
+			return nil
+		} else if err != nil {
+			return err
+		}
+		payment, err := provider.GetPayment(ctx, resourceID)
+		if err != nil {
+			return ErrBillingProviderFailure
+		}
+		if payment.ID != resourceID || payment.Currency != "ARS" || payment.AmountMinor < 1 || payment.RefundedMinor < 0 || payment.RefundedMinor > payment.AmountMinor {
+			return ErrInvalidRequest
+		}
+		return s.Repo.ReverseReferralPayment(ctx, notificationID, payment)
+	}
+	invoiceID := resourceID
+	invoice, err := provider.GetAuthorizedPayment(ctx, invoiceID)
+	if err != nil {
+		return ErrBillingProviderFailure
+	}
+	if invoice.ID != invoiceID || invoice.SubscriptionID == "" || invoice.Currency != "ARS" || invoice.AmountMinor < 0 {
+		return ErrInvalidRequest
+	}
+	if invoice.PaymentID == "" || invoice.AmountMinor == 0 {
+		return nil
+	} // scheduled, failed or free invoices do not earn rewards
+	payment, err := provider.GetPayment(ctx, invoice.PaymentID)
+	if err != nil {
+		return ErrBillingProviderFailure
+	}
+	if payment.ID != invoice.PaymentID || payment.Currency != "ARS" || payment.AmountMinor != invoice.AmountMinor || payment.RefundedMinor < 0 || payment.RefundedMinor > payment.AmountMinor {
+		return ErrInvalidRequest
+	}
+	advance := func(ctx context.Context, id string, amountMinor int64, key string) error {
+		updated, err := provider.UpdateSubscriptionAmount(ctx, id, amountMinor, key)
+		if err != nil {
+			return ErrBillingProviderFailure
+		}
+		if updated.ID != id || updated.AmountMinor != amountMinor {
+			return ErrBillingProviderFailure
+		}
+		return nil
+	}
+	return s.Repo.RecordReferralInvoice(ctx, notificationID, invoice, payment, advance)
 }
 
 func (s *Service) CancelSubscription(ctx context.Context, actorID, brandID int64, idempotencyKey string) (model.Subscription, error) {
@@ -141,8 +253,15 @@ func (s *Service) CancelSubscription(ctx context.Context, actorID, brandID int64
 		return model.Subscription{}, ErrBillingProviderFailure
 	}
 	out, err := s.Repo.UpdateSubscriptionFromProvider(ctx, provider)
-	out.ProviderConfigured = true
-	return out, err
+	if err != nil {
+		return out, err
+	}
+	current, err := s.Repo.GetSubscriptionRecord(ctx, brandID)
+	if err != nil {
+		return out, err
+	}
+	current.Subscription.ProviderConfigured = true
+	return current.Subscription, nil
 }
 
 func (s *Service) subscriptionUnitPrice(programType string) (int64, bool) {

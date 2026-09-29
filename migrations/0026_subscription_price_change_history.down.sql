@@ -1,0 +1,2 @@
+DROP INDEX subscription_price_changes_created_idx;
+ALTER TABLE subscription_price_changes DROP COLUMN previous_unit_price_minor;

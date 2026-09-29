@@ -217,8 +217,8 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if _, err = pool.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES('0018')`); err != nil {
 		t.Fatal(err)
 	}
-	for _, version := range []string{"0019", "0020", "0021"} {
-		migration, readErr := os.ReadFile(filepath.Join("..", "..", "migrations", version+map[string]string{"0019": "_mercado_pago_subscriptions", "0020": "_subscription_checkout_reservation", "0021": "_expo_push"}[version]+".up.sql"))
+	for _, version := range []string{"0019", "0020", "0021", "0022", "0023", "0024", "0025", "0026", "0027", "0028"} {
+		migration, readErr := os.ReadFile(filepath.Join("..", "..", "migrations", version+map[string]string{"0019": "_mercado_pago_subscriptions", "0020": "_subscription_checkout_reservation", "0021": "_expo_push", "0022": "_google_reviews", "0023": "_referrals", "0024": "_referral_billing", "0025": "_subscription_prices", "0026": "_subscription_price_change_history", "0027": "_referral_campaign_editing", "0028": "_influencer_welcome_emails"}[version]+".up.sql"))
 		if readErr != nil {
 			t.Fatal(readErr)
 		}
@@ -244,18 +244,51 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 		t.Fatalf("legacy session revoked=%t err=%v", legacySessionRevoked, err)
 	}
 	outboxKey := []byte("01234567890123456789012345678901")
-	reviewMigration, err := os.ReadFile(filepath.Join("..", "..", "migrations", "0022_google_reviews.up.sql"))
+	cfg := config.Config{JWTSecret: "jwt-secret-0123456789012345678901", JWTIssuer: "puntazo", QRPepper: "qr-pepper-01234567890123456789012", DemoSignupEnabled: true, ExpectedSchemaVersion: "0028", PublicAppURL: "https://app.puntazo.test", OutboxEncryptionKey: outboxKey, MediaURLTTL: 5 * time.Minute, MercadoPagoBranchPrice: 12300, MercadoPagoPointsPrice: 45600}
+	repo := repository.New(pool, outboxKey)
+	var referralAdminID int64
+	if err = pool.QueryRow(ctx, `INSERT INTO backoffice_users(email,password_hash,totp_secret,role) VALUES('admin-referral@example.com','unused','ABCDEFGHIJKLMNOPQRSTUVWX23456789','ADMIN_SISTEMA') RETURNING id`).Scan(&referralAdminID); err != nil {
+		t.Fatal(err)
+	}
+	if err = repo.CreateBackofficeSession(ctx, referralAdminID, "internal-token", time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = repo.BackofficeSession(ctx, "internal-token"); err != nil {
+		t.Fatalf("internal session: %v", err)
+	}
+	if err = repo.CreateBackofficeSession(ctx, referralAdminID, "second-internal-token", time.Now().Add(time.Hour)); err != nil {
+		t.Fatalf("second password login: %v", err)
+	}
+	if err = repo.DeleteBackofficeSession(ctx, "internal-token"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = repo.BackofficeSession(ctx, "internal-token"); !errors.Is(err, repository.ErrNotFound) {
+		t.Fatalf("revoked internal session active: %v", err)
+	}
+	windowStart, windowEnd := time.Now().Add(-time.Hour), time.Now().Add(90*24*time.Hour)
+	stampsCampaign, err := repo.CreateReferralCampaign(ctx, repository.ReferralCampaign{Name: "Piloto Sellos", ProgramType: "SELLOS", DiscountBPS: 5000, DiscountCharges: 3, RewardBPS: 2000, RewardCharges: 12, StartsAt: windowStart, EndsAt: windowEnd}, referralAdminID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = pool.Exec(ctx, string(reviewMigration)); err != nil {
-		t.Fatalf("migration 0022: %v", err)
-	}
-	if _, err = pool.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES('0022')`); err != nil {
+	pointsCampaign, err := repo.CreateReferralCampaign(ctx, repository.ReferralCampaign{Name: "Piloto Puntos", ProgramType: "PUNTOS", DiscountBPS: 2500, DiscountCharges: 2, RewardBPS: 1000, RewardCharges: 6, StartsAt: windowStart, EndsAt: windowEnd}, referralAdminID)
+	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := config.Config{JWTSecret: "jwt-secret-0123456789012345678901", JWTIssuer: "puntazo", QRPepper: "qr-pepper-01234567890123456789012", DemoSignupEnabled: true, ExpectedSchemaVersion: "0022", PublicAppURL: "https://app.puntazo.test", OutboxEncryptionKey: outboxKey, MediaURLTTL: 5 * time.Minute, MercadoPagoBranchPrice: 12300, MercadoPagoPointsPrice: 45600}
-	repo := repository.New(pool, outboxKey)
+	if _, err = repo.CreateReferralCampaign(ctx, repository.ReferralCampaign{Name: "Sellos duplicado", ProgramType: "SELLOS", DiscountBPS: 3000, DiscountCharges: 1, RewardBPS: 1000, RewardCharges: 1, StartsAt: windowStart, EndsAt: windowEnd}, referralAdminID); !errors.Is(err, repository.ErrConflict) {
+		t.Fatalf("overlapping campaign accepted: %v", err)
+	}
+	referrerID, err := repo.CreateReferralInfluencer(ctx, "Ana del barrio", "ana@example.com", referralAdminID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stampsCode, err := repo.CreateReferralInfluencerCode(ctx, "ANA-SELLOS", stampsCampaign.ID, referrerID, referralAdminID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pointsCode, err := repo.CreateReferralInfluencerCode(ctx, "ANA-PUNTOS", pointsCampaign.ID, referrerID, referralAdminID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	blockedGoogleID := "blocked-google-signup"
 	blockedGoogleEmail := "blocked-google@example.com"
 	if _, err = repo.LoginGoogle(ctx, blockedGoogleID, blockedGoogleEmail, "Blocked Google", false, make([]byte, 32), func(int64) []byte { return make([]byte, 32) }); !errors.Is(err, repository.ErrSignupDisabled) {
@@ -341,11 +374,15 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	googleMerchantRegistration := &model.GoogleMerchantRegistration{
 		BrandName: "Google Brand", BranchName: "Casa Central", BranchAddress: &googleAddress, BranchLocality: &googleLocality,
 		BranchProvince: &googleProvince, BranchPostalCode: &googlePostalCode, BranchLatitude: &googleLatitude, BranchLongitude: &googleLongitude,
-		ProgramType: "PUNTOS",
+		ProgramType: "PUNTOS", ReferralCode: pointsCode.Code,
 	}
 	googleMerchant, err := svc.LoginGoogle(ctx, model.GoogleAuthRequest{IDToken: "new-merchant", AccountType: &merchantAccountType, MerchantRegistration: googleMerchantRegistration})
 	if err != nil || googleMerchant.User.AccountType != "PERSONAL_MARCA" || !googleMerchant.User.EmailVerified {
 		t.Fatalf("Google merchant=%+v err=%v", googleMerchant.User, err)
+	}
+	var googleAttributions, googleDiscount int
+	if err = pool.QueryRow(ctx, `SELECT count(*),max(discount_bps) FROM referral_attributions a JOIN membresias_marca mm ON mm.marca_id=a.brand_id WHERE mm.usuario_id=$1`, googleMerchant.User.ID).Scan(&googleAttributions, &googleDiscount); err != nil || googleAttributions != 1 || googleDiscount != 2500 {
+		t.Fatalf("Google referral attribution count=%d discount=%d err=%v", googleAttributions, googleDiscount, err)
 	}
 	var googleMerchantGraph int
 	if err = pool.QueryRow(ctx, `SELECT count(*) FROM usuarios u
@@ -576,7 +613,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	merchantReq := model.RegisterDemoMerchantRequest{
 		Email: "owner@example.com", Password: "merchant-pass", OwnerName: "Owner", BrandName: "Brand", BranchName: "Main",
 		BranchAddress: &merchantAddress, BranchLocality: &merchantLocality, BranchProvince: &merchantProvince, BranchPostalCode: &merchantPostalCode,
-		BranchLatitude: &merchantLatitude, BranchLongitude: &merchantLongitude, ProgramType: "SELLOS",
+		BranchLatitude: &merchantLatitude, BranchLongitude: &merchantLongitude, ProgramType: "SELLOS", ReferralCode: stampsCode.Code,
 	}
 	merchantKey := uuid.NewString()
 	created, err := svc.RegisterDemoMerchant(ctx, merchantKey, uuid.NewString(), merchantReq)
@@ -588,6 +625,24 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	merchant := createdEnvelope.Data
+	merchantCodes, codeErr := repo.MerchantReferralCodes(ctx, merchant.User.ID, merchant.Merchant.BrandID)
+	if codeErr != nil || len(merchantCodes) != 1 || merchantCodes[0].SourceKind != "MERCHANT" {
+		t.Fatalf("merchant share code count=%d err=%v", len(merchantCodes), codeErr)
+	}
+	if _, codeErr = repo.MerchantReferralCodes(ctx, customer.ID, merchant.Merchant.BrandID); !errors.Is(codeErr, repository.ErrForbidden) {
+		t.Fatalf("customer read merchant code: %v", codeErr)
+	}
+	var attributedCode string
+	var attributedDiscount, attributedRewards int
+	if err = pool.QueryRow(ctx, `SELECT c.code,a.discount_bps,a.reward_bps FROM referral_attributions a JOIN referral_codes c ON c.id=a.code_id WHERE a.brand_id=$1`, merchant.Merchant.BrandID).Scan(&attributedCode, &attributedDiscount, &attributedRewards); err != nil || attributedCode != stampsCode.Code || attributedDiscount != 5000 || attributedRewards != 2000 {
+		t.Fatalf("email referral code=%s discount=%d reward=%d err=%v", attributedCode, attributedDiscount, attributedRewards, err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE referral_campaigns SET discount_bps=1000,reward_bps=500 WHERE id=$1`, stampsCampaign.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT discount_bps,reward_bps FROM referral_attributions WHERE brand_id=$1`, merchant.Merchant.BrandID).Scan(&attributedDiscount, &attributedRewards); err != nil || attributedDiscount != 5000 || attributedRewards != 2000 {
+		t.Fatalf("attribution snapshot changed discount=%d reward=%d err=%v", attributedDiscount, attributedRewards, err)
+	}
 	if merchant.OnboardingComplete || merchant.Merchant.Benefit != nil || len(merchant.Merchant.Benefits) != 0 {
 		t.Fatalf("merchant signup invented onboarding data: %+v", merchant)
 	}
@@ -597,6 +652,26 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	replayed, err := svc.RegisterDemoMerchant(ctx, merchantKey, uuid.NewString(), merchantReq)
 	if err != nil || !replayed.Replayed || bytes.Equal(created.Body, replayed.Body) {
 		t.Fatalf("merchant replay: replay=%v err=%v", replayed.Replayed, err)
+	}
+	var attributionCount int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM referral_attributions WHERE brand_id=$1`, merchant.Merchant.BrandID).Scan(&attributionCount); err != nil || attributionCount != 1 {
+		t.Fatalf("idempotent referral count=%d err=%v", attributionCount, err)
+	}
+	if err = repo.SetReferralCodeActive(ctx, stampsCode.ID, referralAdminID, false); err != nil {
+		t.Fatal(err)
+	}
+	var auditedChanges int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM backoffice_audit WHERE user_id=$1`, referralAdminID).Scan(&auditedChanges); err != nil || auditedChanges < 5 {
+		t.Fatalf("admin audit rows=%d err=%v", auditedChanges, err)
+	}
+	pausedRegistration := merchantReq
+	pausedRegistration.Email = "paused-referral@example.com"
+	if _, err = svc.RegisterDemoMerchant(ctx, uuid.NewString(), uuid.NewString(), pausedRegistration); !errors.Is(err, repository.ErrInvalidRequest) {
+		t.Fatalf("paused code accepted: %v", err)
+	}
+	var pausedUserCount int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM usuarios WHERE email=$1`, pausedRegistration.Email).Scan(&pausedUserCount); err != nil || pausedUserCount != 0 {
+		t.Fatalf("paused code created user count=%d err=%v", pausedUserCount, err)
 	}
 	var persistedMerchantResponse []byte
 	if err = pool.QueryRow(ctx, `SELECT response_body FROM solicitudes_idempotentes WHERE idempotency_key=$1`, merchantKey).Scan(&persistedMerchantResponse); err != nil {
@@ -1424,8 +1499,8 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if !cardStillVisible {
 		t.Fatal("card disappeared after its last benefit was deactivated")
 	}
-	if _, err = repo.AnonymizeAccount(ctx, merchant.User.ID, merchant.User.Version); !errors.Is(err, repository.ErrOwnershipTransfer) {
-		t.Fatalf("last owner deletion: %v", err)
+	if _, err = repo.AnonymizeAccount(ctx, merchant.User.ID, 0); !errors.Is(err, repository.ErrPreconditionFailed) {
+		t.Fatalf("account deletion with stale version: %v", err)
 	}
 	deleteLogin, err := svc.Login(ctx, model.LoginRequest{Email: "client@example.com", Password: "customer-pass"})
 	if err != nil {
@@ -1578,7 +1653,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	close(reservations)
 	var reservedReference string
 	for result := range reservations {
-		if result.err != nil || result.record.Subscription.Status != "CREATING" || result.record.TrialMonths != 1 || result.record.Subscription.ActiveBranches < 1 || result.record.Subscription.MonthlyAmountCents != 12300*result.record.Subscription.ActiveBranches {
+		if result.err != nil || result.record.Subscription.Status != "CREATING" || result.record.TrialMonths != 1 || result.record.Subscription.ActiveBranches < 1 || result.record.Subscription.MonthlyAmountCents != 6150*result.record.Subscription.ActiveBranches || result.record.Subscription.FullMonthlyAmountCents != 12300*result.record.Subscription.ActiveBranches {
 			t.Fatalf("checkout reservation=%+v err=%v", result.record, result.err)
 		}
 		if reservedReference == "" {
@@ -1657,7 +1732,32 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if _, err = svc.RegisterInvitation(ctx, retiredInvitationToken, model.RegisterInvitationRequest{Name: "Retired Brand Staff", Password: "retired-brand-pass"}); !errors.Is(err, service.ErrIdentityToken) {
 		t.Fatalf("registered invitation from deleted brand: %v", err)
 	}
-	if err = repo.CheckSchema(ctx, "0022"); err != nil {
+	if err = repo.SetReferralCampaignActive(ctx, stampsCampaign.ID, referralAdminID, false); err != nil {
+		t.Fatal(err)
+	}
+	brandWhilePaused := merchantReq
+	brandWhilePaused.Email = "brand-while-campaign-paused@example.com"
+	brandWhilePaused.BrandName = "Brand While Paused"
+	brandWhilePaused.ReferralCode = ""
+	pausedBrandResponse, err := svc.RegisterDemoMerchant(ctx, uuid.NewString(), uuid.NewString(), brandWhilePaused)
+	if err != nil {
+		t.Fatalf("register merchant while campaign paused: %v", err)
+	}
+	var pausedBrandEnvelope web.Envelope[model.DemoMerchantData]
+	if err = json.Unmarshal(pausedBrandResponse.Body, &pausedBrandEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	var codeCount int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM referral_codes WHERE campaign_id=$1 AND source_brand_id=$2 AND source_kind='MERCHANT'`, stampsCampaign.ID, pausedBrandEnvelope.Data.Merchant.BrandID).Scan(&codeCount); err != nil || codeCount != 0 {
+		t.Fatalf("paused campaign unexpectedly issued code count=%d err=%v", codeCount, err)
+	}
+	if err = repo.SetReferralCampaignActive(ctx, stampsCampaign.ID, referralAdminID, true); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM referral_codes WHERE campaign_id=$1 AND source_brand_id=$2 AND source_kind='MERCHANT'`, stampsCampaign.ID, pausedBrandEnvelope.Data.Merchant.BrandID).Scan(&codeCount); err != nil || codeCount != 1 {
+		t.Fatalf("reactivated campaign did not issue merchant code count=%d err=%v", codeCount, err)
+	}
+	if err = repo.CheckSchema(ctx, "0028"); err != nil {
 		t.Fatal(err)
 	}
 	if err = repo.CheckSchema(ctx, "9999"); err == nil {

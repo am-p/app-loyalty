@@ -4,6 +4,7 @@ import (
 	"clientesFrecuentes/internal/model"
 	"clientesFrecuentes/internal/repository"
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"time"
@@ -57,6 +58,13 @@ func (w Worker) flush(ctx context.Context) {
 		}
 		var message model.EmailMessage
 		switch item.Kind {
+		case "INFLUENCER_WELCOME":
+			var details model.InfluencerWelcomeDetails
+			if err = json.Unmarshal([]byte(token), &details); err != nil {
+				_ = w.Repo.MarkEmailFailed(ctx, item.ID, item.LeaseOwner, 5, errors.New("invalid influencer email payload"))
+				continue
+			}
+			message = InfluencerWelcomeMessage(w.PublicAppURL, item.To, details)
 		case "VERIFY_EMAIL":
 			message = VerificationMessage(w.PublicAppURL, item.To, token)
 		case "RESET_PASSWORD":
@@ -82,7 +90,7 @@ func (w Worker) flush(ctx context.Context) {
 			_ = w.Repo.MarkEmailFailed(ctx, item.ID, item.LeaseOwner, 5, errors.New("unknown email template"))
 			continue
 		}
-		if item.Kind == "RESET_PASSWORD" || item.Kind == "BRAND_INVITATION" {
+		if item.Kind == "RESET_PASSWORD" || item.Kind == "BRAND_INVITATION" || item.Kind == "INFLUENCER_WELCOME" {
 			message.InlineImages = append(message.InlineImages, model.EmailInlineImage{ContentID: mascotContentID, Filename: "mr-puntazo.png", ContentType: "image/png", Data: mascotPNG})
 		}
 		if err = w.Sender.Send(ctx, message); err != nil {
