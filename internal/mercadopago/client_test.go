@@ -115,8 +115,10 @@ func TestCancelSubscriptionStopsProviderRenewal(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Fatal(err)
 		}
-		if body.Status != "canceled" {
-			t.Fatalf("status = %q", body.Status)
+		// The live /preapproval API rejects "canceled" with HTTP 400.
+		if body.Status != "cancelled" {
+			http.Error(w, `{"message":"Invalid preapproval status param"}`, http.StatusBadRequest)
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"id":"preapproval-1","status":"cancelled","external_reference":"puntazo:brand:1:key"}`))
@@ -130,5 +132,26 @@ func TestCancelSubscriptionStopsProviderRenewal(t *testing.T) {
 	}
 	if out.Status != "cancelled" {
 		t.Fatalf("unexpected response: %+v", out)
+	}
+}
+
+func TestCancelSubscriptionRequiresProviderConfirmation(t *testing.T) {
+	for _, status := range []string{"cancelled", "canceled", "authorized", "pending", "paused", ""} {
+		t.Run(status, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(map[string]string{
+					"id": "preapproval-1", "status": status, "external_reference": "puntazo:brand:1:key",
+				})
+			}))
+			defer server.Close()
+
+			client := New(server.URL, "private-token", time.Second)
+			_, err := client.CancelSubscription(t.Context(), "preapproval-1", "cancel-1")
+			confirmed := status == "cancelled" || status == "canceled"
+			if (err == nil) != confirmed {
+				t.Fatalf("provider status %q: err = %v, confirmed = %t", status, err, confirmed)
+			}
+		})
 	}
 }
