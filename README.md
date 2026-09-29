@@ -290,6 +290,12 @@ en este modo significa guardado local. Conservar el directorio fuera de Git y
 borrar sus mensajes al terminar las pruebas; la retención DB no elimina archivos
 de captura. Capture se rechaza en otros entornos y con verificación requerida.
 
+### Firma webhook Mercado Pago
+
+La validación acepta timestamps Unix de 10 dígitos (segundos) y 13 dígitos
+(milisegundos), con la misma ventana de frescura. El HMAC conserva el valor
+original `ts`; no se normaliza el texto firmado.
+
 ### Audiencia Google para Android
 
 `GOOGLE_ANDROID_WEB_CLIENT_ID` permite explícitamente el cliente OAuth web usado
