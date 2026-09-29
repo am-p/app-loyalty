@@ -29,6 +29,13 @@ func TestRouteInventoryAndAuthentication(t *testing.T) {
 		"POST /auth/register", "POST /auth/login", "POST /auth/google",
 	}
 	protected := []struct{ method, pattern, request string }{
+		{"GET", "/v1/marcas/:brand_id/sucursales/:resource_id/resenas", "/v1/marcas/1/sucursales/1/resenas"},
+		{"PUT", "/v1/marcas/:brand_id/sucursales/:resource_id/resenas", "/v1/marcas/1/sucursales/1/resenas"},
+		{"POST", "/v1/marcas/:brand_id/sucursales/:resource_id/resenas/busqueda", "/v1/marcas/1/sucursales/1/resenas/busqueda"},
+		{"GET", "/v1/marcas/:brand_id/sucursales/:resource_id/resenas/metricas", "/v1/marcas/1/sucursales/1/resenas/metricas"},
+		{"GET", "/v1/clientes/me/resenas/pendientes", "/v1/clientes/me/resenas/pendientes"},
+		{"POST", "/v1/clientes/me/resenas/:invitation_id/reserva", "/v1/clientes/me/resenas/00000000-0000-0000-0000-000000000001/reserva"},
+		{"POST", "/v1/clientes/me/resenas/:invitation_id/eventos", "/v1/clientes/me/resenas/00000000-0000-0000-0000-000000000001/eventos"},
 		{"GET", "/v1/me", "/v1/me"},
 		{"PATCH", "/v1/me", "/v1/me"},
 		{"GET", "/v1/me/export", "/v1/me/export"},

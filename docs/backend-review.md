@@ -129,9 +129,9 @@ login completo. La prueba `TestPostgresDemoSellosLifecycle` requiere
 `TEST_DATABASE_URL` y debe ejecutarse explícitamente para evitar confundir un
 skip con una integración validada.
 
-El portal documental externo sigue fijado al main legacy del source lock. Esta
-rama documenta aquí su organización; no se actualiza ese lock como si el PR
-estuviera fusionado. Las URLs, flujos, esquema y OpenAPI de Sellos no cambiaron.
+Este registro describe la rama revisada en ese momento. Para una nueva
+entrega se consulta el HEAD remoto de la rama elegida. Las URLs, flujos,
+esquema y OpenAPI de Sellos no cambiaron en esta revisión.
 
 ### Resultado de verificación — 7 de septiembre de 2026
 

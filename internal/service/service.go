@@ -8,6 +8,7 @@ import (
 	"clientesFrecuentes/internal/auth"
 	"clientesFrecuentes/internal/config"
 	"clientesFrecuentes/internal/model"
+	"clientesFrecuentes/internal/places"
 	"clientesFrecuentes/internal/repository"
 )
 
@@ -45,6 +46,7 @@ type Service struct {
 	Media             MediaStore
 	VerifyGoogleToken func(context.Context, string) (string, string, string, error)
 	Billing           BillingProvider
+	Places            ReviewPlaces
 }
 
 type BillingProvider interface {
@@ -54,7 +56,7 @@ type BillingProvider interface {
 }
 
 func New(repo *repository.Repository, tokens *auth.Tokens, cfg config.Config, media ...MediaStore) *Service {
-	s := &Service{Repo: repo, Tokens: tokens, Config: cfg, Now: time.Now, VerifyGoogleToken: auth.VerifyGoogleToken}
+	s := &Service{Repo: repo, Tokens: tokens, Config: cfg, Now: time.Now, VerifyGoogleToken: auth.VerifyGoogleToken, Places: places.New(cfg.GooglePlacesAPIKey)}
 	if len(media) > 0 {
 		s.Media = media[0]
 	}
