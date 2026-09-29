@@ -74,6 +74,8 @@ func (w Worker) flush(ctx context.Context) {
 			message = InfluencerWelcomeMessage(w.PublicAppURL, item.To, details)
 		case "VERIFY_EMAIL":
 			message = VerificationMessage(w.PublicAppURL, item.To, token)
+		case "CHANGE_EMAIL":
+			message = EmailChangeMessage(w.PublicAppURL, item.To, token)
 		case "RESET_PASSWORD":
 			message = PasswordResetMessage(w.PublicAppURL, item.To, token)
 		case "BRAND_INVITATION":

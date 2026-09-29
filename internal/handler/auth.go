@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 
 	"clientesFrecuentes/internal/model"
@@ -163,6 +164,30 @@ func (h *Handler) UpdateMe(c *gin.Context) {
 	}
 	c.Header("ETag", accountETag(data.User.Version))
 	c.JSON(http.StatusOK, web.Envelope[model.CurrentUser]{Data: data, RequestID: web.RequestID(c)})
+}
+
+func (h *Handler) RequestEmailChange(c *gin.Context) {
+	a, ok := actor(c)
+	if !ok {
+		return
+	}
+	version, ok := accountVersion(c)
+	if !ok {
+		return
+	}
+	var req model.EmailRequest
+	if decode(c, &req) != nil {
+		writeErr(c, service.ErrInvalidRequest)
+		return
+	}
+	if !h.limit(c, "email-change:user:"+strconv.FormatInt(a.ID, 10), 3, loginWindow) {
+		return
+	}
+	if err := h.Service.RequestEmailChange(c.Request.Context(), a.ID, version, a.AuthTime, req); err != nil {
+		writeErr(c, err)
+		return
+	}
+	c.JSON(http.StatusAccepted, web.Envelope[map[string]string]{Data: map[string]string{"message": "Enviamos un enlace de confirmación al correo nuevo"}, RequestID: web.RequestID(c)})
 }
 
 func (h *Handler) ExportMe(c *gin.Context) {

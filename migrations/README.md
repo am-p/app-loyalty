@@ -42,8 +42,8 @@ Esta secuencia depende de las reseñas del PR13 (`0022`) y conserva byte a byte
 las migraciones `0023`–`0028` aplicadas en testing. No se renumera la base desplegada.
 El retorno y correo de confirmación de suscripción se integra después como `0029`.
 El PR14 de cambio de email/plantillas usa provisionalmente `0022`/`0023`: no
-mezclarlo directamente con este stack. La copia de reconciliación reservará
-`0030`/`0031` y preservará los tipos de outbox añadidos en `0028`/`0029`.
+mezclarlo directamente con este stack. La actualización compatible de la rama original del PR14 reserva
+`0030`/`0031` y preserva los tipos de outbox añadidos en `0028`/`0029`.
 
 `schema_migrations` registra sólo el número de cuatro dígitos: archivos distintos
 con el mismo prefijo pueden omitirse silenciosamente. Antes de aplicar migraciones,
@@ -58,3 +58,26 @@ de confirmación tiene snapshot, deduplicación por suscripción y redacción de
 La migración `0029` conserva los correos de influencers de `0028`. Para una base de
 testing ya en `0029`, aplicar este mismo historial no renumera ni recrea tablas.
 La API requiere esquema `0029`; configurar explícitamente EXPECTED_SCHEMA_VERSION.
+
+## Actualización compatible de la rama original del PR14 (`0030`–`0031`)
+
+La reparación conserva el commit original de email/plantillas del PR14 en su
+historia e incorpora el main oficial y las dependencias de los PR16/17/18.
+Permite mantener el PR14 original como vía de integración, después de actualizar
+su rama con este candidato; la rama original aún no cambia hasta integrar esa
+reparación. El PR20 deja de ser la propuesta de integración sustitutiva.
+
+Reserva `0030_email_change` y `0031_card_templates` después de `0029`, con
+EXPECTED_SCHEMA_VERSION=0031. Retira del candidato los archivos experimentales
+`0022_email_change`/`0023_card_templates`: no se altera una migración aplicada
+ni se renumera el historial 0022–0029. La migración email conserva los tipos
+INFLUENCER_WELCOME y SUBSCRIPTION_CONFIRMATION en up y down; no basta renombrar
+los archivos experimentales. El down0030 elimina sólo los datos CHANGE_EMAIL;
+down0031 restablece el catálogo previo y quita plantillas nuevas.
+
+No aplicar esta secuencia sobre una base que haya ejecutado PR14 bajo sus números
+experimentales; necesita diagnóstico y reconciliación específica. Orden de
+integración oficial: PR16 → PR17 → PR18 → PR14 actualizado. Los commits de las
+dependencias se revisan en sus respectivos PRs. La reparación incluye pruebas
+con correos existentes de bienvenida/confirmación durante down/up0030 y las
+nuevas plantillas durante rollback0031.
