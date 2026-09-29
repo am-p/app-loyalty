@@ -77,14 +77,43 @@ func (s *Service) ExportCurrentUser(ctx context.Context, actorID int64) (model.A
 }
 
 func (s *Service) AnonymizeCurrentUser(ctx context.Context, actorID int64, expectedVersion int, req model.AnonymizeAccountRequest) (model.Anonymization, error) {
-	if req.Confirmation != "BAJA" {
+	if req.Confirmation != "BAJA" || expectedVersion < 1 {
 		return model.Anonymization{}, ErrInvalidRequest
 	}
-	deletedAt, err := s.Repo.AnonymizeAccount(ctx, actorID, expectedVersion)
+	var deletedAt time.Time
+	err := retry(ctx, func() error {
+		var err error
+		deletedAt, err = s.Repo.AnonymizeAccount(ctx, actorID, expectedVersion, s.cancelAccountSubscriptions)
+		return err
+	})
 	if err != nil {
 		return model.Anonymization{}, err
 	}
 	return model.Anonymization{RequestID: uuid.NewString(), Status: "COMPLETADA", AccessRevoked: true, LedgerPreserved: true, RequestedAt: deletedAt}, nil
+}
+
+func (s *Service) cancelAccountSubscriptions(ctx context.Context, records []repository.SubscriptionRecord) error {
+	if len(records) == 0 {
+		return nil
+	}
+	// An unresolved checkout may already exist at the provider. Keep the
+	// account intact until reconciliation supplies its provider ID.
+	for _, record := range records {
+		if record.Subscription.Status == "CREATING" || record.ProviderID == "" {
+			return ErrBillingInProgress
+		}
+	}
+	if s.Billing == nil {
+		return ErrBillingUnavailable
+	}
+	for _, record := range records {
+		key := uuid.NewSHA1(uuid.NameSpaceURL, []byte("puntazo:account-close:"+record.ProviderID)).String()
+		provider, err := s.Billing.CancelSubscription(ctx, record.ProviderID, key)
+		if err != nil || provider.ID != record.ProviderID || provider.ExternalReference != record.ExternalReference || (provider.Status != "cancelled" && provider.Status != "canceled") {
+			return ErrBillingProviderFailure
+		}
+	}
+	return nil
 }
 
 func normalizeOptional(value **string, limit int) bool {

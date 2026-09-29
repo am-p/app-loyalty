@@ -8,6 +8,10 @@ import (
 
 func registerMerchantRoutes(r *gin.RouterGroup, h *handler.Handler) {
 	r.GET("/marcas", h.ListBrands)
+	r.GET("/marcas/:brand_id/sucursales/:resource_id/resenas", h.ReviewSettings)
+	r.PUT("/marcas/:brand_id/sucursales/:resource_id/resenas", h.PutReviewSettings)
+	r.POST("/marcas/:brand_id/sucursales/:resource_id/resenas/busqueda", h.SearchReviewPlaces)
+	r.GET("/marcas/:brand_id/sucursales/:resource_id/resenas/metricas", h.ReviewMetrics)
 	r.GET("/marcas/:brand_id", h.Brand)
 	r.PATCH("/marcas/:brand_id", h.UpdateBrand)
 	r.DELETE("/marcas/:brand_id", h.DeleteBrand)
@@ -39,6 +43,9 @@ func registerMerchantRoutes(r *gin.RouterGroup, h *handler.Handler) {
 	r.PATCH("/marcas/:brand_id/personal/:membership_id", h.UpdateStaff)
 	r.DELETE("/marcas/:brand_id/personal/:membership_id", h.DeleteStaff)
 	r.GET("/marcas/:brand_id/suscripcion", h.Subscription)
+	r.GET("/marcas/:brand_id/referidos/codigos", h.MerchantReferralCodes)
 	r.POST("/marcas/:brand_id/suscripcion/checkout", h.CreateSubscriptionCheckout)
+	r.GET("/suscripciones/:provider_subscription_id/resultado", h.SubscriptionResult)
+	r.POST("/marcas/:brand_id/suscripcion/confirmacion-email", h.RequestSubscriptionConfirmation)
 	r.POST("/marcas/:brand_id/suscripcion/cancelacion", h.CancelSubscription)
 }

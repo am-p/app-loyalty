@@ -19,6 +19,8 @@ servers:
 security:
   - bearerAuth: []
 tags:
+  - name: Reseñas
+    description: Invitaciones optativas a Google por compra confirmada y sucursal
   - name: Health
     description: Estado operativo y versión desplegada
   - name: Auth
@@ -37,6 +39,10 @@ tags:
     description: Preview y confirmación transaccional del ledger
   - name: Facturación
     description: Suscripción mensual de la marca mediante Mercado Pago
+  - name: Referidos
+    description: Atribución de marcas y códigos compartibles
+  - name: Backoffice
+    description: Acceso exclusivo del equipo interno con MFA y cookie de sesión propia
 paths:
   /health/live:
     get:
@@ -366,6 +372,13 @@ paths:
       tags: [Cuenta]
       operationId: anonymizeCurrentUser
       summary: Anonimiza la cuenta y preserva el ledger histórico
+      description: >-
+        Baja definitiva e irreversible una vez completada. Si el usuario es el
+        último propietario activo de una marca, cancela primero sus cobros
+        recurrentes y cierra marca, sucursales, membresías, códigos y tarjetas.
+        Si queda otro propietario activo con cuenta activa, conserva la marca
+        y su suscripción. No exige transferir propiedad. Una suscripción en
+        preparación o un fallo del proveedor conserva la cuenta sin anonimizar.
       x-puntazo-implementation: IMPLEMENTED
       parameters:
         - name: If-Match
@@ -385,7 +398,12 @@ paths:
               schema: { $ref: '#/components/schemas/AnonymizationEnvelope' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '409':
-          description: La cuenta sigue siendo el último propietario activo de una marca
+          description: BILLING_IN_PROGRESS; suscripción en preparación pendiente de reconciliación
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '503':
+          description: BILLING_UNAVAILABLE o BILLING_PROVIDER_ERROR; baja sin completar
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorEnvelope' }
@@ -1001,6 +1019,38 @@ paths:
           description: Estado visible exclusivamente para el propietario
           content: { application/json: { schema: { $ref: '#/components/schemas/SubscriptionEnvelope' } } }
         '403': { $ref: '#/components/responses/Forbidden' }
+  /suscripciones/{provider_subscription_id}/resultado:
+    get:
+      tags: [Facturación]
+      operationId: getSubscriptionResult
+      summary: Consulta el resultado del checkout desde el registro del servidor
+      description: Requiere sesión y membresía propietaria activa. Una referencia ajena devuelve 404. No confía en parámetros de estado del retorno de Mercado Pago. Respuesta no almacenable en caché.
+      x-puntazo-implementation: IMPLEMENTED
+      parameters:
+        - { name: provider_subscription_id, in: path, required: true, schema: { type: string, pattern: '^[A-Za-z0-9_-]{1,128}$' } }
+      responses:
+        '200':
+          description: Estado confirmado del registro de la suscripción
+          content: { application/json: { schema: { $ref: '#/components/schemas/SubscriptionEnvelope' } } }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /marcas/{brand_id}/suscripcion/confirmacion-email:
+    parameters: [{ $ref: '#/components/parameters/BrandId' }]
+    post:
+      tags: [Facturación]
+      operationId: requestSubscriptionConfirmationEmail
+      summary: Registra la confirmación por correo de una suscripción autorizada
+      description: Sólo el propietario activo con email verificado. No acepta un destinatario arbitrario. La cola cifrada conserva las condiciones al confirmar la autorización; los webhooks y solicitudes repetidos generan como máximo un registro por referencia de suscripción. 202 indica solicitud registrada, no entrega SMTP. Confirma autorización, no el pago de una cuota.
+      x-puntazo-implementation: IMPLEMENTED
+      responses:
+        '202':
+          description: Solicitud registrada o ya registrada
+          content: { application/json: { schema: { type: object, properties: { data: { type: object, properties: { queued: { type: boolean } } }, request_id: { type: string } } } } }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: La suscripción todavía no está autorizada }
+        '503': { description: 'EMAIL_UNAVAILABLE, proveedor de correo no disponible' }
   /marcas/{brand_id}/suscripcion/checkout:
     parameters: [{ $ref: '#/components/parameters/BrandId' }]
     post:
@@ -1061,8 +1111,703 @@ paths:
         '204': { description: Notificación válida procesada o ignorada por no corresponder a suscripciones }
         '401': { description: Firma inválida }
         '503': { $ref: '#/components/responses/DependencyUnavailable' }
+  /referidos/validacion:
+    post:
+      tags: [Referidos]
+      operationId: validateReferralCode
+      summary: Valida la disponibilidad de un código antes del alta
+      description: >-
+        Consulta pública de solo lectura, limitada a 60 intentos por IP por minuto.
+        Normaliza code con trim y mayúsculas. Comprueba código y campaña activos,
+        inicio inclusivo, fin exclusivo y compatibilidad con program_type cuando
+        se envía. No reserva ni atribuye el referido; el alta vuelve a comprobarlo
+        dentro de su transacción. No expone identidad, contacto ni condiciones.
+        Una campaña de ambos programas admite SELLOS y PUNTOS; la respuesta
+        devuelve el programa solicitado. Sin program_type devuelve el principal
+        de la campaña para conservar compatibilidad.
+      security: []
+      x-puntazo-implementation: IMPLEMENTED
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReferralValidationInput' }
+      responses:
+        '200':
+          description: Código disponible ahora; no garantiza su disponibilidad al completar el alta
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReferralValidationEnvelope' }
+        '422':
+          description: REFERRAL_CODE_INVALID para formato o disponibilidad; INVALID_REQUEST para JSON o programa inválido
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/DependencyUnavailable' }
+  /marcas/{brand_id}/referidos/codigos:
+    get:
+      tags: [Referidos]
+      operationId: listMerchantReferralCodes
+      summary: Devuelve los códigos activos de la marca al propietario o administrador
+      x-puntazo-implementation: IMPLEMENTED
+      parameters:
+        - { name: brand_id, in: path, required: true, schema: { type: integer, format: int64, minimum: 1 } }
+      responses:
+        '200': { description: 'Códigos de comerciante vigentes, en data' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /backoffice/login:
+    post:
+      tags: [Backoffice]
+      operationId: loginBackoffice
+      summary: Autentica una cuenta interna con email y contraseña
+      security: []
+      x-puntazo-implementation: IMPLEMENTED
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, format: password }
+      responses:
+        '200': { description: Identidad interna y cookie HttpOnly SameSite=Strict por ocho horas }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+  /backoffice/me:
+    get:
+      tags: [Backoffice]
+      operationId: getBackofficeIdentity
+      summary: Consulta la identidad de la cuenta interna
+      security: [{ backofficeCookie: [] }]
+      x-puntazo-implementation: IMPLEMENTED
+      responses:
+        '200': { description: 'ID, email y rol de la cuenta interna' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+  /backoffice/logout:
+    post:
+      tags: [Backoffice]
+      operationId: logoutBackoffice
+      summary: Cierra la sesión interna
+      security: [{ backofficeCookie: [] }]
+      x-puntazo-implementation: IMPLEMENTED
+      parameters: [{ $ref: '#/components/parameters/BackofficeRequest' }]
+      responses:
+        '204': { description: Sesión interna revocada }
+  /backoffice/campaigns:
+    get:
+      tags: [Backoffice]
+      operationId: listReferralCampaigns
+      summary: Lista las campañas de referidos
+      security: [{ backofficeCookie: [] }]
+      x-puntazo-implementation: IMPLEMENTED
+      responses:
+        '200':
+          description: Hasta 200 campañas ordenadas por ID descendente, con cobertura y versión
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, request_id]
+                properties:
+                  request_id: { $ref: '#/components/schemas/RequestId' }
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/ReferralCampaign' }
+    post:
+      tags: [Backoffice]
+      operationId: createReferralCampaign
+      summary: Requiere ADMIN_SISTEMA; rechaza ventanas superpuestas del mismo programa
+      security: [{ backofficeCookie: [] }]
+      x-puntazo-implementation: IMPLEMENTED
+      parameters: [{ $ref: '#/components/parameters/BackofficeRequest' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReferralCampaignInput' }
+      responses:
+        '201': { description: Campaña creada y códigos de comercios existentes generados, content: { application/json: { schema: { $ref: '#/components/schemas/ReferralCampaignEnvelope' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { description: CAMPAIGN_OVERLAP; ventana activa superpuesta para alguno de los programas }
+        '422': { description: 'Programa, cobertura, fechas o condiciones inválidos' }
+  /backoffice/campaigns/{id}:
+    put:
+      tags: [Backoffice]
+      operationId: updateReferralCampaign
+      summary: Edita una campaña para futuras altas; requiere ADMIN_SISTEMA
+      description: 'Actualiza nombre, cobertura, condiciones y fechas conservando estado y atribuciones anteriores. Requiere la version leída. Audita antes/después y genera códigos faltantes para los programas incluidos. Una campaña activa no puede superponer ventanas de alguno de sus programas.'
+      security: [{ backofficeCookie: [] }]
+      x-puntazo-implementation: IMPLEMENTED
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64, minimum: 1 } }
+        - { $ref: '#/components/parameters/BackofficeRequest' }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/ReferralCampaignUpdateInput' } } }
+      responses:
+        '200': { description: Campaña actualizada y auditada, content: { application/json: { schema: { $ref: '#/components/schemas/ReferralCampaignEnvelope' } } } }
+        '401': { description: Sesión interna requerida }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { description: Campaña inexistente }
+        '409': { description: CAMPAIGN_CHANGED o CAMPAIGN_OVERLAP; no se guardan cambios parciales }
+        '422': { description: Datos inválidos o versión faltante }
+  /backoffice/campaigns/{id}/active:
+    patch:
+      tags: [Backoffice]
+      operationId: setReferralCampaignActive
+      summary: Requiere ADMIN_SISTEMA; no altera atribuciones previas
+      security: [{ backofficeCookie: [] }]
+      x-puntazo-implementation: IMPLEMENTED
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64, minimum: 1 } }
+        - { $ref: '#/components/parameters/BackofficeRequest' }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [active], properties: { active: { type: boolean } } } } }
+      responses:
+        '204': { description: Estado guardado y auditado; incrementa version }
+        '409': { description: CAMPAIGN_OVERLAP al activar }
+  /backoffice/influencers:
+    get:
+      tags: [Backoffice]
+      operationId: listReferralInfluencers
+      summary: Lista influencers con nombre, contacto anterior y email cuando está registrado
+      security: [{ backofficeCookie: [] }]
+      x-puntazo-implementation: IMPLEMENTED
+      responses:
+        '200':
+          description: Hasta 500 influencers; email es null para contactos anteriores que no son emails
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, name, contact, email]
+                      properties:
+                        id: { type: integer, format: int64 }
+                        name: { type: string }
+                        contact: { type: string }
+                        email: { type: [string, 'null'], format: email }
+    post:
+      tags: [Backoffice]
+      operationId: createReferralInfluencer
+      summary: Requiere ADMIN_SISTEMA
+      description: 'Alta con name, email, code y campaign_id crea influencer, primer código y correo INFLUENCER_WELCOME en la misma transacción. La cola guarda una copia cifrada de las condiciones de campaña al alta y reintenta hasta cinco veces; el envío es asíncrono por el mismo proveedor de correo que las contraseñas. No envía correos a perfiles existentes ni al agregar otro código. El email se normaliza y se guarda en el contacto existente. Se conserva la compatibilidad con el payload anterior name/contact, que sólo crea el perfil.'
+      security: [{ backofficeCookie: [] }]
+      x-puntazo-implementation: IMPLEMENTED
+      parameters: [{ $ref: '#/components/parameters/BackofficeRequest' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: object
+                  required: [name, email, code, campaign_id]
+                  properties:
+                    name: { type: string, minLength: 2, maxLength: 120 }
+                    email: { type: string, format: email, maxLength: 200 }
+                    code: { type: string, pattern: '^[A-Za-z0-9-]{4,40}$', description: Nombre del código compartible; se normaliza a mayúsculas }
+                    campaign_id: { type: integer, format: int64, minimum: 1 }
+                - type: object
+                  required: [name, contact]
+                  additionalProperties: false
+                  properties:
+                    name: { type: string, minLength: 2, maxLength: 120 }
+                    contact: { type: string, minLength: 3, maxLength: 200 }
+      responses:
+        '201': { description: 'Alta auditada; en el flujo nuevo data incluye id, name, email, contact, code como objeto ReferralCode y email_queued=true. Confirma encolado, no entrega' }
+        '403': { description: Requiere ADMIN_SISTEMA y encabezado CSRF }
+        '409': { description: Código repetido; no se crea el influencer }
+        '422': { description: 'Datos incompletos o inválidos, código reservado o campaña inexistente' }
+        '503': { description: EMAIL_UNAVAILABLE si falta la clave de cifrado; se revierte toda el alta }
+  /backoffice/influencers/{id}/earnings:
+    get:
+      tags: [Backoffice]
+      operationId: getInfluencerEarnings
+      summary: Detalle de comisiones por mes y cliente; Admin y Finanzas
+      description: >-
+        Consulta de solo lectura del ledger completo del influencer, incluyendo
+        todos sus códigos y comercios cerrados. Totales y acumulados por cliente
+        abarcan todos los meses, independientemente de la página mensual.
+        El mes se determina por referral_charges.created_at en
+        America/Argentina/Buenos_Aires, fecha de registro del cobro verificado,
+        no período de facturación del proveedor. Una devolución actualiza el
+        estado del mes original. Generado incluye PENDING, SETTLED, VOID y
+        RECOVERY_DUE; el importe a pagar es sólo PENDING. No recalcula condiciones
+        con la campaña actual ni compensa automáticamente importes por recuperar.
+      security: [{ backofficeCookie: [] }]
+      x-puntazo-implementation: IMPLEMENTED
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64, minimum: 1 } }
+        - { name: before, in: query, schema: { type: string, pattern: '^[0-9]{4}-(0[1-9]|1[0-2])$' }, description: Mes exclusivo YYYY-MM; años 0001 a 9999 }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 24, default: 12 }, description: 'Cantidad de meses con registros, ordenados del más reciente al más antiguo' }
+      responses:
+        '200':
+          description: Snapshot consistente de comisiones en centavos de ARS; arrays vacíos cuando no hay registros
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InfluencerEarningsEnvelope' }
+        '401': { description: Sesión interna requerida }
+        '404': { description: Influencer inexistente }
+        '422': { description: 'ID, límite o mes inválidos' }
+  /backoffice/codes:
+    get:
+      tags: [Backoffice]
+      operationId: listReferralCodes
+      summary: Lista los códigos de referidos
+      security: [{ backofficeCookie: [] }]
+      x-puntazo-implementation: IMPLEMENTED
+      responses:
+        '200': { description: 'Hasta 1000 códigos, en data' }
+    post:
+      tags: [Backoffice]
+      operationId: createInfluencerReferralCode
+      summary: Requiere ADMIN_SISTEMA; código único normalizado a mayúsculas
+      security: [{ backofficeCookie: [] }]
+      x-puntazo-implementation: IMPLEMENTED
+      parameters: [{ $ref: '#/components/parameters/BackofficeRequest' }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [code, campaign_id, influencer_id], properties: { code: { type: string }, campaign_id: { type: integer }, influencer_id: { type: integer } } } } }
+      responses:
+        '201': { description: Código creado y auditado }
+  /backoffice/codes/{id}/active:
+    patch:
+      tags: [Backoffice]
+      operationId: setReferralCodeActive
+      summary: Activa o pausa un código para nuevas altas
+      security: [{ backofficeCookie: [] }]
+      x-puntazo-implementation: IMPLEMENTED
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64, minimum: 1 } }
+        - { $ref: '#/components/parameters/BackofficeRequest' }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [active], properties: { active: { type: boolean } } } } }
+      responses:
+        '204': { description: Estado guardado y auditado }
+  /backoffice/attributions:
+    get:
+      tags: [Backoffice]
+      operationId: listReferralAttributions
+      summary: Lista las marcas atribuidas y sus condiciones
+      security: [{ backofficeCookie: [] }]
+      x-puntazo-implementation: IMPLEMENTED
+      responses:
+        '200': { description: 'Hasta 1000 marcas atribuidas con condiciones congeladas, en data' }
+  /backoffice/rewards:
+    get:
+      tags: [Backoffice]
+      operationId: listReferralRewards
+      summary: Lista las recompensas de cobros verificados
+      security: [{ backofficeCookie: [] }]
+      x-puntazo-implementation: IMPLEMENTED
+      responses:
+        '200': { description: 'Hasta 1000 recompensas nacidas de cobros verificados, en data' }
+  /backoffice/rewards/{invoice}/settle:
+    post:
+      tags: [Backoffice]
+      operationId: settleInfluencerReward
+      summary: Requiere FINANZAS; registra una comisión en efectivo como liquidada
+      security: [{ backofficeCookie: [] }]
+      x-puntazo-implementation: IMPLEMENTED
+      parameters:
+        - { name: invoice, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/BackofficeRequest' }
+      responses:
+        '204': { description: Liquidación auditada }
+  /backoffice/brands/{id}/credit-allocations:
+    get:
+      tags: [Backoffice]
+      operationId: getMerchantCreditAccount
+      summary: Requiere FINANZAS; saldo y ajustes manuales de una marca referente
+      security: [{ backofficeCookie: [] }]
+      x-puntazo-implementation: IMPLEMENTED
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64, minimum: 1 } }
+      responses:
+        '200':
+          description: Saldo disponible y hasta 200 asignaciones auditadas
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MerchantCreditAccountEnvelope' }
+    post:
+      tags: [Backoffice]
+      operationId: recordManualMerchantCredit
+      summary: Requiere FINANZAS; registra un reembolso externo ya realizado contra una factura pagada
+      description: La referencia externa es declarada por Finanzas y no verifica por sí misma una transferencia. No modifica el importe recurrente de Mercado Pago.
+      security: [{ backofficeCookie: [] }]
+      x-puntazo-implementation: IMPLEMENTED
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64, minimum: 1 } }
+        - { $ref: '#/components/parameters/BackofficeRequest' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MerchantCreditAllocationInput' }
+      responses:
+        '201':
+          description: Asignación registrada con idempotencia y auditoría
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MerchantCreditAllocationEnvelope' }
+        '409': { description: 'Saldo insuficiente, factura agotada o referencia duplicada' }
+  /backoffice/prices:
+    get:
+      tags: [Backoffice]
+      operationId: getSubscriptionPrices
+      summary: Consulta los precios mensuales de Sellos y Puntos por sucursal
+      security: [{ backofficeCookie: [] }]
+      x-puntazo-implementation: IMPLEMENTED
+      responses:
+        '200':
+          description: Dos precios; fallback de configuración hasta personalizarlos
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SubscriptionPricesEnvelope' }
+  /backoffice/prices/{program}/preview:
+    get:
+      tags: [Backoffice]
+      operationId: previewSubscriptionPrice
+      summary: Calcula el impacto sobre suscripciones existentes sin modificar datos
+      security: [{ backofficeCookie: [] }]
+      x-puntazo-implementation: IMPLEMENTED
+      parameters:
+        - { name: program, in: path, required: true, schema: { type: string, enum: [SELLOS, PUNTOS] } }
+        - { name: unit_price_minor, in: query, required: true, schema: { type: integer, format: int64, minimum: 1, maximum: 9007199254740991 } }
+      responses:
+        '200':
+          description: Cohorte actual con importe contratado, nuevo importe y descuentos restantes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/SubscriptionPricePreview' } }
+        '422': { description: Programa o precio inválido }
+  /backoffice/prices/{program}:
+    put:
+      tags: [Backoffice]
+      operationId: changeSubscriptionPrice
+      summary: ADMIN_SISTEMA modifica un precio y elige incluir suscripciones existentes
+      description: 'Cambio de catálogo auditado e idempotente. include_existing encola actualizaciones durables para marcas activas y suscripciones PENDING, AUTHORIZED o PAUSED. Conserva descuentos restantes; canceladas, marcas cerradas y checkouts CREATING quedan fuera. El worker usa Mercado Pago y registra APPLIED sólo tras confirmar el importe. Las facturas emitidas antes del cambio conservan el precio histórico verificable.'
+      security: [{ backofficeCookie: [] }]
+      x-puntazo-implementation: IMPLEMENTED
+      parameters:
+        - { name: program, in: path, required: true, schema: { type: string, enum: [SELLOS, PUNTOS] } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, format: uuid } }
+        - { $ref: '#/components/parameters/BackofficeRequest' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [unit_price_minor, version, include_existing]
+              properties:
+                unit_price_minor: { type: integer, format: int64, minimum: 1, maximum: 9007199254740991 }
+                version: { type: integer, format: int64, minimum: 0 }
+                include_existing: { type: boolean }
+      responses:
+        '202':
+          description: Precio persistido y actualización consultable
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SubscriptionPriceChangeEnvelope' }
+        '422': { description: 'Programa, precio o payload inválido' }
+        '403': { description: Requiere ADMIN_SISTEMA y encabezado CSRF }
+        '409': { description: Versión desactualizada o clave reutilizada con otro payload }
+        '503': { description: Proveedor de facturación no disponible para incluir existentes }
+  /backoffice/price-changes:
+    get:
+      tags: [Backoffice]
+      operationId: listSubscriptionPriceChanges
+      summary: Historial global de cambios de precios con administrador y resultados
+      security: [{ backofficeCookie: [] }]
+      x-puntazo-implementation: IMPLEMENTED
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 50, default: 20 } }
+        - { name: before, in: query, schema: { type: string, format: uuid }, description: ID del último cambio de la página anterior }
+      responses:
+        '200':
+          description: Cambios ordenados por fecha e ID descendentes; disponible para Admin y Finanzas
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SubscriptionPriceHistoryEnvelope' }
+        '422': { description: Límite inválido o cursor desconocido }
+        '401': { description: Sesión interna requerida }
+  /backoffice/price-changes/{id}:
+    get:
+      tags: [Backoffice]
+      operationId: getSubscriptionPriceChange
+      summary: Consulta el resultado de una actualización de precios
+      security: [{ backofficeCookie: [] }]
+      x-puntazo-implementation: IMPLEMENTED
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Cambio y resultados por cliente
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SubscriptionPriceChangeEnvelope' }
+        '404': { description: Cambio no encontrado }
+  /backoffice/price-changes/{id}/retry:
+    post:
+      tags: [Backoffice]
+      operationId: retrySubscriptionPriceChange
+      summary: ADMIN_SISTEMA reintenta únicamente actualizaciones fallidas
+      security: [{ backofficeCookie: [] }]
+      x-puntazo-implementation: IMPLEMENTED
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { $ref: '#/components/parameters/BackofficeRequest' }
+      responses:
+        '204': { description: Fallidas encoladas de nuevo con auditoría }
+        '403': { description: Requiere ADMIN_SISTEMA y encabezado CSRF }
+        '409': { description: No hay fallidas para reintentar }
+  /backoffice/customers:
+    get:
+      tags: [Backoffice]
+      operationId: getBackofficeCustomers
+      summary: Lista todos los clientes comerciales con pagos, promoción asignada y referido
+      description: 'Incluye todos los comercios, aunque no tengan suscripción, programa, pagos o referido, y marcas cerradas. branches incluye sus sucursales activas e inactivas, ordenadas con las activas y principal primero; su cantidad es independiente del contrato. Pagos verificados positivos no devueltos; sin registros no demuestra ausencia de pagos históricos. Los descuentos usan la atribución congelada y los cobros consumidos, incluidas devoluciones. Disponible para ADMIN_SISTEMA y FINANZAS mediante sesión interna.'
+      security: [{ backofficeCookie: [] }]
+      x-puntazo-implementation: IMPLEMENTED
+      responses:
+        '200':
+          description: Clientes ordenados por fecha de alta descendente
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BackofficeCustomersEnvelope' }
+        '401': { description: Sesión interna requerida o inválida }
+  /backoffice/metrics:
+    get:
+      tags: [Backoffice]
+      operationId: getReferralPilotMetrics
+      summary: Consulta las métricas del piloto de referidos
+      security: [{ backofficeCookie: [] }]
+      x-puntazo-implementation: IMPLEMENTED
+      responses:
+        '200': { description: 'Conteos de conversión y continuidad y costos en centavos, en data' }
+  /marcas/{brand_id}/sucursales/{resource_id}/resenas:
+    parameters:
+      - { name: brand_id, in: path, required: true, schema: { type: integer, minimum: 1 } }
+      - { name: resource_id, in: path, required: true, schema: { type: integer, minimum: 1 } }
+    get:
+      tags: [Reseñas]
+      summary: Configuración editable de reseñas; sólo propietario o administrador
+      operationId: getReviewSettings
+      x-puntazo-implementation: IMPLEMENTED
+      responses:
+        '200':
+          description: Operación completada
+          headers:
+            ETag: { schema: { type: string }, description: Versión fuerte de configuración en GET y PUT de reseñas }
+            Cache-Control: { schema: { type: string, const: no-store } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReviewSettingsEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: 'Invitación reservada, cerrada o cancelada; sucursal inactiva' }
+        '422': { description: Solicitud inválida }
+        '429': { description: Límite por actor excedido; incluye Retry-After }
+        '503': { description: DEPENDENCY_UNAVAILABLE; Google Places opcional o control de tráfico no disponible }
+    put:
+      tags: [Reseñas]
+      summary: Reemplaza configuración usando If-Match fuerte; versión inicial 1
+      operationId: putReviewSettings
+      x-puntazo-implementation: IMPLEMENTED
+      parameters:
+        - { name: If-Match, in: header, required: true, schema: { type: string }, example: '"1"' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReviewSettingsInput' }
+      responses:
+        '200':
+          description: Operación completada
+          headers:
+            ETag: { schema: { type: string }, description: Versión fuerte de configuración en GET y PUT de reseñas }
+            Cache-Control: { schema: { type: string, const: no-store } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReviewSettingsEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: 'Invitación reservada, cerrada o cancelada; sucursal inactiva' }
+        '422': { description: Solicitud inválida }
+        '429': { description: Límite por actor excedido; incluye Retry-After }
+        '503': { description: DEPENDENCY_UNAVAILABLE; Google Places opcional o control de tráfico no disponible }
+        '412': { description: 'PRECONDITION_FAILED; If-Match ausente, débil o desactualizado' }
+  /marcas/{brand_id}/sucursales/{resource_id}/resenas/busqueda:
+    parameters:
+      - { name: brand_id, in: path, required: true, schema: { type: integer, minimum: 1 } }
+      - { name: resource_id, in: path, required: true, schema: { type: integer, minimum: 1 } }
+    post:
+      tags: [Reseñas]
+      summary: Busca lugares con Places New; resultados transitorios atribuidos a Google
+      operationId: searchReviewPlaces
+      x-puntazo-implementation: IMPLEMENTED
+      description: Requiere GOOGLE_PLACES_API_KEY del servidor. Consulta predeterminada con nombre y dirección de sucursal. No persiste contenido ni URLs de Google.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                query: { type: string, minLength: 3, maxLength: 300 }
+      responses:
+        '200':
+          description: Operación completada
+          headers:
+            ETag: { schema: { type: string }, description: Versión fuerte de configuración en GET y PUT de reseñas }
+            Cache-Control: { schema: { type: string, const: no-store } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReviewPlacesEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: 'Invitación reservada, cerrada o cancelada; sucursal inactiva' }
+        '422': { description: Solicitud inválida }
+        '429': { description: Límite por actor excedido; incluye Retry-After }
+        '503': { description: DEPENDENCY_UNAVAILABLE; Google Places opcional o control de tráfico no disponible }
+  /marcas/{brand_id}/sucursales/{resource_id}/resenas/metricas:
+    parameters:
+      - { name: brand_id, in: path, required: true, schema: { type: integer, minimum: 1 } }
+      - { name: resource_id, in: path, required: true, schema: { type: integer, minimum: 1 } }
+    get:
+      tags: [Reseñas]
+      summary: Cuenta invitaciones únicas presentadas, omitidas y con clic
+      operationId: getReviewMetrics
+      x-puntazo-implementation: IMPLEMENTED
+      responses:
+        '200':
+          description: Operación completada
+          headers:
+            ETag: { schema: { type: string }, description: Versión fuerte de configuración en GET y PUT de reseñas }
+            Cache-Control: { schema: { type: string, const: no-store } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReviewMetricsEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: 'Invitación reservada, cerrada o cancelada; sucursal inactiva' }
+        '422': { description: Solicitud inválida }
+        '429': { description: Límite por actor excedido; incluye Retry-After }
+        '503': { description: DEPENDENCY_UNAVAILABLE; Google Places opcional o control de tráfico no disponible }
+  /clientes/me/resenas/pendientes:
+    get:
+      tags: [Reseñas]
+      summary: Invitaciones propias resolubles, activas y sin lease vigente; orden antiguo primero
+      operationId: getPendingReviews
+      x-puntazo-implementation: IMPLEMENTED
+      description: Sólo CLIENTE_FINAL. Un proveedor indisponible conserva invitaciones pendientes y las omite de la respuesta. No hay polling obligatorio.
+      responses:
+        '200':
+          description: Operación completada
+          headers:
+            ETag: { schema: { type: string }, description: Versión fuerte de configuración en GET y PUT de reseñas }
+            Cache-Control: { schema: { type: string, const: no-store } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReviewInvitationsEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: 'Invitación reservada, cerrada o cancelada; sucursal inactiva' }
+        '422': { description: Solicitud inválida }
+        '429': { description: Límite por actor excedido; incluye Retry-After }
+        '503': { description: DEPENDENCY_UNAVAILABLE; Google Places opcional o control de tráfico no disponible }
+  /clientes/me/resenas/{invitation_id}/reserva:
+    parameters:
+      - { name: invitation_id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Reseñas]
+      summary: Reserva atómica de 60 segundos; resuelve enlace antes de la transacción
+      operationId: reserveReview
+      x-puntazo-implementation: IMPLEMENTED
+      responses:
+        '200':
+          description: Operación completada
+          headers:
+            ETag: { schema: { type: string }, description: Versión fuerte de configuración en GET y PUT de reseñas }
+            Cache-Control: { schema: { type: string, const: no-store } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReviewReservationEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: 'Invitación reservada, cerrada o cancelada; sucursal inactiva' }
+        '422': { description: Solicitud inválida }
+        '429': { description: Límite por actor excedido; incluye Retry-After }
+        '503': { description: DEPENDENCY_UNAVAILABLE; Google Places opcional o control de tráfico no disponible }
+  /clientes/me/resenas/{invitation_id}/eventos:
+    parameters:
+      - { name: invitation_id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Reseñas]
+      summary: Registra render o respuesta idempotente con token de reserva
+      operationId: recordReviewEvent
+      x-puntazo-implementation: IMPLEMENTED
+      description: PRESENTADA requiere lease vigente y se envía después del render. OMITIDA y CLIC requieren PRESENTADA y el mismo token; el token sigue válido después del vencimiento para esa respuesta. CLIC registra apertura exitosa, nunca una reseña confirmada en Google.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reservation_token, event]
+              properties:
+                reservation_token: { type: string, format: uuid }
+                event: { type: string, enum: [PRESENTADA, OMITIDA, CLIC] }
+      responses:
+        '200':
+          description: Operación completada
+          headers:
+            ETag: { schema: { type: string }, description: Versión fuerte de configuración en GET y PUT de reseñas }
+            Cache-Control: { schema: { type: string, const: no-store } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReviewEventsEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: 'Invitación reservada, cerrada o cancelada; sucursal inactiva' }
+        '422': { description: Solicitud inválida }
+        '429': { description: Límite por actor excedido; incluye Retry-After }
+        '503': { description: DEPENDENCY_UNAVAILABLE; Google Places opcional o control de tráfico no disponible }
 components:
   securitySchemes:
+    backofficeCookie:
+      type: apiKey
+      in: cookie
+      name: puntazo_backoffice
     bearerAuth:
       type: http
       scheme: bearer
@@ -1072,6 +1817,11 @@ components:
       description: "true cuando la respuesta se reprodujo desde el registro idempotente"
       schema: { type: boolean }
   parameters:
+    BackofficeRequest:
+      name: X-Backoffice-Request
+      in: header
+      required: true
+      schema: { type: string, const: '1' }
     ClientPlatform:
       name: X-Client-Platform
       in: header
@@ -1164,6 +1914,295 @@ components:
       description: Altas cerradas o código de demo inválido
       content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } }
   schemas:
+    SubscriptionPricesEnvelope:
+      type: object
+      required: [data, request_id]
+      properties:
+        request_id: { $ref: '#/components/schemas/RequestId' }
+        data: { type: array, items: { $ref: '#/components/schemas/SubscriptionPrice' } }
+    SubscriptionPrice:
+      type: object
+      required: [program_type, unit_price_minor, version, customized, updated_at]
+      properties:
+        program_type: { type: string, enum: [SELLOS, PUNTOS] }
+        unit_price_minor: { type: integer, format: int64, minimum: 1, description: Centavos de ARS por sucursal y mes }
+        version: { type: integer, format: int64, minimum: 0 }
+        customized: { type: boolean }
+        updated_at: { type: [string, 'null'], format: date-time }
+    SubscriptionPricePreview:
+      type: object
+      properties:
+        brand_id: { type: integer, format: int64 }
+        brand_name: { type: string }
+        subscription_status: { type: string, enum: [PENDING, AUTHORIZED, PAUSED] }
+        branches: { type: integer, format: int64 }
+        current_amount_minor: { type: integer, format: int64 }
+        new_amount_minor: { type: integer, format: int64 }
+        discount_bps: { type: integer }
+        discount_remaining_charges: { type: integer }
+    SubscriptionPriceChangeEnvelope:
+      type: object
+      required: [data, request_id]
+      properties:
+        request_id: { $ref: '#/components/schemas/RequestId' }
+        data:
+          type: object
+          required: [id, program_type, unit_price_minor, previous_unit_price_minor, admin_email, price_version, include_existing, created_at, items]
+          properties:
+            id: { type: string, format: uuid }
+            program_type: { type: string, enum: [SELLOS, PUNTOS] }
+            unit_price_minor: { type: integer, format: int64 }
+            previous_version: { type: integer, format: int64 }
+            previous_unit_price_minor: { type: [integer, 'null'], format: int64, description: Precio base previo; null si no fue registrado en un cambio antiguo }
+            admin_email: { type: string, format: email }
+            price_version: { type: integer, format: int64 }
+            include_existing: { type: boolean }
+            created_at: { type: string, format: date-time }
+            items:
+              type: array
+              items:
+                type: object
+                properties:
+                  brand_id: { type: integer, format: int64 }
+                  brand_name: { type: string }
+                  status: { type: string, enum: [PENDING, APPLIED, SKIPPED, FAILED] }
+                  amount_minor: { type: [integer, 'null'], format: int64 }
+    SubscriptionPriceHistoryEnvelope:
+      type: object
+      required: [data, request_id]
+      properties:
+        request_id: { $ref: '#/components/schemas/RequestId' }
+        data:
+          type: object
+          required: [items, next_cursor]
+          properties:
+            next_cursor: { type: [string, 'null'], format: uuid }
+            items:
+              type: array
+              maxItems: 50
+              items:
+                type: object
+                required: [id, program_type, unit_price_minor, previous_unit_price_minor, admin_email, include_existing, created_at, total, applied, pending, failed, skipped]
+                properties:
+                  id: { type: string, format: uuid }
+                  program_type: { type: string, enum: [SELLOS, PUNTOS] }
+                  unit_price_minor: { type: integer, format: int64, description: Precio base nuevo en centavos de ARS por sucursal }
+                  previous_unit_price_minor: { type: [integer, 'null'], format: int64, description: Precio base anterior registrado; los cambios iniciales antiguos pueden carecer de este dato }
+                  admin_email: { type: string, format: email }
+                  include_existing: { type: boolean }
+                  created_at: { type: string, format: date-time }
+                  total: { type: integer, minimum: 0 }
+                  applied: { type: integer, minimum: 0 }
+                  pending: { type: integer, minimum: 0 }
+                  failed: { type: integer, minimum: 0 }
+                  skipped: { type: integer, minimum: 0 }
+    BackofficeCustomersEnvelope:
+      type: object
+      required: [data, request_id]
+      properties:
+        request_id: { $ref: '#/components/schemas/RequestId' }
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/BackofficeCustomer' }
+    BackofficeCustomer:
+      type: object
+      required: [brand_id, brand_name, active, created_at, program_type, subscription_status, unit_price_minor, full_unit_price_minor, monthly_amount_minor, subscribed_branches, next_payment_at, paid_charges, paid_amount_minor, refunded_charges, last_payment_at, referral_code, source_kind, source_name, campaign_name, discount_bps, discount_charges, discount_remaining_charges, branches]
+      properties:
+        brand_id: { type: integer, format: int64 }
+        brand_name: { type: string }
+        active: { type: boolean }
+        created_at: { type: string, format: date-time }
+        program_type: { type: [string, 'null'], enum: [SELLOS, PUNTOS, null] }
+        subscription_status: { type: [string, 'null'], enum: [CREATING, PENDING, AUTHORIZED, PAUSED, CANCELLED, null] }
+        unit_price_minor: { type: [integer, 'null'], format: int64, description: Precio contratado por sucursal con descuento aplicado }
+        full_unit_price_minor: { type: [integer, 'null'], format: int64, description: Precio base contratado por sucursal }
+        monthly_amount_minor: { type: [integer, 'null'], format: int64, description: Importe mensual contratado; no acredita pago }
+        subscribed_branches: { type: [integer, 'null'], format: int64 }
+        next_payment_at: { type: [string, 'null'], format: date-time }
+        paid_charges: { type: integer, format: int64, minimum: 0 }
+        paid_amount_minor: { type: integer, format: int64, minimum: 0, description: Centavos de ARS verificados no devueltos }
+        refunded_charges: { type: integer, format: int64, minimum: 0 }
+        last_payment_at: { type: [string, 'null'], format: date-time, description: Fecha de registro del último cobro aprobado no devuelto }
+        referral_code: { type: [string, 'null'] }
+        source_kind: { type: [string, 'null'], enum: [INFLUENCER, MERCHANT, null] }
+        source_name: { type: [string, 'null'] }
+        campaign_name: { type: [string, 'null'] }
+        discount_bps: { type: integer, minimum: 0, maximum: 9999 }
+        discount_charges: { type: integer, format: int64, minimum: 0 }
+        discount_remaining_charges: { type: integer, format: int64, minimum: 0 }
+        branches:
+          type: array
+          description: Sucursales registradas del comercio, incluidas las inactivas; array vacío si no tiene locales
+          items: { $ref: '#/components/schemas/BackofficeCustomerBranch' }
+    BackofficeCustomerBranch:
+      type: object
+      required: [id, name, address, locality, province, postal_code, active, primary]
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        address: { type: [string, 'null'] }
+        locality: { type: [string, 'null'] }
+        province: { type: [string, 'null'] }
+        postal_code: { type: [string, 'null'] }
+        active: { type: boolean, description: Activa y no eliminada }
+        primary: { type: boolean }
+    ReferralValidationInput:
+      type: object
+      additionalProperties: false
+      required: [code]
+      properties:
+        code:
+          type: string
+          description: Se normaliza con trim y mayúsculas antes de exigir ^[A-Z0-9-]{4,40}$
+        program_type: { type: string, enum: [SELLOS, PUNTOS] }
+    ReferralValidationEnvelope:
+      type: object
+      additionalProperties: false
+      required: [data, request_id]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [code, program_type]
+          properties:
+            code: { type: string, pattern: '^[A-Z0-9-]{4,40}$' }
+            program_type: { type: string, enum: [SELLOS, PUNTOS] }
+        request_id: { $ref: '#/components/schemas/RequestId' }
+    MerchantCreditAllocationInput:
+      type: object
+      required: [provider_invoice_id, amount_minor, external_settlement_reference]
+      properties:
+        provider_invoice_id: { type: string, minLength: 1 }
+        amount_minor: { type: integer, format: int64, minimum: 1, description: Centavos de ARS }
+        external_settlement_reference: { type: string, minLength: 6, maxLength: 120 }
+    MerchantCreditAllocation:
+      type: object
+      required: [id, brand_id, provider_invoice_id, provider_payment_id, amount_minor, currency, external_settlement_reference, status, created_at]
+      properties:
+        id: { type: integer, format: int64 }
+        brand_id: { type: integer, format: int64 }
+        provider_invoice_id: { type: string }
+        provider_payment_id: { type: string }
+        amount_minor: { type: integer, format: int64 }
+        currency: { type: string, enum: [ARS] }
+        external_settlement_reference: { type: string }
+        status: { type: string, enum: [RECORDED, RECOVERY_DUE] }
+        recovery_due_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+    MerchantCreditAllocationEnvelope:
+      type: object
+      required: [data]
+      properties:
+        data: { $ref: '#/components/schemas/MerchantCreditAllocation' }
+    MerchantCreditAccountEnvelope:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [balance_minor, allocations]
+          properties:
+            balance_minor: { type: integer, format: int64, description: Centavos de ARS; puede ser negativo tras una reversión }
+            allocations:
+              type: array
+              items: { $ref: '#/components/schemas/MerchantCreditAllocation' }
+    InfluencerEarningsTotals:
+      type: object
+      required: [paid_charges, paid_amount_minor, generated_minor, pending_minor, settled_minor, void_minor, recovery_due_minor]
+      properties:
+        paid_charges: { type: integer, format: int64, minimum: 0, description: Cobros positivos aprobados no devueltos }
+        paid_amount_minor: { type: integer, format: int64, minimum: 0 }
+        generated_minor: { type: integer, format: int64, minimum: 0, description: Comisión registrada original; suma de los cuatro estados }
+        pending_minor: { type: integer, format: int64, minimum: 0, description: Pendiente de pago; no deduce por recuperar }
+        settled_minor: { type: integer, format: int64, minimum: 0, description: Liquidaciones que conservan estado SETTLED }
+        void_minor: { type: integer, format: int64, minimum: 0 }
+        recovery_due_minor: { type: integer, format: int64, minimum: 0, description: Comisiones antes liquidadas afectadas por una devolución }
+    InfluencerEarningsClient:
+      allOf:
+        - { $ref: '#/components/schemas/InfluencerEarningsTotals' }
+        - type: object
+          required: [brand_id, brand_name, code, reward_bps, reward_charges]
+          properties:
+            brand_id: { type: integer, format: int64 }
+            brand_name: { type: string }
+            code: { type: string }
+            reward_bps: { type: integer, description: Condición conservada en la atribución }
+            reward_charges: { type: integer }
+    InfluencerEarningsEnvelope:
+      type: object
+      required: [data, request_id]
+      properties:
+        request_id: { $ref: '#/components/schemas/RequestId' }
+        data:
+          type: object
+          required: [influencer_id, influencer_name, currency, time_zone, date_basis, totals, clients, months, next_cursor]
+          properties:
+            influencer_id: { type: integer, format: int64 }
+            influencer_name: { type: string }
+            currency: { type: string, const: ARS }
+            time_zone: { type: string, const: America/Argentina/Buenos_Aires }
+            date_basis: { type: string, const: CHARGE_RECORDED_AT }
+            totals: { $ref: '#/components/schemas/InfluencerEarningsTotals' }
+            clients:
+              type: array
+              description: Todos los comercios atribuidos, incluso sin cobros, con acumulados de todos los meses
+              items: { $ref: '#/components/schemas/InfluencerEarningsClient' }
+            months:
+              type: array
+              items:
+                type: object
+                required: [month, totals, clients]
+                properties:
+                  month: { type: string, pattern: '^[0-9]{4}-(0[1-9]|1[0-2])$' }
+                  totals: { $ref: '#/components/schemas/InfluencerEarningsTotals' }
+                  clients:
+                    type: array
+                    items: { $ref: '#/components/schemas/InfluencerEarningsClient' }
+            next_cursor: { type: [string, 'null'], description: Último mes incluido si quedan meses anteriores }
+    ReferralCampaignInput:
+      type: object
+      required: [name, discount_bps, discount_charges, reward_bps, reward_charges, starts_at, ends_at]
+      anyOf:
+        - required: [program_type]
+        - required: [program_types]
+      properties:
+        name: { type: string, minLength: 3, maxLength: 120 }
+        program_type: { type: string, enum: [SELLOS, PUNTOS], description: Programa principal para compatibilidad; debe coincidir con el primero de la cobertura normalizada }
+        program_types:
+          type: array
+          minItems: 1
+          maxItems: 2
+          uniqueItems: true
+          description: Cobertura Sellos, Puntos o ambos; se normaliza en orden SELLOS/PUNTOS. Si se omite usa program_type
+          items: { type: string, enum: [SELLOS, PUNTOS] }
+        discount_bps: { type: integer, minimum: 0, maximum: 9999 }
+        discount_charges: { type: integer, minimum: 0, maximum: 36 }
+        reward_bps: { type: integer, minimum: 0, maximum: 10000 }
+        reward_charges: { type: integer, minimum: 0, maximum: 36 }
+        starts_at: { type: string, format: date-time }
+        ends_at: { type: string, format: date-time }
+    ReferralCampaignUpdateInput:
+      allOf:
+        - { $ref: '#/components/schemas/ReferralCampaignInput' }
+        - type: object
+          required: [version]
+          properties:
+            version: { type: integer, format: int64, minimum: 1 }
+    ReferralCampaign:
+      allOf:
+        - { $ref: '#/components/schemas/ReferralCampaignInput' }
+        - type: object
+          required: [id, active, program_type, program_types, version]
+          properties:
+            id: { type: integer, format: int64 }
+            active: { type: boolean }
+            version: { type: integer, format: int64, minimum: 1 }
+    ReferralCampaignEnvelope:
+      type: object
+      required: [data, request_id]
+      properties:
+        request_id: { $ref: '#/components/schemas/RequestId' }
+        data: { $ref: '#/components/schemas/ReferralCampaign' }
     Subscription:
       type: object
       additionalProperties: false
@@ -1176,6 +2215,8 @@ components:
         unit_amount_cents: { type: integer, format: int64, minimum: 1 }
         active_branches: { type: integer, format: int64, minimum: 1 }
         monthly_amount_cents: { type: integer, format: int64, minimum: 1 }
+        full_monthly_amount_cents: { type: integer, format: int64, minimum: 1 }
+        discount_remaining_charges: { type: integer, minimum: 0 }
         checkout_url: { type: string, format: uri }
         next_payment_date: { $ref: '#/components/schemas/Timestamp' }
         provider_configured: { type: boolean }
@@ -1233,7 +2274,7 @@ components:
           properties:
             code:
               type: string
-              enum: [INVALID_REQUEST, ACCOUNT_TYPE_REQUIRED, IDENTITY_TOKEN_INVALID, INVITATION_INVALID, INVITATION_EMAIL_MISMATCH, SELF_ROLE_CHANGE_FORBIDDEN, EMAIL_VERIFICATION_REQUIRED, UNAUTHENTICATED, RECENT_AUTH_REQUIRED, FORBIDDEN, NOT_FOUND, EMAIL_EXISTS, RESOURCE_CONFLICT, PROGRAM_TYPE_HAS_BENEFITS, PROGRAM_TYPE_IMMUTABLE, IDEMPOTENCY_CONFLICT, IDEMPOTENCY_IN_PROGRESS, PREVIEW_EXPIRED, PREVIEW_CONSUMED, PREVIEW_CHANGED, PRECONDITION_FAILED, OWNERSHIP_TRANSFER_REQUIRED, INSUFFICIENT_BALANCE, DEMO_SIGNUP_DISABLED, DEMO_ACCESS_DENIED, MEDIA_TOO_LARGE, MEDIA_TYPE_UNSUPPORTED, MEDIA_STORAGE_UNAVAILABLE, RATE_LIMITED, DEPENDENCY_UNAVAILABLE, INTERNAL_ERROR]
+              enum: [INVALID_REQUEST, REFERRAL_CODE_INVALID, ACCOUNT_TYPE_REQUIRED, IDENTITY_TOKEN_INVALID, INVITATION_INVALID, INVITATION_EMAIL_MISMATCH, SELF_ROLE_CHANGE_FORBIDDEN, EMAIL_VERIFICATION_REQUIRED, UNAUTHENTICATED, RECENT_AUTH_REQUIRED, FORBIDDEN, NOT_FOUND, EMAIL_EXISTS, RESOURCE_CONFLICT, PROGRAM_TYPE_HAS_BENEFITS, PROGRAM_TYPE_IMMUTABLE, IDEMPOTENCY_CONFLICT, IDEMPOTENCY_IN_PROGRESS, PREVIEW_EXPIRED, PREVIEW_CONSUMED, PREVIEW_CHANGED, PRECONDITION_FAILED, BILLING_IN_PROGRESS, BILLING_UNAVAILABLE, BILLING_PROVIDER_ERROR, INSUFFICIENT_BALANCE, DEMO_SIGNUP_DISABLED, DEMO_ACCESS_DENIED, MEDIA_TOO_LARGE, MEDIA_TYPE_UNSUPPORTED, MEDIA_STORAGE_UNAVAILABLE, RATE_LIMITED, DEPENDENCY_UNAVAILABLE, INTERNAL_ERROR]
             message: { type: string }
             details: { type: object, additionalProperties: true }
         request_id: { $ref: '#/components/schemas/RequestId' }
@@ -1471,6 +2512,7 @@ components:
         branch_latitude: { type: number, format: double, minimum: -90, maximum: 90, description: Debe enviarse junto con branch_longitude }
         branch_longitude: { type: number, format: double, minimum: -180, maximum: 180, description: Debe enviarse junto con branch_latitude }
         program_type: { type: string, enum: [SELLOS, PUNTOS] }
+        referral_code: { type: string, pattern: '^[A-Za-z0-9-]{4,40}$', description: Código opcional; se congela una única atribución por marca }
     LoginRequest:
       type: object
       additionalProperties: false
@@ -1513,6 +2555,7 @@ components:
         branch_latitude: { type: number, format: double, minimum: -90, maximum: 90, description: Debe enviarse junto con branch_longitude }
         branch_longitude: { type: number, format: double, minimum: -180, maximum: 180, description: Debe enviarse junto con branch_latitude }
         program_type: { type: string, enum: [SELLOS, PUNTOS] }
+        referral_code: { type: string, pattern: '^[A-Za-z0-9-]{4,40}$', description: Código opcional al crear la marca; se ignora al ingresar a una cuenta existente }
     CreateInvitationRequest:
       type: object
       additionalProperties: false
@@ -1637,6 +2680,12 @@ components:
       additionalProperties: false
       required: [exported_at, usuario, membresias, tarjetas, movimientos]
       properties:
+        progreso_resenas:
+          type: array
+          items: { $ref: '#/components/schemas/ReviewProgressExport' }
+        invitaciones_resenas:
+          type: array
+          items: { $ref: '#/components/schemas/ReviewInvitationExport' }
         exported_at: { $ref: '#/components/schemas/Timestamp' }
         usuario: { $ref: '#/components/schemas/User' }
         membresias:
@@ -1937,6 +2986,9 @@ components:
         balance_stamps: { type: integer, format: int64, minimum: 0 }
         balance_points: { type: integer, format: int64, minimum: 0 }
         benefit: { $ref: '#/components/schemas/Benefit' }
+        benefits:
+          type: [array, 'null']
+          items: { $ref: '#/components/schemas/Benefit' }
     CardTemplate:
       type: string
       enum: [COMIC_HQ, MINIMAL_PRO, POP_BADGE, PREMIUM_GOLD_CHECKS, DARK_LUXURY_CHECKS, PREMIUM_GOLD, DARK_LUXURY, POP_HEADER, COMIC_HQ_POINTS, MINIMAL_PRO_POINTS, POP_BADGE_POINTS, NEON_PULSE, SUNSET_GRADIENT]
@@ -2162,3 +3214,142 @@ components:
           items: { $ref: '#/components/schemas/Movement' }
         pagination: { $ref: '#/components/schemas/Pagination' }
         request_id: { $ref: '#/components/schemas/RequestId' }
+    ReviewSettingsInput:
+      type: object
+      additionalProperties: false
+      required: [enabled, purchase_threshold, message, destination_type]
+      properties:
+        enabled: { type: boolean, default: false }
+        purchase_threshold: { type: integer, minimum: 1, maximum: 1000000, default: 1 }
+        message: { type: string, minLength: 1, maxLength: 500, default: '¿Cómo fue tu experiencia? Compartí tu opinión en Google.' }
+        destination_type: { type: string, enum: [GOOGLE_PLACE, MANUAL_LINK], default: MANUAL_LINK }
+        google_place_id: { type: [string, 'null'], maxLength: 300, pattern: '^[A-Za-z0-9_-]+$' }
+        manual_review_url:
+          type: [string, 'null']
+          description: HTTPS sin credenciales ni puerto, host exacto g.page, maps.app.goo.gl, maps.google.com, www.google.com, search.google.com o share.google. Se exige sólo el destino seleccionado cuando enabled=true.
+    ReviewSettings:
+      type: object
+      required: [branch_id, enabled, purchase_threshold, message, destination_type, google_place_id, manual_review_url, version, places_available, review_url]
+      properties:
+        branch_id: { type: integer }
+        enabled: { type: boolean }
+        purchase_threshold: { type: integer }
+        message: { type: string }
+        destination_type: { type: string, enum: [GOOGLE_PLACE, MANUAL_LINK] }
+        google_place_id: { type: [string, 'null'] }
+        manual_review_url: { type: [string, 'null'] }
+        version: { type: integer, minimum: 1 }
+        places_available: { type: boolean }
+        review_url: { type: [string, 'null'], description: Resuelto transitoriamente; null si proveedor no disponible }
+    ReviewAttribution:
+      type: object
+      required: [provider, provider_uri]
+      properties:
+        provider: { type: string }
+        provider_uri: { type: string, format: uri, description: Enlace HTTPS del proveedor de atribución }
+    ReviewPlace:
+      type: object
+      required: [place_id, name, address, review_url]
+      properties:
+        attributions:
+          type: array
+          items: { $ref: '#/components/schemas/ReviewAttribution' }
+        place_id: { type: string }
+        name: { type: string }
+        address: { type: string }
+        review_url: { type: [string, 'null'] }
+    ReviewPlaces:
+      type: array
+      items: { $ref: '#/components/schemas/ReviewPlace' }
+    ReviewInvitation:
+      type: object
+      required: [id, card_id, brand_id, branch_id, branch_name, operation_id, message, review_url, occurred_at]
+      properties:
+        id: { type: string, format: uuid }
+        card_id: { type: integer }
+        brand_id: { type: integer }
+        branch_id: { type: integer }
+        branch_name: { type: string }
+        operation_id: { type: string, format: uuid }
+        message: { type: string }
+        review_url: { type: string, format: uri }
+        occurred_at: { type: string, format: date-time }
+    ReviewInvitations:
+      type: array
+      items: { $ref: '#/components/schemas/ReviewInvitation' }
+    ReviewMetrics:
+      type: object
+      required: [shown, skipped, clicked]
+      properties:
+        shown: { type: integer, minimum: 0 }
+        skipped: { type: integer, minimum: 0 }
+        clicked: { type: integer, minimum: 0 }
+    ReviewReservation:
+      type: object
+      required: [invitation, reservation_token, expires_at]
+      properties:
+        invitation: { $ref: '#/components/schemas/ReviewInvitation' }
+        reservation_token: { type: string, format: uuid }
+        expires_at: { type: string, format: date-time }
+    ReviewEvents:
+      type: object
+      required: [id, shown, skipped, clicked]
+      properties:
+        id: { type: string, format: uuid }
+        shown: { type: boolean }
+        skipped: { type: boolean }
+        clicked: { type: boolean }
+    ReviewProgressExport:
+      type: object
+      required: [branch_id, purchases]
+      properties:
+        branch_id: { type: integer }
+        purchases: { type: integer }
+    ReviewInvitationExport:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        branch_id: { type: integer }
+        card_id: { type: [integer, 'null'] }
+        operation_id: { type: [string, 'null'], format: uuid }
+        occurred_at: { type: string, format: date-time }
+        cancelled_at: { type: [string, 'null'], format: date-time }
+        shown_at: { type: [string, 'null'], format: date-time }
+        skipped_at: { type: [string, 'null'], format: date-time }
+        clicked_at: { type: [string, 'null'], format: date-time }
+    ReviewSettingsEnvelope:
+      type: object
+      required: [data, request_id]
+      properties:
+        data: { $ref: '#/components/schemas/ReviewSettings' }
+        request_id: { type: string }
+    ReviewPlacesEnvelope:
+      type: object
+      required: [data, request_id]
+      properties:
+        data: { $ref: '#/components/schemas/ReviewPlaces' }
+        request_id: { type: string }
+    ReviewMetricsEnvelope:
+      type: object
+      required: [data, request_id]
+      properties:
+        data: { $ref: '#/components/schemas/ReviewMetrics' }
+        request_id: { type: string }
+    ReviewInvitationsEnvelope:
+      type: object
+      required: [data, request_id]
+      properties:
+        data: { $ref: '#/components/schemas/ReviewInvitations' }
+        request_id: { type: string }
+    ReviewReservationEnvelope:
+      type: object
+      required: [data, request_id]
+      properties:
+        data: { $ref: '#/components/schemas/ReviewReservation' }
+        request_id: { type: string }
+    ReviewEventsEnvelope:
+      type: object
+      required: [data, request_id]
+      properties:
+        data: { $ref: '#/components/schemas/ReviewEvents' }
+        request_id: { type: string }

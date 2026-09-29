@@ -87,47 +87,141 @@ func (r *Repository) ExportAccount(ctx context.Context, id int64) (model.Account
 		return model.AccountExport{}, err
 	}
 	rows.Close()
+	out.ReviewProgress = []model.ReviewProgressExport{}
+	rows, err = tx.Query(ctx, `SELECT sucursal_id,purchases FROM progreso_resenas WHERE usuario_id=$1 ORDER BY sucursal_id`, id)
+	if err != nil {
+		return model.AccountExport{}, err
+	}
+	for rows.Next() {
+		var progress model.ReviewProgressExport
+		if err = rows.Scan(&progress.BranchID, &progress.Purchases); err != nil {
+			rows.Close()
+			return model.AccountExport{}, err
+		}
+		out.ReviewProgress = append(out.ReviewProgress, progress)
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return model.AccountExport{}, err
+	}
+	rows.Close()
+	out.ReviewInvitations = []model.ReviewInvitationExport{}
+	rows, err = tx.Query(ctx, `SELECT id::text,sucursal_id,tarjeta_id,operation_id::text,occurred_at,cancelled_at,shown_at,skipped_at,clicked_at FROM invitaciones_resenas WHERE usuario_id=$1 ORDER BY occurred_at,id`, id)
+	if err != nil {
+		return model.AccountExport{}, err
+	}
+	for rows.Next() {
+		var invitation model.ReviewInvitationExport
+		if err = rows.Scan(&invitation.ID, &invitation.BranchID, &invitation.CardID, &invitation.OperationID, &invitation.OccurredAt, &invitation.CancelledAt, &invitation.ShownAt, &invitation.SkippedAt, &invitation.ClickedAt); err != nil {
+			rows.Close()
+			return model.AccountExport{}, err
+		}
+		out.ReviewInvitations = append(out.ReviewInvitations, invitation)
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return model.AccountExport{}, err
+	}
+	rows.Close()
 	if err = tx.Commit(ctx); err != nil {
 		return model.AccountExport{}, err
 	}
 	return out, nil
 }
 
-func (r *Repository) AnonymizeAccount(ctx context.Context, id int64, expectedVersion int) (time.Time, error) {
+// Subscription cancellation runs before local deletion while the affected brand
+// and subscription rows are locked. Its provider operation must be safe to retry
+// if PostgreSQL rejects the serializable transaction after the external call.
+func (r *Repository) AnonymizeAccount(ctx context.Context, id int64, expectedVersion int, cancel ...func(context.Context, []SubscriptionRecord) error) (time.Time, error) {
 	tx, err := r.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return time.Time{}, err
 	}
 	defer tx.Rollback(ctx)
 	var currentVersion int
-	var currentEmail, currentName string
-	if err = tx.QueryRow(ctx, `SELECT version,email::text,nombre FROM usuarios WHERE id=$1 AND activo AND deleted_at IS NULL FOR UPDATE`, id).Scan(&currentVersion, &currentEmail, &currentName); err != nil {
+	var currentEmail string
+	if err = tx.QueryRow(ctx, `SELECT version,email::text FROM usuarios WHERE id=$1 AND activo AND deleted_at IS NULL FOR UPDATE`, id).Scan(&currentVersion, &currentEmail); err != nil {
 		return time.Time{}, err
 	}
 	if currentVersion != expectedVersion {
 		return time.Time{}, ErrPreconditionFailed
 	}
-	_ = currentName
-	var blocksOwnership bool
-	err = tx.QueryRow(ctx, `SELECT EXISTS(
-		SELECT 1 FROM membresias_marca mine
-		WHERE mine.usuario_id=$1 AND mine.activo AND mine.rol='PROPIETARIO'
-		AND NOT EXISTS(SELECT 1 FROM membresias_marca other WHERE other.marca_id=mine.marca_id AND other.usuario_id<>$1 AND other.activo AND other.rol='PROPIETARIO')
-	)`, id).Scan(&blocksOwnership)
+	// Match checkout's brand lock. Sort all brands before deciding which must
+	// close, so simultaneous departures from a shared brand cannot orphan it.
+	rows, err := tx.Query(ctx, `SELECT m.id FROM marcas m JOIN membresias_marca mine ON mine.marca_id=m.id
+		WHERE mine.usuario_id=$1 AND mine.activo AND mine.rol='PROPIETARIO' ORDER BY m.id FOR UPDATE OF m`, id)
 	if err != nil {
 		return time.Time{}, err
 	}
-	if blocksOwnership {
-		return time.Time{}, ErrOwnershipTransfer
+	ownedBrands, err := pgx.CollectRows(rows, pgx.RowTo[int64])
+	if err != nil {
+		return time.Time{}, err
+	}
+	closedBrands := make([]int64, 0, len(ownedBrands))
+	for _, brandID := range ownedBrands {
+		var anotherOwner bool
+		err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM membresias_marca other JOIN usuarios u ON u.id=other.usuario_id
+			WHERE other.marca_id=$1 AND other.usuario_id<>$2 AND other.activo AND other.rol='PROPIETARIO' AND u.activo AND u.deleted_at IS NULL)`, brandID, id).Scan(&anotherOwner)
+		if err != nil {
+			return time.Time{}, err
+		}
+		if !anotherOwner {
+			closedBrands = append(closedBrands, brandID)
+		}
+	}
+	rows, err = tx.Query(ctx, `SELECT marca_id,estado,COALESCE(proveedor_suscripcion_id,''),referencia_externa
+		FROM suscripciones_marca WHERE marca_id=ANY($1) AND estado<>'CANCELLED' ORDER BY marca_id FOR UPDATE`, closedBrands)
+	if err != nil {
+		return time.Time{}, err
+	}
+	subscriptions, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (SubscriptionRecord, error) {
+		var record SubscriptionRecord
+		err := row.Scan(&record.Subscription.BrandID, &record.Subscription.Status, &record.ProviderID, &record.ExternalReference)
+		return record, err
+	})
+	if err != nil {
+		return time.Time{}, err
+	}
+	if len(subscriptions) > 0 {
+		if len(cancel) == 0 || cancel[0] == nil {
+			return time.Time{}, ErrSubscriptionChangeRequired
+		}
+		if err = cancel[0](ctx, subscriptions); err != nil {
+			return time.Time{}, err
+		}
+	}
+	for _, record := range subscriptions {
+		if _, err = tx.Exec(ctx, `UPDATE suscripciones_marca SET estado='CANCELLED',checkout_url=NULL,proximo_cobro_at=NULL,updated_at=now() WHERE marca_id=$1`, record.Subscription.BrandID); err != nil {
+			return time.Time{}, err
+		}
 	}
 	var deletedAt time.Time
 	if err = tx.QueryRow(ctx, `SELECT now()`).Scan(&deletedAt); err != nil {
 		return time.Time{}, err
 	}
+	for _, statement := range []string{
+		`UPDATE marcas SET activo=false,deleted_at=COALESCE(deleted_at,$2),version=version+1,updated_at=$2 WHERE id=ANY($1)`,
+		`UPDATE sucursales SET activo=false,deleted_at=COALESCE(deleted_at,$2),version=version+1,updated_at=$2 WHERE marca_id=ANY($1) AND activo`,
+		`UPDATE programas_fidelidad SET activo=false,version=version+1,updated_at=$2 WHERE marca_id=ANY($1) AND activo`,
+		`UPDATE beneficios SET activo=false,deleted_at=COALESCE(deleted_at,$2),version=version+1,updated_at=$2 WHERE programa_id IN(SELECT id FROM programas_fidelidad WHERE marca_id=ANY($1)) AND activo`,
+		`UPDATE tarjetas SET activo=false,deleted_at=COALESCE(deleted_at,$2),version=version+1 WHERE marca_id=ANY($1) AND activo`,
+		`UPDATE previews_movimiento SET expires_at=LEAST(expires_at,$2) WHERE marca_id=ANY($1) AND consumed_at IS NULL`,
+		`UPDATE membresias_sucursales SET activo=false WHERE membresia_id IN(SELECT id FROM membresias_marca WHERE marca_id=ANY($1)) AND $2::timestamptz IS NOT NULL`,
+		`UPDATE membresias_marca SET activo=false,version=version+1,updated_at=$2 WHERE marca_id=ANY($1) AND activo`,
+		`UPDATE accesos_demo SET activo=false WHERE marca_id=ANY($1) AND $2::timestamptz IS NOT NULL`,
+		`UPDATE referral_codes SET active=false WHERE source_brand_id=ANY($1) AND $2::timestamptz IS NOT NULL`,
+		`UPDATE archivos_marca SET estado='DELETE_PENDING',delete_after=$2::timestamptz+interval '24 hours',lease_owner=NULL,lease_until=NULL,version=version+1,updated_at=$2 WHERE marca_id=ANY($1) AND estado IN ('ACTIVA','UPLOAD_PENDING','UPLOAD_FAILED')`,
+		`UPDATE email_outbox SET estado='FAILED',ultimo_error='brand deleted',token_ciphertext=NULL,token_nonce=NULL,token_expires_at=NULL,lease_until=NULL,lease_owner=NULL WHERE invitation_id IN(SELECT id FROM invitaciones_marca WHERE marca_id=ANY($1) AND estado='PENDIENTE') AND estado IN('PENDING','SENDING') AND $2::timestamptz IS NOT NULL`,
+		`UPDATE invitaciones_marca SET estado='REVOCADA',version=version+1,updated_at=$2 WHERE marca_id=ANY($1) AND estado='PENDIENTE'`,
+	} {
+		if _, err = tx.Exec(ctx, statement, closedBrands, deletedAt); err != nil {
+			return time.Time{}, err
+		}
+	}
 	if _, err = tx.Exec(ctx, `UPDATE membresias_sucursales SET activo=false WHERE membresia_id IN (SELECT id FROM membresias_marca WHERE usuario_id=$1)`, id); err != nil {
 		return time.Time{}, err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE membresias_marca SET activo=false WHERE usuario_id=$1`, id); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE membresias_marca SET activo=false,version=version+1,updated_at=now() WHERE usuario_id=$1 AND activo`, id); err != nil {
 		return time.Time{}, err
 	}
 	statements := []string{
@@ -140,6 +234,13 @@ func (r *Repository) AnonymizeAccount(ctx context.Context, id int64, expectedVer
 		if _, err = tx.Exec(ctx, statement, id, deletedAt); err != nil {
 			return time.Time{}, err
 		}
+	}
+	// Retain anonymous branch metrics, remove links to the user's loyalty ledger.
+	if _, err = tx.Exec(ctx, `UPDATE invitaciones_resenas SET usuario_id=NULL,tarjeta_id=NULL,operation_id=NULL,reservation_token=NULL,lease_until=NULL,cancelled_at=COALESCE(cancelled_at,$2) WHERE usuario_id=$1`, id, deletedAt); err != nil {
+		return time.Time{}, err
+	}
+	if _, err = tx.Exec(ctx, `DELETE FROM progreso_resenas WHERE usuario_id=$1`, id); err != nil {
+		return time.Time{}, err
 	}
 	// Account deletion revokes device destinations and cascades queued pushes.
 	if _, err = tx.Exec(ctx, `DELETE FROM push_tokens WHERE usuario_id=$1`, id); err != nil {

@@ -162,7 +162,7 @@ func (s *Service) LoginGoogle(ctx context.Context, req model.GoogleAuthRequest) 
 				BranchAddress: registration.BranchAddress, BranchLocality: registration.BranchLocality, BranchProvince: registration.BranchProvince,
 				BranchPostalCode: registration.BranchPostalCode, BranchLatitude: registration.BranchLatitude, BranchLongitude: registration.BranchLongitude,
 			}
-			u, err = s.Repo.CreateGoogleMerchant(ctx, googleID, email, name, registration.BrandName, registration.BranchName, location, registration.ProgramType)
+			u, err = s.Repo.CreateGoogleMerchant(ctx, googleID, email, name, registration.BrandName, registration.BranchName, location, registration.ProgramType, registration.ReferralCode)
 			return err
 		})
 	}
@@ -208,7 +208,7 @@ func (s *Service) validateGoogleMerchant(registration *model.GoogleMerchantRegis
 	return model.GoogleMerchantRegistration{
 		BrandName: brand, BranchName: branch, BranchAddress: location.BranchAddress, BranchLocality: location.BranchLocality,
 		BranchProvince: location.BranchProvince, BranchPostalCode: location.BranchPostalCode, BranchLatitude: location.BranchLatitude,
-		BranchLongitude: location.BranchLongitude, ProgramType: programType,
+		BranchLongitude: location.BranchLongitude, ProgramType: programType, ReferralCode: strings.ToUpper(strings.TrimSpace(registration.ReferralCode)),
 	}, nil
 }
 

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -28,6 +29,42 @@ func TestValidateSignature(t *testing.T) {
 	}
 	if ValidateSignature(header, requestID, resourceID, secret, now.Add(10*time.Minute)) {
 		t.Fatal("stale signature accepted")
+	}
+}
+
+func TestValidateSignatureTimestampFormats(t *testing.T) {
+	now := time.Unix(1_800_000_000, 0)
+	resourceID, requestID, secret := "abc-123", "req-9", "webhook-secret"
+	tests := []struct {
+		name string
+		ts   string
+		want bool
+	}{
+		{"seconds", strconv.FormatInt(now.Unix(), 10), true},
+		{"milliseconds", strconv.FormatInt(now.UnixMilli(), 10), true},
+		{"milliseconds with fraction", strconv.FormatInt(now.Add(-123*time.Millisecond).UnixMilli(), 10), true},
+		{"oldest allowed milliseconds", strconv.FormatInt(now.Add(-5*time.Minute).UnixMilli(), 10), true},
+		{"latest allowed milliseconds", strconv.FormatInt(now.Add(time.Minute).UnixMilli(), 10), true},
+		{"stale seconds", strconv.FormatInt(now.Add(-5*time.Minute-time.Second).Unix(), 10), false},
+		{"stale milliseconds", strconv.FormatInt(now.Add(-5*time.Minute-time.Millisecond).UnixMilli(), 10), false},
+		{"future seconds", strconv.FormatInt(now.Add(time.Minute+time.Second).Unix(), 10), false},
+		{"future milliseconds", strconv.FormatInt(now.Add(time.Minute+time.Millisecond).UnixMilli(), 10), false},
+		{"microseconds", strconv.FormatInt(now.UnixMicro(), 10), false},
+		{"overflow", "9223372036854775808", false},
+		{"non numeric", "not-a-time", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mac := hmac.New(sha256.New, []byte(secret))
+			_, _ = mac.Write([]byte("id:" + resourceID + ";request-id:" + requestID + ";ts:" + tt.ts + ";"))
+			header := "ts=" + tt.ts + ",v1=" + hex.EncodeToString(mac.Sum(nil))
+			if got := ValidateSignature(header, requestID, resourceID, secret, now); got != tt.want {
+				t.Fatalf("signature accepted = %v, want %v", got, tt.want)
+			}
+			if tt.want && ValidateSignature(header, requestID, resourceID, "wrong-secret", now) {
+				t.Fatal("signature accepted with wrong secret")
+			}
+		})
 	}
 }
 
@@ -115,8 +152,10 @@ func TestCancelSubscriptionStopsProviderRenewal(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Fatal(err)
 		}
-		if body.Status != "canceled" {
-			t.Fatalf("status = %q", body.Status)
+		// The live /preapproval API rejects "canceled" with HTTP 400.
+		if body.Status != "cancelled" {
+			http.Error(w, `{"message":"Invalid preapproval status param"}`, http.StatusBadRequest)
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"id":"preapproval-1","status":"cancelled","external_reference":"puntazo:brand:1:key"}`))
@@ -130,5 +169,26 @@ func TestCancelSubscriptionStopsProviderRenewal(t *testing.T) {
 	}
 	if out.Status != "cancelled" {
 		t.Fatalf("unexpected response: %+v", out)
+	}
+}
+
+func TestCancelSubscriptionRequiresProviderConfirmation(t *testing.T) {
+	for _, status := range []string{"cancelled", "canceled", "authorized", "pending", "paused", ""} {
+		t.Run(status, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(map[string]string{
+					"id": "preapproval-1", "status": status, "external_reference": "puntazo:brand:1:key",
+				})
+			}))
+			defer server.Close()
+
+			client := New(server.URL, "private-token", time.Second)
+			_, err := client.CancelSubscription(t.Context(), "preapproval-1", "cancel-1")
+			confirmed := status == "cancelled" || status == "canceled"
+			if (err == nil) != confirmed {
+				t.Fatalf("provider status %q: err = %v, confirmed = %t", status, err, confirmed)
+			}
+		})
 	}
 }

@@ -70,6 +70,12 @@ func (r *Repository) ValidateClaimedEmail(ctx context.Context, item model.Outbox
 		}
 		return nil
 	}
+	if item.Kind == "SUBSCRIPTION_CONFIRMATION" {
+		return r.validateSubscriptionConfirmation(ctx, item, token)
+	}
+	if item.Kind == "INFLUENCER_WELCOME" {
+		return r.validateInfluencerWelcome(ctx, item, token)
+	}
 	if item.Kind != "BRAND_INVITATION" {
 		return nil
 	}
