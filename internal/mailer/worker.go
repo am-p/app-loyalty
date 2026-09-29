@@ -58,6 +58,13 @@ func (w Worker) flush(ctx context.Context) {
 		}
 		var message model.EmailMessage
 		switch item.Kind {
+		case "SUBSCRIPTION_CONFIRMATION":
+			var details model.SubscriptionConfirmationDetails
+			if err = json.Unmarshal([]byte(token), &details); err != nil {
+				_ = w.Repo.MarkEmailFailed(ctx, item.ID, item.LeaseOwner, 5, errors.New("invalid subscription email payload"))
+				continue
+			}
+			message = SubscriptionConfirmationMessage(w.PublicAppURL, item.To, details)
 		case "INFLUENCER_WELCOME":
 			var details model.InfluencerWelcomeDetails
 			if err = json.Unmarshal([]byte(token), &details); err != nil {
@@ -90,7 +97,7 @@ func (w Worker) flush(ctx context.Context) {
 			_ = w.Repo.MarkEmailFailed(ctx, item.ID, item.LeaseOwner, 5, errors.New("unknown email template"))
 			continue
 		}
-		if item.Kind == "RESET_PASSWORD" || item.Kind == "BRAND_INVITATION" || item.Kind == "INFLUENCER_WELCOME" {
+		if item.Kind == "RESET_PASSWORD" || item.Kind == "BRAND_INVITATION" || item.Kind == "INFLUENCER_WELCOME" || item.Kind == "SUBSCRIPTION_CONFIRMATION" {
 			message.InlineImages = append(message.InlineImages, model.EmailInlineImage{ContentID: mascotContentID, Filename: "mr-puntazo.png", ContentType: "image/png", Data: mascotPNG})
 		}
 		if err = w.Sender.Send(ctx, message); err != nil {

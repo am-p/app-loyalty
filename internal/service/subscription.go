@@ -127,6 +127,9 @@ func (s *Service) ApplySubscriptionWebhook(ctx context.Context, notificationID, 
 	if provider.ID != resourceID || !strings.HasPrefix(provider.ExternalReference, "puntazo:brand:") {
 		return ErrInvalidRequest
 	}
+	if s.Config.MailProvider == "smtp" || s.Config.MailProvider == "capture" {
+		return s.Repo.RecordSubscriptionWebhookWithConfirmation(ctx, notificationID, topic, provider)
+	}
 	return s.Repo.RecordSubscriptionWebhook(ctx, notificationID, topic, provider)
 }
 
@@ -273,4 +276,24 @@ func (s *Service) subscriptionUnitPrice(programType string) (int64, bool) {
 	default:
 		return 0, false
 	}
+}
+
+var subscriptionProviderIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
+
+func (s *Service) SubscriptionResult(ctx context.Context, actorID int64, providerID string) (model.Subscription, error) {
+	if !subscriptionProviderIDPattern.MatchString(providerID) {
+		return model.Subscription{}, ErrInvalidRequest
+	}
+	brandID, err := s.Repo.SubscriptionBrandForOwner(ctx, actorID, providerID)
+	if err != nil {
+		return model.Subscription{}, err
+	}
+	return s.Subscription(ctx, actorID, brandID)
+}
+
+func (s *Service) RequestSubscriptionConfirmation(ctx context.Context, actorID, brandID int64) error {
+	if s.Config.MailProvider != "smtp" && s.Config.MailProvider != "capture" {
+		return repository.ErrEmailUnavailable
+	}
+	return s.Repo.RequestSubscriptionConfirmation(ctx, actorID, brandID)
 }

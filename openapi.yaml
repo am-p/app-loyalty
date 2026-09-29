@@ -1019,6 +1019,38 @@ paths:
           description: Estado visible exclusivamente para el propietario
           content: { application/json: { schema: { $ref: '#/components/schemas/SubscriptionEnvelope' } } }
         '403': { $ref: '#/components/responses/Forbidden' }
+  /suscripciones/{provider_subscription_id}/resultado:
+    get:
+      tags: [Facturación]
+      operationId: getSubscriptionResult
+      summary: Consulta el resultado del checkout desde el registro del servidor
+      description: Requiere sesión y membresía propietaria activa. Una referencia ajena devuelve 404. No confía en parámetros de estado del retorno de Mercado Pago. Respuesta no almacenable en caché.
+      x-puntazo-implementation: IMPLEMENTED
+      parameters:
+        - { name: provider_subscription_id, in: path, required: true, schema: { type: string, pattern: '^[A-Za-z0-9_-]{1,128}$' } }
+      responses:
+        '200':
+          description: Estado confirmado del registro de la suscripción
+          content: { application/json: { schema: { $ref: '#/components/schemas/SubscriptionEnvelope' } } }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /marcas/{brand_id}/suscripcion/confirmacion-email:
+    parameters: [{ $ref: '#/components/parameters/BrandId' }]
+    post:
+      tags: [Facturación]
+      operationId: requestSubscriptionConfirmationEmail
+      summary: Registra la confirmación por correo de una suscripción autorizada
+      description: Sólo el propietario activo con email verificado. No acepta un destinatario arbitrario. La cola cifrada conserva las condiciones al confirmar la autorización; los webhooks y solicitudes repetidos generan como máximo un registro por referencia de suscripción. 202 indica solicitud registrada, no entrega SMTP. Confirma autorización, no el pago de una cuota.
+      x-puntazo-implementation: IMPLEMENTED
+      responses:
+        '202':
+          description: Solicitud registrada o ya registrada
+          content: { application/json: { schema: { type: object, properties: { data: { type: object, properties: { queued: { type: boolean } } }, request_id: { type: string } } } } }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: La suscripción todavía no está autorizada }
+        '503': { description: 'EMAIL_UNAVAILABLE, proveedor de correo no disponible' }
   /marcas/{brand_id}/suscripcion/checkout:
     parameters: [{ $ref: '#/components/parameters/BrandId' }]
     post:

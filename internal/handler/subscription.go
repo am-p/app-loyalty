@@ -183,3 +183,34 @@ func (h *Handler) BackofficeMerchantCreditAllocations(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, web.Envelope[repository.MerchantCreditAccount]{Data: out, RequestID: web.RequestID(c)})
 }
+
+func (h *Handler) SubscriptionResult(c *gin.Context) {
+	a, ok := actor(c)
+	if !ok {
+		return
+	}
+	out, err := h.Service.SubscriptionResult(c.Request.Context(), a.ID, c.Param("provider_subscription_id"))
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	c.Header("Cache-Control", "no-store")
+	c.JSON(http.StatusOK, web.Envelope[model.Subscription]{Data: out, RequestID: web.RequestID(c)})
+}
+
+func (h *Handler) RequestSubscriptionConfirmation(c *gin.Context) {
+	a, ok := actor(c)
+	if !ok {
+		return
+	}
+	brandID, err := positiveID(c.Param("brand_id"))
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	if err = h.Service.RequestSubscriptionConfirmation(c.Request.Context(), a.ID, brandID); err != nil {
+		writeErr(c, err)
+		return
+	}
+	c.JSON(http.StatusAccepted, web.Envelope[map[string]bool]{Data: map[string]bool{"queued": true}, RequestID: web.RequestID(c)})
+}

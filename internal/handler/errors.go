@@ -14,7 +14,7 @@ import (
 func writeErr(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, repository.ErrEmailUnavailable):
-		web.Error(c, http.StatusServiceUnavailable, "EMAIL_UNAVAILABLE", "El correo no está configurado. No se creó el influencer; intentá nuevamente cuando esté disponible", nil)
+		web.Error(c, http.StatusServiceUnavailable, "EMAIL_UNAVAILABLE", "El correo no está disponible; intentá nuevamente cuando esté configurado", nil)
 	case errors.Is(err, service.ErrPlacesUnavailable):
 		web.Error(c, http.StatusServiceUnavailable, "DEPENDENCY_UNAVAILABLE", "Google Places no está disponible", nil)
 	case errors.Is(err, service.ErrMediaTooLarge):
