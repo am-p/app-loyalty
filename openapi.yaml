@@ -2222,7 +2222,11 @@ components:
         provider_configured: { type: boolean }
         trial_available:
           type: boolean
-          description: Indica si la marca todavía puede usar el primer mes gratuito en su primer checkout.
+          description: Indica si resta tiempo del mes gratuito contado desde el primer inicio de sesión. Reintentar o autorizar un checkout no reinicia el plazo.
+        checkout_rejected: { type: boolean, description: Último checkout rechazado de forma concluyente sin ID de proveedor; permite un nuevo intento }
+        trial_started_at: { type: string, format: date-time }
+        trial_ends_at: { type: string, format: date-time, description: Fecha fija del fin de prueba y comienzo de cobros para nuevos checkouts }
+        trial_start_estimated: { type: boolean, description: Cuentas históricas usan created_at como límite conservador porque sesiones antiguas pudieron eliminarse }
         updated_at: { $ref: '#/components/schemas/Timestamp' }
     SubscriptionEnvelope:
       type: object

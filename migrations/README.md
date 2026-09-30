@@ -81,3 +81,29 @@ integración oficial: PR16 → PR17 → PR18 → PR14 actualizado. Los commits d
 dependencias se revisan en sus respectivos PRs. La reparación incluye pruebas
 con correos existentes de bienvenida/confirmación durante down/up0030 y las
 nuevas plantillas durante rollback0031.
+
+## Mes gratuito desde el primer inicio de sesión (`0032`)
+
+Decisión seleccionada por el usuario el 30/09/2026: mostrar días restantes y
+contar un mes calendario de Argentina desde el primer acceso, sin reiniciarlo
+al reautenticar, cancelar o reintentar. La primera autenticación se persiste
+junto con su sesión; la marca conserva ese origen. El día se limita al último
+día del mes siguiente (31/01 → 28/02, o 29/02 en año bisiesto).
+
+Los nuevos checkouts usan `auto_recurring.start_date` con el fin fijo de prueba,
+sin sumar otro `free_trial`. Si el período expiró, no se concede tiempo extra.
+Las operaciones del proveedor existentes conservan su contrato. Históricamente
+la retención elimina sesiones: el backfill `created_at` se marca estimado, no es
+una fecha exacta del primer acceso. `TRIAL_START_UNKNOWN` impide usarlo para
+nuevos checkouts; exige verificar el origen antes de habilitar pago.
+
+El rechazo HTTP concluyente (400/401/403/422) se registra como CANCELLED con
+`checkout_rejected=true` y sin ID de proveedor. Timeout, 409, 429, 5xx o respuesta
+incompleta permanecen CREATING; una búsqueda vacía nunca desbloquea otro POST.
+Consultar la suscripción busca su referencia exacta y recupera el checkout si
+Mercado Pago lo confirma. Una suscripción conocida se consulta por su ID.
+
+Readiness requiere `0032`. Aplicar después de 0031, conservando 0001–0031.
+La reversión de 0032 aborta para preservar el primer acceso y los plazos.
+Este cambio está en propuesta de integración; testing no se actualiza por editar
+este repositorio.

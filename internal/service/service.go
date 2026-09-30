@@ -27,6 +27,8 @@ var (
 	ErrMediaUnavailable       = errors.New("media storage unavailable")
 	ErrBillingUnavailable     = errors.New("billing unavailable")
 	ErrBillingInProgress      = errors.New("billing checkout awaiting provider reconciliation")
+	ErrTrialStartUnknown      = errors.New("first login date requires verification")
+	ErrBillingRejected        = errors.New("billing provider rejected checkout")
 	ErrBillingProviderFailure = errors.New("billing provider request failed")
 	ErrSubscriptionExists     = errors.New("subscription already exists")
 )

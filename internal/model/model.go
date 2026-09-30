@@ -276,6 +276,10 @@ type Subscription struct {
 	NextPaymentDate          *time.Time `json:"next_payment_date,omitempty"`
 	ProviderConfigured       bool       `json:"provider_configured"`
 	TrialAvailable           bool       `json:"trial_available"`
+	TrialStartedAt           *time.Time `json:"trial_started_at,omitempty"`
+	TrialEndsAt              *time.Time `json:"trial_ends_at,omitempty"`
+	CheckoutRejected         bool       `json:"checkout_rejected"`
+	TrialStartEstimated      bool       `json:"trial_start_estimated"`
 	UpdatedAt                time.Time  `json:"updated_at"`
 }
 type BillingSubscriptionRequest struct {
@@ -283,6 +287,7 @@ type BillingSubscriptionRequest struct {
 	Amount                                                                   float64
 	AmountMinor                                                              int64
 	FreeTrialMonths                                                          int
+	StartDate                                                                *time.Time
 }
 type BillingSubscriptionResult struct {
 	ID, Status, ExternalReference, CheckoutURL string

@@ -13,6 +13,7 @@ type SubscriptionConfirmationDetails struct {
 	ActiveBranches     int64      `json:"active_branches"`
 	MonthlyAmountMinor int64      `json:"monthly_amount_minor"`
 	Currency           string     `json:"currency"`
+	TrialEndsAt        *time.Time `json:"trial_ends_at,omitempty"`
 	TrialMonths        int        `json:"trial_months"`
 	ConfirmedAt        time.Time  `json:"confirmed_at"`
 	NextPaymentDate    *time.Time `json:"next_payment_date,omitempty"`
