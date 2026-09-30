@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 
+	"clientesFrecuentes/internal/identitycode"
 	"clientesFrecuentes/internal/repository"
 	"clientesFrecuentes/internal/service"
 	"clientesFrecuentes/internal/web"
@@ -12,7 +13,28 @@ import (
 )
 
 func writeErr(c *gin.Context, err error) {
+	var profile *service.SignupProfileError
+	if errors.As(err, &profile) {
+		missing := []string{}
+		if identitycode.Initial(profile.Name) == "" {
+			missing = append(missing, "name")
+		}
+		if identitycode.Initial(profile.LastName) == "" {
+			missing = append(missing, "apellido")
+		}
+		details := map[string]any{"profile": map[string]string{"name": profile.Name, "apellido": profile.LastName}, "missing_fields": missing, "next_action": "COMPLETE_REGISTRATION_PROFILE"}
+		if profile.AccountTypeRequired {
+			details["next_action"] = "SELECT_ACCOUNT_TYPE"
+			web.Error(c, http.StatusUnprocessableEntity, "ACCOUNT_TYPE_REQUIRED", "Elegí si la cuenta es cliente o comercio", details)
+		} else {
+			web.Error(c, http.StatusUnprocessableEntity, "REGISTRATION_PROFILE_REQUIRED", "Completá nombre y apellido antes de crear tu cuenta. Si tu app no muestra ambos campos, actualizá Puntazo.", details)
+		}
+		return
+	}
+
 	switch {
+	case errors.Is(err, service.ErrRegistrationProfileRequired):
+		web.Error(c, http.StatusUnprocessableEntity, "REGISTRATION_PROFILE_REQUIRED", "Completá nombre y apellido. Actualizá Puntazo si tu aplicación no muestra ambos campos.", map[string]any{"next_action": "COMPLETE_REGISTRATION_PROFILE"})
 	case errors.Is(err, repository.ErrEmailUnavailable):
 		web.Error(c, http.StatusServiceUnavailable, "EMAIL_UNAVAILABLE", "El correo no está disponible; intentá nuevamente cuando esté configurado", nil)
 	case errors.Is(err, service.ErrPlacesUnavailable):

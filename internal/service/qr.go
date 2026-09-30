@@ -1,6 +1,8 @@
 package service
 
 import (
+	"clientesFrecuentes/internal/identitycode"
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
@@ -26,7 +28,7 @@ func (s *Service) QRHash(token string) []byte {
 	return h.Sum(nil)
 }
 
-func (s *Service) resolveMovementIdentity(qrToken, customerCode string) (string, error) {
+func (s *Service) resolveMovementIdentity(ctx context.Context, qrToken, customerCode string) (string, error) {
 	qrToken = strings.TrimSpace(qrToken)
 	customerCode = strings.TrimSpace(customerCode)
 	if (qrToken == "") == (customerCode == "") {
@@ -41,11 +43,25 @@ func (s *Service) resolveMovementIdentity(qrToken, customerCode string) (string,
 
 	normalizedCode := strings.ToUpper(strings.TrimPrefix(customerCode, "#"))
 	if !strings.HasPrefix(normalizedCode, "USER-") {
-		return "", ErrInvalidRequest
+		code, ok := identitycode.Normalize(customerCode)
+		if !ok {
+			return "", ErrInvalidRequest
+		}
+		id, err := s.Repo.CustomerIDByCode(ctx, code)
+		if err != nil {
+			return "", err
+		}
+		token, _ := s.QRForUser(id)
+		return token, nil
 	}
 	digits := strings.TrimPrefix(normalizedCode, "USER-")
 	if len(digits) < 4 || len(digits) > 19 {
 		return "", ErrInvalidRequest
+	}
+	for _, r := range digits {
+		if r < '0' || r > '9' {
+			return "", ErrInvalidRequest
+		}
 	}
 	customerID, err := strconv.ParseInt(digits, 10, 64)
 	if err != nil || customerID < 1 {

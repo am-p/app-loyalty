@@ -19,8 +19,8 @@ func (r *Repository) ExportAccount(ctx context.Context, id int64) (model.Account
 	defer tx.Rollback(ctx)
 
 	var out model.AccountExport
-	err = tx.QueryRow(ctx, `SELECT now(),id,email::text,nombre,apellido,alias,foto_url,tipo_cuenta,activo,(email_verified_at IS NOT NULL),auth_version,version,created_at FROM usuarios WHERE id=$1 AND activo AND deleted_at IS NULL`, id).
-		Scan(&out.ExportedAt, &out.User.ID, &out.User.Email, &out.User.Name, &out.User.LastName, &out.User.Alias, &out.User.PhotoURL, &out.User.AccountType, &out.User.Active, &out.User.EmailVerified, &out.User.AuthVersion, &out.User.Version, &out.User.CreatedAt)
+	err = tx.QueryRow(ctx, `SELECT now(),id,email::text,nombre,apellido,alias,foto_url,tipo_cuenta,activo,(email_verified_at IS NOT NULL),auth_version,version,created_at,COALESCE(codigo_usuario,'#USER-'||lpad(id::text,greatest(4,length(id::text)),'0')) FROM usuarios WHERE id=$1 AND activo AND deleted_at IS NULL`, id).
+		Scan(&out.ExportedAt, &out.User.ID, &out.User.Email, &out.User.Name, &out.User.LastName, &out.User.Alias, &out.User.PhotoURL, &out.User.AccountType, &out.User.Active, &out.User.EmailVerified, &out.User.AuthVersion, &out.User.Version, &out.User.CreatedAt, &out.User.UserCode)
 	if err != nil {
 		return model.AccountExport{}, err
 	}

@@ -7,11 +7,13 @@ import (
 )
 
 type RegisterCustomerRequest struct {
+	LastName string `json:"apellido"`
 	Email    string `json:"email"`
 	Password string `json:"password"`
 	Name     string `json:"name"`
 }
 type RegisterDemoMerchantRequest struct {
+	OwnerLastName    string   `json:"owner_last_name"`
 	Email            string   `json:"email"`
 	Password         string   `json:"password"`
 	OwnerName        string   `json:"owner_name"`
@@ -42,6 +44,8 @@ type RefreshRequest struct {
 	RefreshToken string `json:"refresh_token"`
 }
 type GoogleAuthRequest struct {
+	Name                 string                      `json:"name,omitempty"`
+	LastName             string                      `json:"apellido,omitempty"`
 	IDToken              string                      `json:"id_token"`
 	AccountType          *string                     `json:"account_type,omitempty"`
 	MerchantRegistration *GoogleMerchantRegistration `json:"merchant_registration,omitempty"`
@@ -60,6 +64,7 @@ type GoogleMerchantRegistration struct {
 }
 
 type User struct {
+	UserCode      string    `json:"user_code"`
 	ID            int64     `json:"id"`
 	Email         string    `json:"email"`
 	Name          string    `json:"name"`
@@ -206,10 +211,12 @@ type PublicInvitation struct {
 	ExpiresAt   time.Time `json:"expires_at"`
 }
 type RegisterInvitationRequest struct {
+	LastName string `json:"apellido"`
 	Name     string `json:"nombre"`
 	Password string `json:"password"`
 }
 type StaffMember struct {
+	UserCode     string  `json:"user_code"`
 	MembershipID int64   `json:"id"`
 	UserID       int64   `json:"user_id"`
 	Email        string  `json:"email"`
@@ -248,10 +255,11 @@ type AccountExport struct {
 	Movements         []Movement               `json:"movimientos"`
 }
 type Customer struct {
-	ID      int64  `json:"id"`
-	Email   string `json:"email"`
-	Name    string `json:"name"`
-	QRToken string `json:"qr_token"`
+	UserCode string `json:"user_code"`
+	ID       int64  `json:"id"`
+	Email    string `json:"email"`
+	Name     string `json:"name"`
+	QRToken  string `json:"qr_token"`
 }
 
 type DemoAccess struct {
@@ -448,6 +456,7 @@ type Card struct {
 	BrandLogoObjectKey string    `json:"-"`
 }
 type BrandCustomer struct {
+	UserCode       string     `json:"user_code"`
 	CustomerID     int64      `json:"customer_id"`
 	CardID         int64      `json:"card_id"`
 	Name           string     `json:"name"`
@@ -494,8 +503,9 @@ type ConfirmRedemptionRequest struct {
 	BenefitID    int64  `json:"benefit_id"`
 }
 type PreviewCustomer struct {
-	ID   int64  `json:"id"`
-	Name string `json:"name"`
+	UserCode string `json:"user_code"`
+	ID       int64  `json:"id"`
+	Name     string `json:"name"`
 }
 type Preview struct {
 	ID            string          `json:"id"`
@@ -531,11 +541,13 @@ type Movement struct {
 }
 
 type LegacyRegisterRequest struct {
+	LastName string `json:"apellido"`
 	Name     string `json:"nombre"`
 	Email    string `json:"email"`
 	Password string `json:"password"`
 }
 type LegacyUser struct {
+	UserCode     string  `json:"user_code"`
 	ID           int64   `json:"id_usuario"`
 	Email        string  `json:"email"`
 	Name         string  `json:"nombre"`

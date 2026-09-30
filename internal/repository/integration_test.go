@@ -219,8 +219,8 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if _, err = pool.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES('0018')`); err != nil {
 		t.Fatal(err)
 	}
-	for _, version := range []string{"0019", "0020", "0021", "0022", "0023", "0024", "0025", "0026", "0027", "0028", "0029", "0030", "0031", "0032"} {
-		migration, readErr := os.ReadFile(filepath.Join("..", "..", "migrations", version+map[string]string{"0019": "_mercado_pago_subscriptions", "0020": "_subscription_checkout_reservation", "0021": "_expo_push", "0022": "_google_reviews", "0023": "_referrals", "0024": "_referral_billing", "0025": "_subscription_prices", "0026": "_subscription_price_change_history", "0027": "_referral_campaign_editing", "0028": "_influencer_welcome_emails", "0029": "_subscription_confirmation_emails", "0030": "_email_change", "0031": "_card_templates", "0032": "_first_login_trial"}[version]+".up.sql"))
+	for _, version := range []string{"0019", "0020", "0021", "0022", "0023", "0024", "0025", "0026", "0027", "0028", "0029", "0030", "0031", "0032", "0033"} {
+		migration, readErr := os.ReadFile(filepath.Join("..", "..", "migrations", version+map[string]string{"0019": "_mercado_pago_subscriptions", "0020": "_subscription_checkout_reservation", "0021": "_expo_push", "0022": "_google_reviews", "0023": "_referrals", "0024": "_referral_billing", "0025": "_subscription_prices", "0026": "_subscription_price_change_history", "0027": "_referral_campaign_editing", "0028": "_influencer_welcome_emails", "0029": "_subscription_confirmation_emails", "0030": "_email_change", "0031": "_card_templates", "0032": "_first_login_trial", "0033": "_user_codes"}[version]+".up.sql"))
 		if readErr != nil {
 			t.Fatal(readErr)
 		}
@@ -246,7 +246,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 		t.Fatalf("legacy session revoked=%t err=%v", legacySessionRevoked, err)
 	}
 	outboxKey := []byte("01234567890123456789012345678901")
-	cfg := config.Config{JWTSecret: "jwt-secret-0123456789012345678901", JWTIssuer: "puntazo", QRPepper: "qr-pepper-01234567890123456789012", DemoSignupEnabled: true, ExpectedSchemaVersion: "0032", PublicAppURL: "https://app.puntazo.test", OutboxEncryptionKey: outboxKey, MediaURLTTL: 5 * time.Minute, MercadoPagoBranchPrice: 12300, MercadoPagoPointsPrice: 45600}
+	cfg := config.Config{JWTSecret: "jwt-secret-0123456789012345678901", JWTIssuer: "puntazo", QRPepper: "qr-pepper-01234567890123456789012", DemoSignupEnabled: true, ExpectedSchemaVersion: "0033", PublicAppURL: "https://app.puntazo.test", OutboxEncryptionKey: outboxKey, MediaURLTTL: 5 * time.Minute, MercadoPagoBranchPrice: 12300, MercadoPagoPointsPrice: 45600}
 	repo := repository.New(pool, outboxKey)
 	var referralAdminID int64
 	if err = pool.QueryRow(ctx, `INSERT INTO backoffice_users(email,password_hash,totp_secret,role) VALUES('admin-referral@example.com','unused','ABCDEFGHIJKLMNOPQRSTUVWX23456789','ADMIN_SISTEMA') RETURNING id`).Scan(&referralAdminID); err != nil {
@@ -293,17 +293,17 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	}
 	blockedGoogleID := "blocked-google-signup"
 	blockedGoogleEmail := "blocked-google@example.com"
-	if _, err = repo.LoginGoogle(ctx, blockedGoogleID, blockedGoogleEmail, "Blocked Google", false, make([]byte, 32), func(int64) []byte { return make([]byte, 32) }); !errors.Is(err, repository.ErrSignupDisabled) {
+	if _, err = repo.LoginGoogle(ctx, blockedGoogleID, blockedGoogleEmail, "Blocked Google", "Test", false, make([]byte, 32), func(int64) []byte { return make([]byte, 32) }); !errors.Is(err, repository.ErrSignupDisabled) {
 		t.Fatalf("disabled Google signup error=%v", err)
 	}
 	var blockedGoogleUsers int
 	if err = pool.QueryRow(ctx, `SELECT count(*) FROM usuarios WHERE email=$1 OR google_id=$2`, blockedGoogleEmail, blockedGoogleID).Scan(&blockedGoogleUsers); err != nil || blockedGoogleUsers != 0 {
 		t.Fatalf("disabled Google signup created users=%d err=%v", blockedGoogleUsers, err)
 	}
-	if _, err = repo.LoginGoogle(ctx, "legacy-google", "legacy-google@example.com", "Legacy Google", false, make([]byte, 32), func(int64) []byte { return make([]byte, 32) }); err != nil {
+	if _, err = repo.LoginGoogle(ctx, "legacy-google", "legacy-google@example.com", "Legacy Google", "Test", false, make([]byte, 32), func(int64) []byte { return make([]byte, 32) }); err != nil {
 		t.Fatalf("existing Google login blocked while signup disabled: %v", err)
 	}
-	if _, err = repo.LoginGoogle(ctx, "legacy-password-google", "legacy-password@example.com", "Legacy password", false, make([]byte, 32), func(int64) []byte { return make([]byte, 32) }); err != nil {
+	if _, err = repo.LoginGoogle(ctx, "legacy-password-google", "legacy-password@example.com", "Legacy password", "Test", false, make([]byte, 32), func(int64) []byte { return make([]byte, 32) }); err != nil {
 		t.Fatalf("existing email link blocked while signup disabled: %v", err)
 	}
 	var linkedGoogleID string
@@ -314,8 +314,8 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	tokens := auth.NewTokens(cfg.JWTSecret, cfg.JWTIssuer)
 	media := &fakeMediaStore{objects: map[string][]byte{}}
 	svc := service.New(repo, tokens, cfg, media)
-	svc.VerifyGoogleToken = func(_ context.Context, token string) (string, string, string, error) {
-		return "gid-" + token, token + "@example.com", "Google " + token, nil
+	svc.VerifyGoogleToken = func(_ context.Context, token string) (auth.GoogleIdentity, error) {
+		return auth.GoogleIdentity{GoogleID:"gid-"+token, Email:token+"@example.com",Name:"Google "+token,LastName:"Test"}, nil
 	}
 	clientAccountType := "CLIENTE_FINAL"
 	merchantAccountType := "PERSONAL_MARCA"
@@ -410,7 +410,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if _, err = disabledGoogleSvc.LoginGoogle(ctx, model.GoogleAuthRequest{IDToken: "disabled-new", AccountType: &merchantAccountType, MerchantRegistration: googleMerchantRegistration}); !errors.Is(err, service.ErrDemoDisabled) {
 		t.Fatalf("disabled new Google signup error=%v", err)
 	}
-	if _, err = repo.CreateGoogleMerchant(ctx, "gid-rollback", "rollback-google@example.com", "Rollback", "Rollback Brand", "Principal", model.BranchRegistrationLocation{}, "INVALID"); err == nil {
+	if _, err = repo.CreateGoogleMerchant(ctx, "gid-rollback", "rollback-google@example.com", "Rollback", "Test", "Rollback Brand", "Principal", model.BranchRegistrationLocation{}, "INVALID"); err == nil {
 		t.Fatal("invalid direct Google merchant provision unexpectedly succeeded")
 	}
 	var rollbackUsers, rollbackBrands int
@@ -463,7 +463,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	identityCfg := cfg
 	identityCfg.EmailVerificationRequired = true
 	identitySvc := service.New(repo, tokens, identityCfg)
-	pendingRegistration, err := identitySvc.RegisterCustomer(ctx, model.RegisterCustomerRequest{Email: "pending@example.com", Password: "pending-pass", Name: "Pending"})
+	pendingRegistration, err := identitySvc.RegisterCustomer(ctx, model.RegisterCustomerRequest{Email: "pending@example.com", Password: "pending-pass", Name: "Pending", LastName: "Test"})
 	if err != nil || pendingRegistration.Session != nil || !pendingRegistration.VerificationRequired {
 		t.Fatalf("pending registration=%+v err=%v", pendingRegistration, err)
 	}
@@ -522,7 +522,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 		t.Fatalf("new password login: %v", err)
 	}
 
-	customerAuth, err := svc.RegisterCustomer(ctx, model.RegisterCustomerRequest{Email: "client@example.com", Password: "customer-pass", Name: "Client"})
+	customerAuth, err := svc.RegisterCustomer(ctx, model.RegisterCustomerRequest{Email: "client@example.com", Password: "customer-pass", Name: "Client", LastName: "Test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -606,14 +606,14 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if bytes.Equal(storedHash, []byte(customer.QRToken)) || !bytes.Equal(storedHash, svc.QRHash(customer.QRToken)) {
 		t.Fatal("QR was not stored exclusively as the expected hash")
 	}
-	if _, err = svc.RegisterCustomer(ctx, model.RegisterCustomerRequest{Email: "client@example.com", Password: "customer-pass", Name: "Duplicate"}); !errors.Is(err, repository.ErrEmailExists) {
+	if _, err = svc.RegisterCustomer(ctx, model.RegisterCustomerRequest{Email: "client@example.com", Password: "customer-pass", Name: "Duplicate", LastName: "Test"}); !errors.Is(err, repository.ErrEmailExists) {
 		t.Fatalf("duplicate email: %v", err)
 	}
 
 	merchantAddress, merchantLocality, merchantProvince, merchantPostalCode := "San Martín 100", "Mendoza", "Mendoza", "M5500"
 	merchantLatitude, merchantLongitude := -32.8894587, -68.8458386
 	merchantReq := model.RegisterDemoMerchantRequest{
-		Email: "owner@example.com", Password: "merchant-pass", OwnerName: "Owner", BrandName: "Brand", BranchName: "Main",
+		Email: "owner@example.com", Password: "merchant-pass", OwnerName: "Owner", OwnerLastName: "Test", BrandName: "Brand", BranchName: "Main",
 		BranchAddress: &merchantAddress, BranchLocality: &merchantLocality, BranchProvince: &merchantProvince, BranchPostalCode: &merchantPostalCode,
 		BranchLatitude: &merchantLatitude, BranchLongitude: &merchantLongitude, ProgramType: "SELLOS", ReferralCode: stampsCode.Code,
 	}
@@ -1012,7 +1012,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 		t.Fatalf("unexpected brand metrics %+v", metrics)
 	}
 
-	secondReq := model.RegisterDemoMerchantRequest{Email: "owner2@example.com", Password: "merchant-pass", OwnerName: "Owner2", BrandName: "Brand2", BranchName: "Other", ProgramType: "PUNTOS"}
+	secondReq := model.RegisterDemoMerchantRequest{Email: "owner2@example.com", Password: "merchant-pass", OwnerName: "Owner2", OwnerLastName: "Test", BrandName: "Brand2", BranchName: "Other", ProgramType: "PUNTOS"}
 	secondRaw, err := svc.RegisterDemoMerchant(ctx, uuid.NewString(), uuid.NewString(), secondReq)
 	if err != nil {
 		t.Fatal(err)
@@ -1214,7 +1214,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			registered, registerErr := svc.RegisterInvitation(ctx, inviteToken, model.RegisterInvitationRequest{Name: "Operator", Password: "operator-pass"})
+			registered, registerErr := svc.RegisterInvitation(ctx, inviteToken, model.RegisterInvitationRequest{Name: "Operator", Password: "operator-pass", LastName: "Test"})
 			registrationResults <- registrationResult{auth: registered, err: registerErr}
 		}()
 	}
@@ -1541,7 +1541,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if err = pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM email_outbox WHERE destinatario::text ILIKE '%client@example.com%' OR COALESCE(cuerpo_texto,'') ILIKE '%Client%' OR COALESCE(cuerpo_html,'') ILIKE '%client@example.com%')+(SELECT count(*) FROM solicitudes_idempotentes WHERE actor_scope=$1 OR convert_from(COALESCE(response_body,''::bytea),'UTF8') ILIKE '%client@example.com%')+(SELECT count(*) FROM invitaciones_marca WHERE email::text ILIKE '%client@example.com%')`, fmt.Sprintf("user:%d", customer.ID)).Scan(&piiLeaks); err != nil || piiLeaks != 0 {
 		t.Fatalf("PII leaks after anonymization=%d err=%v", piiLeaks, err)
 	}
-	pendingMerchantRaw, err := identitySvc.RegisterDemoMerchant(ctx, uuid.NewString(), uuid.NewString(), model.RegisterDemoMerchantRequest{Email: "pendingmerchant@example.com", Password: "pending-merchant-pass", OwnerName: "Pending Owner", BrandName: "Pending Brand", BranchName: "Principal", ProgramType: "SELLOS"})
+	pendingMerchantRaw, err := identitySvc.RegisterDemoMerchant(ctx, uuid.NewString(), uuid.NewString(), model.RegisterDemoMerchantRequest{Email: "pendingmerchant@example.com", Password: "pending-merchant-pass", OwnerName: "Pending Owner", OwnerLastName: "Test", BrandName: "Pending Brand", BranchName: "Principal", ProgramType: "SELLOS"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1731,7 +1731,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if err = pool.QueryRow(ctx, `SELECT i.estado,o.estado,o.token_ciphertext IS NULL AND o.token_nonce IS NULL AND o.token_expires_at IS NULL FROM invitaciones_marca i JOIN email_outbox o ON o.invitation_id=i.id WHERE i.id=$1`, retiredInvitationEnvelope.Data.ID).Scan(&retiredInvitationStatus, &retiredOutboxStatus, &retiredTokenScrubbed); err != nil || retiredInvitationStatus != "REVOCADA" || retiredOutboxStatus != "FAILED" || !retiredTokenScrubbed {
 		t.Fatalf("deleted brand invitation=%s outbox=%s scrubbed=%t err=%v", retiredInvitationStatus, retiredOutboxStatus, retiredTokenScrubbed, err)
 	}
-	if _, err = svc.RegisterInvitation(ctx, retiredInvitationToken, model.RegisterInvitationRequest{Name: "Retired Brand Staff", Password: "retired-brand-pass"}); !errors.Is(err, service.ErrIdentityToken) {
+	if _, err = svc.RegisterInvitation(ctx, retiredInvitationToken, model.RegisterInvitationRequest{Name: "Retired Brand Staff", Password: "retired-brand-pass", LastName: "Test"}); !errors.Is(err, service.ErrIdentityToken) {
 		t.Fatalf("registered invitation from deleted brand: %v", err)
 	}
 	if err = repo.SetReferralCampaignActive(ctx, stampsCampaign.ID, referralAdminID, false); err != nil {
@@ -1788,7 +1788,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if err = repo.ConfirmEmailChange(ctx, changeHash[:], time.Now()); !errors.Is(err, repository.ErrIdentityTokenInvalid) {
 		t.Fatalf("email change token reused: %v", err)
 	}
-	if err = repo.CheckSchema(ctx, "0032"); err != nil {
+	if err = repo.CheckSchema(ctx, "0033"); err != nil {
 		t.Fatal(err)
 	}
 	if err = repo.CheckSchema(ctx, "9999"); err == nil {

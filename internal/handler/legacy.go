@@ -19,7 +19,7 @@ func (h *Handler) LegacyRegister(c *gin.Context) {
 	if !h.limit(c, "customer-register:ip:"+h.clientIP(c), customerSignupAttempts, customerSignupWindow) {
 		return
 	}
-	data, err := h.Service.RegisterCustomer(c.Request.Context(), model.RegisterCustomerRequest{Email: req.Email, Password: req.Password, Name: req.Name})
+	data, err := h.Service.RegisterCustomer(c.Request.Context(), model.RegisterCustomerRequest{Email: req.Email, Password: req.Password, Name: req.Name, LastName: req.LastName})
 	if err != nil {
 		writeErr(c, err)
 		return
@@ -75,11 +75,11 @@ func (h *Handler) LegacyMe(c *gin.Context) {
 		writeErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, model.LegacyUser{ID: data.User.ID, Email: data.User.Email, Name: data.User.Name, Role: legacyRole(data.User.AccountType)})
+	c.JSON(http.StatusOK, model.LegacyUser{ID: data.User.ID, Email: data.User.Email, Name: data.User.Name, UserCode: data.User.UserCode, Role: legacyRole(data.User.AccountType)})
 }
 
 func legacyAuth(data model.AuthData) model.LegacyAuth {
-	return model.LegacyAuth{Token: data.Session.AccessToken, User: model.LegacyUser{ID: data.User.ID, Email: data.User.Email, Name: data.User.Name, Role: legacyRole(data.User.AccountType)}}
+	return model.LegacyAuth{Token: data.Session.AccessToken, User: model.LegacyUser{ID: data.User.ID, Email: data.User.Email, Name: data.User.Name, UserCode: data.User.UserCode, Role: legacyRole(data.User.AccountType)}}
 }
 
 func legacyRole(accountType string) string {

@@ -80,13 +80,13 @@ func TestRegisterInvitationValidatesTokenAndCredentialsBeforePersistence(t *test
 		token string
 		req   model.RegisterInvitationRequest
 	}{
-		{name: "invalid token", token: "short", req: model.RegisterInvitationRequest{Name: "Operador", Password: "operator-pass"}},
-		{name: "blank name", token: strings.Repeat("a", 40), req: model.RegisterInvitationRequest{Name: " ", Password: "operator-pass"}},
-		{name: "short password", token: strings.Repeat("a", 40), req: model.RegisterInvitationRequest{Name: "Operador", Password: "short"}},
+		{name: "invalid token", token: "short", req: model.RegisterInvitationRequest{Name: "Operador", Password: "operator-pass", LastName: "Test"}},
+		{name: "blank name", token: strings.Repeat("a", 40), req: model.RegisterInvitationRequest{Name: " ", Password: "operator-pass", LastName: "Test"}},
+		{name: "short password", token: strings.Repeat("a", 40), req: model.RegisterInvitationRequest{Name: "Operador", Password: "short", LastName: "Test"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if _, err := svc.RegisterInvitation(context.Background(), tt.token, tt.req); !errors.Is(err, ErrInvalidRequest) && !errors.Is(err, ErrIdentityToken) {
+			if _, err := svc.RegisterInvitation(context.Background(), tt.token, tt.req); !errors.Is(err, ErrInvalidRequest) && !errors.Is(err, ErrIdentityToken) && !errors.Is(err, ErrRegistrationProfileRequired) {
 				t.Fatalf("error=%v", err)
 			}
 		})

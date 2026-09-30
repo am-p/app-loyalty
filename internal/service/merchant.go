@@ -26,7 +26,7 @@ func (s *Service) RegisterDemoMerchant(ctx context.Context, key, requestID strin
 	if err != nil || !validPassword(req.Password) {
 		return repository.IdempotentResult{}, ErrInvalidRequest
 	}
-	owner, err := cleanName(req.OwnerName, 120)
+	owner, ownerLastName, err := registrationNames(req.OwnerName, req.OwnerLastName)
 	if err != nil {
 		return repository.IdempotentResult{}, err
 	}
@@ -56,15 +56,15 @@ func (s *Service) RegisterDemoMerchant(ctx context.Context, key, requestID strin
 	// This fingerprint is persisted. Key it so a database leak cannot turn the
 	// low-entropy password field into a fast, offline SHA-256 oracle.
 	fingerprint := KeyedFingerprint(s.Config.QRPepper, struct {
-		Email, Password, OwnerName, BrandName, BranchName string
-		BranchAddress                                     *string
-		BranchLocality                                    *string  `json:",omitempty"`
-		BranchProvince                                    *string  `json:",omitempty"`
-		BranchPostalCode                                  *string  `json:",omitempty"`
-		BranchLatitude                                    *float64 `json:",omitempty"`
-		BranchLongitude                                   *float64 `json:",omitempty"`
-		ProgramType, ReferralCode                         string
-	}{email, req.Password, owner, brand, branch, location.BranchAddress, location.BranchLocality, location.BranchProvince, location.BranchPostalCode, location.BranchLatitude, location.BranchLongitude, programType, strings.ToUpper(strings.TrimSpace(req.ReferralCode))})
+		Email, Password, OwnerName, OwnerLastName, BrandName, BranchName string
+		BranchAddress                                                    *string
+		BranchLocality                                                   *string  `json:",omitempty"`
+		BranchProvince                                                   *string  `json:",omitempty"`
+		BranchPostalCode                                                 *string  `json:",omitempty"`
+		BranchLatitude                                                   *float64 `json:",omitempty"`
+		BranchLongitude                                                  *float64 `json:",omitempty"`
+		ProgramType, ReferralCode                                        string
+	}{email, req.Password, owner, ownerLastName, brand, branch, location.BranchAddress, location.BranchLocality, location.BranchProvince, location.BranchPostalCode, location.BranchLatitude, location.BranchLongitude, programType, strings.ToUpper(strings.TrimSpace(req.ReferralCode))})
 	credentials, err := newSessionCredentials()
 	if err != nil {
 		return repository.IdempotentResult{}, err
@@ -86,9 +86,9 @@ func (s *Service) RegisterDemoMerchant(ctx context.Context, key, requestID strin
 		verifiedAt = &now
 	}
 	var result repository.IdempotentResult
-	err = retry(ctx, func() error {
+	err = retryRegistration(ctx, func() error {
 		var e error
-		result, e = s.Repo.CreateDemoMerchant(ctx, key, fingerprint, email, string(passwordHash), owner, brand, branch, location, programType, req.ReferralCode, credentials.id, credentials.hash, credentials.expiresAt, credentials.authTime, verifiedAt, verificationHash, verificationExpires, verificationMessage, func(u model.User, m model.MerchantContext) ([]byte, error) {
+		result, e = s.Repo.CreateDemoMerchant(ctx, key, fingerprint, email, string(passwordHash), owner, ownerLastName, brand, branch, location, programType, req.ReferralCode, credentials.id, credentials.hash, credentials.expiresAt, credentials.authTime, verifiedAt, verificationHash, verificationExpires, verificationMessage, func(u model.User, m model.MerchantContext) ([]byte, error) {
 			if s.Config.EmailVerificationRequired {
 				return json.Marshal(web.Envelope[model.DemoMerchantData]{Data: model.DemoMerchantData{User: u, Merchant: m, VerificationRequired: true}, RequestID: requestID})
 			}

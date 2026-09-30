@@ -172,7 +172,7 @@ func TestPostgresAuthenticatedDemoRegistrationStartsTrial(t *testing.T) {
 	pool := referralBillingPool(t)
 	repo := repository.New(pool)
 	start := time.Date(2026, 9, 30, 15, 0, 0, 0, time.UTC)
-	_, err := repo.CreateDemoMerchant(t.Context(), uuid.NewString(), make([]byte, 32), "demo-trial@example.test", "unused", "Owner", "Trial demo", "Principal", model.BranchRegistrationLocation{}, "SELLOS", "", uuid.NewString(), []byte("refresh"), start.Add(24*time.Hour), start, &start, nil, time.Time{}, nil, func(model.User, model.MerchantContext) ([]byte, error) { return []byte("{}"), nil })
+	_, err := repo.CreateDemoMerchant(t.Context(), uuid.NewString(), make([]byte, 32), "demo-trial@example.test", "unused", "Owner", "Test", "Trial demo", "Principal", model.BranchRegistrationLocation{}, "SELLOS", "", uuid.NewString(), []byte("refresh"), start.Add(24*time.Hour), start, &start, nil, time.Time{}, nil, func(model.User, model.MerchantContext) ([]byte, error) { return []byte("{}"), nil })
 	if err != nil {
 		t.Fatal(err)
 	}
