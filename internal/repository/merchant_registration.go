@@ -41,6 +41,9 @@ func (r *Repository) CreateDemoMerchant(ctx context.Context, key string, fingerp
 			return IdempotentResult{}, err
 		}
 	} else {
+		if err = recordFirstLogin(ctx, tx, u.ID, authTime); err != nil {
+			return IdempotentResult{}, err
+		}
 		if _, err = tx.Exec(ctx, `INSERT INTO sesiones_auth(id,usuario_id,refresh_hash,expires_at,family_id,auth_time) VALUES($1,$2,$3,$4,$1,$5)`, sessionID, u.ID, refreshHash, sessionExpiresAt, authTime); err != nil {
 			return IdempotentResult{}, err
 		}

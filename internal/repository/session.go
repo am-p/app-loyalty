@@ -21,10 +21,7 @@ func (r *Repository) CreateSession(ctx context.Context, id string, userID int64,
 		return err
 	}
 	defer tx.Rollback(ctx)
-	if _, err = tx.Exec(ctx, `UPDATE usuarios SET first_login_at=COALESCE(first_login_at,$2) WHERE id=$1`, userID, authTime); err != nil {
-		return err
-	}
-	if _, err = tx.Exec(ctx, `UPDATE marcas m SET trial_started_at=u.first_login_at,trial_start_estimated=u.first_login_estimated FROM membresias_marca mm JOIN usuarios u ON u.id=mm.usuario_id WHERE mm.marca_id=m.id AND mm.usuario_id=$1 AND mm.rol='PROPIETARIO' AND mm.activo AND m.trial_started_at IS NULL`, userID); err != nil {
+	if err = recordFirstLogin(ctx, tx, userID, authTime); err != nil {
 		return err
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO sesiones_auth(id,usuario_id,refresh_hash,expires_at,family_id,auth_time) VALUES($1,$2,$3,$4,$1,$5)`, id, userID, refreshHash, expiresAt, authTime); err != nil {
@@ -93,4 +90,14 @@ func (r *Repository) ActiveSessionAccountType(ctx context.Context, userID int64,
 	err := r.Pool.QueryRow(ctx, `SELECT u.tipo_cuenta FROM sesiones_auth s JOIN usuarios u ON u.id=s.usuario_id
 		WHERE s.id=$1 AND s.usuario_id=$2 AND s.revoked_at IS NULL AND s.expires_at>now() AND u.activo AND u.deleted_at IS NULL AND u.auth_version=$3`, sessionID, userID, authVersion).Scan(&accountType)
 	return accountType, err
+}
+
+func recordFirstLogin(ctx context.Context, tx pgx.Tx, userID int64, authTime time.Time) error {
+	if _, err := tx.Exec(ctx, `UPDATE usuarios SET first_login_at=COALESCE(first_login_at,$2) WHERE id=$1`, userID, authTime); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE marcas m SET trial_started_at=u.first_login_at,trial_start_estimated=u.first_login_estimated FROM membresias_marca mm JOIN usuarios u ON u.id=mm.usuario_id WHERE mm.marca_id=m.id AND mm.usuario_id=$1 AND mm.rol='PROPIETARIO' AND mm.activo AND m.trial_started_at IS NULL`, userID); err != nil {
+		return err
+	}
+	return nil
 }

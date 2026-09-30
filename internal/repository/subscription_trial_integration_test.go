@@ -155,3 +155,21 @@ func TestPostgresTrialMigrationPreservesHistoricalDeadline(t *testing.T) {
 		t.Fatal("legacy trial restarted")
 	}
 }
+
+func TestPostgresAuthenticatedDemoRegistrationStartsTrial(t *testing.T) {
+	pool := referralBillingPool(t)
+	repo := repository.New(pool)
+	start := time.Date(2026, 9, 30, 15, 0, 0, 0, time.UTC)
+	_, err := repo.CreateDemoMerchant(t.Context(), uuid.NewString(), make([]byte, 32), "demo-trial@example.test", "unused", "Owner", "Trial demo", "Principal", model.BranchRegistrationLocation{}, "SELLOS", "", uuid.NewString(), []byte("refresh"), start.Add(24*time.Hour), start, &start, nil, time.Time{}, nil, func(model.User, model.MerchantContext) ([]byte, error) { return []byte("{}"), nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	var first, brandStart time.Time
+	var estimated bool
+	if err = pool.QueryRow(t.Context(), `SELECT u.first_login_at,m.trial_started_at,m.trial_start_estimated FROM usuarios u JOIN membresias_marca mm ON mm.usuario_id=u.id JOIN marcas m ON m.id=mm.marca_id WHERE u.email='demo-trial@example.test'`).Scan(&first, &brandStart, &estimated); err != nil {
+		t.Fatal(err)
+	}
+	if !first.Equal(start) || !brandStart.Equal(start) || estimated {
+		t.Fatalf("first=%v brand=%v estimated=%t", first, brandStart, estimated)
+	}
+}
