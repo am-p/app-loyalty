@@ -311,6 +311,20 @@ func (s *Service) CancelSubscription(ctx context.Context, actorID, brandID int64
 		return model.Subscription{}, err
 	}
 	if record.Subscription.Status == "CANCELLED" {
+		if record.Subscription.NextPaymentDate != nil || record.Subscription.CheckoutURL != "" {
+			// Older cancellations may retain metadata that Mercado Pago returns
+			// even after renewals have stopped. Reconcile it without another PUT.
+			_, err = s.Repo.UpdateSubscriptionFromProvider(ctx, model.BillingSubscriptionResult{
+				ID: record.ProviderID, ExternalReference: record.ExternalReference, Status: "cancelled",
+			})
+			if err != nil {
+				return model.Subscription{}, err
+			}
+			record, err = s.Repo.GetSubscriptionRecord(ctx, brandID)
+			if err != nil {
+				return model.Subscription{}, err
+			}
+		}
 		record.Subscription.ProviderConfigured = true
 		return record.Subscription, nil
 	}
