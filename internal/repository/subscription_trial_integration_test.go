@@ -95,7 +95,19 @@ func TestPostgresFirstLoginTrialAndCheckoutRecovery(t *testing.T) {
 	if _, err = svc.CreateSubscriptionCheckout(ctx, user, brand, uuid.NewString()); !errors.Is(err, service.ErrBillingInProgress) || provider.creates != 2 {
 		t.Fatalf("uncertain operation replayed: %v calls=%d", err, provider.creates)
 	}
+	// Legacy uncertain reservations have no stored deadline. Read-only display
+	// may derive the known first-login deadline without rewriting the reservation.
+	if _, err = pool.Exec(ctx, `UPDATE suscripciones_marca SET trial_ends_at=NULL WHERE marca_id=$1`, brand); err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := svc.Subscription(ctx, user, brand)
+	if err != nil || legacy.TrialEndsAt == nil || !legacy.TrialEndsAt.Equal(*offer.TrialEndsAt) {
+		t.Fatalf("legacy notice=%+v err=%v", legacy, err)
+	}
 	record, _ = repo.GetSubscriptionRecord(ctx, brand)
+	if record.Subscription.TrialEndsAt != nil {
+		t.Fatal("display rewrote a legacy reservation")
+	}
 	provider.result = model.BillingSubscriptionResult{ID: "recovered", Status: "pending", ExternalReference: record.ExternalReference, CheckoutURL: "https://mp.test/checkout"}
 	provider.found = true
 	recovered, err := svc.Subscription(ctx, user, brand)

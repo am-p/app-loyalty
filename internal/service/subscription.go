@@ -374,12 +374,11 @@ type subscriptionFinder interface {
 func (s *Service) setSubscriptionTrial(out *model.Subscription, billing repository.BillingContext) {
 	out.TrialStartedAt = billing.TrialStartedAt
 	out.TrialStartEstimated = billing.TrialStartEstimated
-	// Legacy provider operations retain their payload and promise; don't rewrite them.
-	if out.Status == "NOT_CONFIGURED" || out.Status == "CANCELLED" {
-		if billing.TrialStartedAt != nil && !billing.TrialStartEstimated {
-			end := repository.TrialEnd(*billing.TrialStartedAt)
-			out.TrialEndsAt = &end
-		}
+	// Display the account's known deadline without rewriting a legacy reservation
+	// or the provider's next-payment contract.
+	if out.TrialEndsAt == nil && billing.TrialStartedAt != nil && !billing.TrialStartEstimated {
+		end := repository.TrialEnd(*billing.TrialStartedAt)
+		out.TrialEndsAt = &end
 	}
 	if out.TrialEndsAt != nil {
 		out.TrialAvailable = out.TrialEndsAt.After(s.Now())
