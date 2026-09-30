@@ -315,7 +315,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	media := &fakeMediaStore{objects: map[string][]byte{}}
 	svc := service.New(repo, tokens, cfg, media)
 	svc.VerifyGoogleToken = func(_ context.Context, token string) (auth.GoogleIdentity, error) {
-		return auth.GoogleIdentity{GoogleID:"gid-"+token, Email:token+"@example.com",Name:"Google "+token,LastName:"Test"}, nil
+		return auth.GoogleIdentity{GoogleID: "gid-" + token, Email: token + "@example.com", Name: "Google " + token, LastName: "Test"}, nil
 	}
 	clientAccountType := "CLIENTE_FINAL"
 	merchantAccountType := "PERSONAL_MARCA"
