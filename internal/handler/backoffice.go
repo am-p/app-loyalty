@@ -59,7 +59,8 @@ func (h *Handler) BackofficeLogin(c *gin.Context) {
 func (h *Handler) setBackofficeCookie(c *gin.Context, value string, maxAge int) {
 	c.SetSameSite(http.SameSiteStrictMode)
 	environment := os.Getenv("APP_ENV")
-	secure := environment != "" && !strings.EqualFold(environment, "development")
+	secure := (environment != "" && !strings.EqualFold(environment, "development")) ||
+		strings.HasPrefix(strings.ToLower(os.Getenv("PUBLIC_APP_URL")), "https://")
 	c.SetCookie(backofficeCookie, value, maxAge, "/v1/backoffice", "", secure, true)
 }
 
