@@ -29,7 +29,9 @@ func SubscriptionConfirmationMessage(appURL, to string, d model.SubscriptionConf
 		next = d.NextPaymentDate.In(zone).Format("02/01/2006") + " (hora de Argentina)"
 	}
 	trial := "Sin período de prueba gratuito."
-	if d.TrialMonths > 0 {
+	if d.TrialEndsAt != nil {
+		trial = "El período gratuito contado desde tu primer inicio de sesión finaliza el " + d.TrialEndsAt.In(zone).Format("02/01/2006") + ". Autorizar esta suscripción no reinicia el plazo."
+	} else if d.TrialMonths > 0 {
 		trial = "Al alta se concedió un mes de prueba gratuito."
 	}
 	amount := subscriptionMoney(d.MonthlyAmountMinor, d.Currency)

@@ -4,15 +4,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"clientesFrecuentes/internal/model"
 	"github.com/jackc/pgx/v5"
 )
 
 type BillingContext struct {
-	PayerEmail     string
-	ActiveBranches int64
-	ProgramType    string
+	PayerEmail          string
+	ActiveBranches      int64
+	ProgramType         string
+	TrialStartedAt      *time.Time
+	TrialStartEstimated bool
 }
 type SubscriptionRecord struct {
 	Subscription                  model.Subscription
@@ -63,7 +66,7 @@ func requireNoActiveSubscription(ctx context.Context, tx pgx.Tx, brandID int64) 
 
 func (r *Repository) BillingContext(ctx context.Context, actorID, brandID int64) (BillingContext, error) {
 	var out BillingContext
-	err := r.Pool.QueryRow(ctx, `SELECT u.email::text,(SELECT count(*) FROM sucursales s WHERE s.marca_id=$2 AND s.activo AND s.deleted_at IS NULL),p.tipo FROM membresias_marca mm JOIN usuarios u ON u.id=mm.usuario_id JOIN marcas m ON m.id=mm.marca_id AND m.activo JOIN programas_fidelidad p ON p.marca_id=m.id AND p.activo WHERE mm.usuario_id=$1 AND mm.marca_id=$2 AND mm.activo AND mm.rol='PROPIETARIO'`, actorID, brandID).Scan(&out.PayerEmail, &out.ActiveBranches, &out.ProgramType)
+	err := r.Pool.QueryRow(ctx, `SELECT u.email::text,(SELECT count(*) FROM sucursales s WHERE s.marca_id=$2 AND s.activo AND s.deleted_at IS NULL),p.tipo,m.trial_started_at,m.trial_start_estimated FROM membresias_marca mm JOIN usuarios u ON u.id=mm.usuario_id JOIN marcas m ON m.id=mm.marca_id AND m.activo JOIN programas_fidelidad p ON p.marca_id=m.id AND p.activo WHERE mm.usuario_id=$1 AND mm.marca_id=$2 AND mm.activo AND mm.rol='PROPIETARIO'`, actorID, brandID).Scan(&out.PayerEmail, &out.ActiveBranches, &out.ProgramType, &out.TrialStartedAt, &out.TrialStartEstimated)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return out, ErrForbidden
 	}
@@ -79,7 +82,7 @@ func (r *Repository) BillingContext(ctx context.Context, actorID, brandID int64)
 func (r *Repository) GetSubscriptionRecord(ctx context.Context, brandID int64) (SubscriptionRecord, error) {
 	var out SubscriptionRecord
 	s := &out.Subscription
-	err := r.Pool.QueryRow(ctx, `SELECT marca_id,proveedor,estado,moneda,precio_sucursal_minor,cantidad_sucursales,importe_mensual_minor,COALESCE(checkout_url,''),proximo_cobro_at,updated_at,COALESCE(proveedor_suscripcion_id,''),referencia_externa,trial_months,COALESCE(full_unit_price_minor,precio_sucursal_minor)*cantidad_sucursales,COALESCE((SELECT greatest(a.discount_charges-count(c.provider_invoice_id),0) FROM referral_attributions a LEFT JOIN referral_charges c ON c.brand_id=a.brand_id WHERE a.brand_id=suscripciones_marca.marca_id GROUP BY a.discount_charges),0) FROM suscripciones_marca WHERE marca_id=$1`, brandID).Scan(&s.BrandID, &s.Provider, &s.Status, &s.Currency, &s.UnitAmountCents, &s.ActiveBranches, &s.MonthlyAmountCents, &s.CheckoutURL, &s.NextPaymentDate, &s.UpdatedAt, &out.ProviderID, &out.ExternalReference, &out.TrialMonths, &s.FullMonthlyAmountCents, &s.DiscountRemainingCharges)
+	err := r.Pool.QueryRow(ctx, `SELECT marca_id,proveedor,estado,moneda,precio_sucursal_minor,cantidad_sucursales,importe_mensual_minor,COALESCE(checkout_url,''),proximo_cobro_at,updated_at,trial_ends_at,checkout_rejected,COALESCE(proveedor_suscripcion_id,''),referencia_externa,trial_months,COALESCE(full_unit_price_minor,precio_sucursal_minor)*cantidad_sucursales,COALESCE((SELECT greatest(a.discount_charges-count(c.provider_invoice_id),0) FROM referral_attributions a LEFT JOIN referral_charges c ON c.brand_id=a.brand_id WHERE a.brand_id=suscripciones_marca.marca_id GROUP BY a.discount_charges),0) FROM suscripciones_marca WHERE marca_id=$1`, brandID).Scan(&s.BrandID, &s.Provider, &s.Status, &s.Currency, &s.UnitAmountCents, &s.ActiveBranches, &s.MonthlyAmountCents, &s.CheckoutURL, &s.NextPaymentDate, &s.UpdatedAt, &s.TrialEndsAt, &s.CheckoutRejected, &out.ProviderID, &out.ExternalReference, &out.TrialMonths, &s.FullMonthlyAmountCents, &s.DiscountRemainingCharges)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return out, ErrNotFound
 	}
@@ -97,7 +100,7 @@ func (r *Repository) ReserveSubscriptionCheckout(ctx context.Context, actorID, b
 		return billing, record, err
 	}
 	defer tx.Rollback(ctx)
-	err = tx.QueryRow(ctx, `SELECT u.email::text,p.tipo,(SELECT count(*) FROM sucursales s WHERE s.marca_id=$2 AND s.activo AND s.deleted_at IS NULL) FROM marcas m JOIN membresias_marca mm ON mm.marca_id=m.id AND mm.usuario_id=$1 AND mm.activo AND mm.rol='PROPIETARIO' JOIN usuarios u ON u.id=mm.usuario_id JOIN programas_fidelidad p ON p.marca_id=m.id AND p.activo WHERE m.id=$2 AND m.activo FOR UPDATE OF m`, actorID, brandID).Scan(&billing.PayerEmail, &billing.ProgramType, &billing.ActiveBranches)
+	err = tx.QueryRow(ctx, `SELECT u.email::text,p.tipo,m.trial_started_at,m.trial_start_estimated,(SELECT count(*) FROM sucursales s WHERE s.marca_id=$2 AND s.activo AND s.deleted_at IS NULL) FROM marcas m JOIN membresias_marca mm ON mm.marca_id=m.id AND mm.usuario_id=$1 AND mm.activo AND mm.rol='PROPIETARIO' JOIN usuarios u ON u.id=mm.usuario_id JOIN programas_fidelidad p ON p.marca_id=m.id AND p.activo WHERE m.id=$2 AND m.activo FOR UPDATE OF m`, actorID, brandID).Scan(&billing.PayerEmail, &billing.ProgramType, &billing.TrialStartedAt, &billing.TrialStartEstimated, &billing.ActiveBranches)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return billing, record, ErrForbidden
 	}
@@ -140,7 +143,7 @@ func (r *Repository) ReserveSubscriptionCheckout(ctx context.Context, actorID, b
 		return billing, record, ErrInvalidRequest
 	}
 	var storedFullUnit int64
-	err = tx.QueryRow(ctx, `SELECT estado,COALESCE(proveedor_suscripcion_id,''),referencia_externa,trial_months,marca_id,proveedor,moneda,precio_sucursal_minor,cantidad_sucursales,importe_mensual_minor,COALESCE(checkout_url,''),proximo_cobro_at,updated_at,COALESCE(full_unit_price_minor,precio_sucursal_minor) FROM suscripciones_marca WHERE marca_id=$1 FOR UPDATE`, brandID).Scan(&record.Subscription.Status, &record.ProviderID, &record.ExternalReference, &record.TrialMonths, &record.Subscription.BrandID, &record.Subscription.Provider, &record.Subscription.Currency, &record.Subscription.UnitAmountCents, &record.Subscription.ActiveBranches, &record.Subscription.MonthlyAmountCents, &record.Subscription.CheckoutURL, &record.Subscription.NextPaymentDate, &record.Subscription.UpdatedAt, &storedFullUnit)
+	err = tx.QueryRow(ctx, `SELECT estado,COALESCE(proveedor_suscripcion_id,''),referencia_externa,trial_months,marca_id,proveedor,moneda,precio_sucursal_minor,cantidad_sucursales,importe_mensual_minor,COALESCE(checkout_url,''),proximo_cobro_at,updated_at,trial_ends_at,COALESCE(full_unit_price_minor,precio_sucursal_minor) FROM suscripciones_marca WHERE marca_id=$1 FOR UPDATE`, brandID).Scan(&record.Subscription.Status, &record.ProviderID, &record.ExternalReference, &record.TrialMonths, &record.Subscription.BrandID, &record.Subscription.Provider, &record.Subscription.Currency, &record.Subscription.UnitAmountCents, &record.Subscription.ActiveBranches, &record.Subscription.MonthlyAmountCents, &record.Subscription.CheckoutURL, &record.Subscription.NextPaymentDate, &record.Subscription.UpdatedAt, &record.Subscription.TrialEndsAt, &storedFullUnit)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return billing, record, err
 	}
@@ -159,11 +162,16 @@ func (r *Repository) ReserveSubscriptionCheckout(ctx context.Context, actorID, b
 		}
 	}
 	trialMonths := 0
-	if errors.Is(err, pgx.ErrNoRows) {
-		trialMonths = 1
+	var trialEnd *time.Time
+	if billing.TrialStartedAt != nil {
+		end := TrialEnd(*billing.TrialStartedAt)
+		trialEnd = &end
+		if end.After(r.Now()) {
+			trialMonths = 1
+		}
 	}
-	query := `INSERT INTO suscripciones_marca(marca_id,proveedor,proveedor_suscripcion_id,referencia_externa,estado,moneda,precio_sucursal_minor,cantidad_sucursales,importe_mensual_minor,trial_months,full_unit_price_minor,program_type,price_valid_from) VALUES($1,'MERCADO_PAGO',NULL,$2,'CREATING','ARS',$3,$4,$3::bigint*$4::bigint,$5,$6,$7,now()) ON CONFLICT(marca_id) DO UPDATE SET proveedor_suscripcion_id=NULL,referencia_externa=EXCLUDED.referencia_externa,estado='CREATING',precio_sucursal_minor=EXCLUDED.precio_sucursal_minor,cantidad_sucursales=EXCLUDED.cantidad_sucursales,importe_mensual_minor=EXCLUDED.importe_mensual_minor,trial_months=0,full_unit_price_minor=EXCLUDED.full_unit_price_minor,program_type=EXCLUDED.program_type,price_valid_from=now(),price_transitioned_at=NULL,provider_call_started_at=NULL,checkout_url=NULL,proximo_cobro_at=NULL,updated_at=now() RETURNING marca_id,proveedor,estado,moneda,precio_sucursal_minor,cantidad_sucursales,importe_mensual_minor,COALESCE(checkout_url,''),proximo_cobro_at,updated_at,referencia_externa,trial_months`
-	err = tx.QueryRow(ctx, query, brandID, external, unitPrice, billing.ActiveBranches, trialMonths, fullUnitPrice, billing.ProgramType).Scan(&record.Subscription.BrandID, &record.Subscription.Provider, &record.Subscription.Status, &record.Subscription.Currency, &record.Subscription.UnitAmountCents, &record.Subscription.ActiveBranches, &record.Subscription.MonthlyAmountCents, &record.Subscription.CheckoutURL, &record.Subscription.NextPaymentDate, &record.Subscription.UpdatedAt, &record.ExternalReference, &record.TrialMonths)
+	query := `INSERT INTO suscripciones_marca(marca_id,proveedor,proveedor_suscripcion_id,referencia_externa,estado,moneda,precio_sucursal_minor,cantidad_sucursales,importe_mensual_minor,trial_months,full_unit_price_minor,program_type,price_valid_from,trial_ends_at) VALUES($1,'MERCADO_PAGO',NULL,$2,'CREATING','ARS',$3,$4,$3::bigint*$4::bigint,$5,$6,$7,now(),$8) ON CONFLICT(marca_id) DO UPDATE SET proveedor_suscripcion_id=NULL,referencia_externa=EXCLUDED.referencia_externa,estado='CREATING',precio_sucursal_minor=EXCLUDED.precio_sucursal_minor,cantidad_sucursales=EXCLUDED.cantidad_sucursales,importe_mensual_minor=EXCLUDED.importe_mensual_minor,checkout_rejected=false,trial_months=EXCLUDED.trial_months,trial_ends_at=EXCLUDED.trial_ends_at,full_unit_price_minor=EXCLUDED.full_unit_price_minor,program_type=EXCLUDED.program_type,price_valid_from=now(),price_transitioned_at=NULL,provider_call_started_at=NULL,checkout_url=NULL,proximo_cobro_at=NULL,updated_at=now() RETURNING marca_id,proveedor,estado,moneda,precio_sucursal_minor,cantidad_sucursales,importe_mensual_minor,COALESCE(checkout_url,''),proximo_cobro_at,updated_at,referencia_externa,trial_months,trial_ends_at`
+	err = tx.QueryRow(ctx, query, brandID, external, unitPrice, billing.ActiveBranches, trialMonths, fullUnitPrice, billing.ProgramType, trialEnd).Scan(&record.Subscription.BrandID, &record.Subscription.Provider, &record.Subscription.Status, &record.Subscription.Currency, &record.Subscription.UnitAmountCents, &record.Subscription.ActiveBranches, &record.Subscription.MonthlyAmountCents, &record.Subscription.CheckoutURL, &record.Subscription.NextPaymentDate, &record.Subscription.UpdatedAt, &record.ExternalReference, &record.TrialMonths, &record.Subscription.TrialEndsAt)
 	if err != nil {
 		return billing, record, err
 	}
@@ -412,4 +420,20 @@ func providerStatus(value string) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+// TrialEnd uses an Argentina calendar month, clamping the day to the next month's end.
+func TrialEnd(start time.Time) time.Time {
+	zone := time.FixedZone("Argentina", -3*60*60)
+	start = start.In(zone)
+	next := time.Date(start.Year(), start.Month()+1, 1, start.Hour(), start.Minute(), start.Second(), start.Nanosecond(), zone)
+	last := time.Date(next.Year(), next.Month()+1, 0, 0, 0, 0, 0, zone).Day()
+	day := min(start.Day(), last)
+	return time.Date(next.Year(), next.Month(), day, start.Hour(), start.Minute(), start.Second(), start.Nanosecond(), zone)
+}
+
+// RejectSubscriptionCheckout releases only a confirmed rejection; uncertain calls stay reserved.
+func (r *Repository) RejectSubscriptionCheckout(ctx context.Context, brandID int64, reference string) error {
+	_, err := r.Pool.Exec(ctx, `UPDATE suscripciones_marca SET estado='CANCELLED',checkout_rejected=true,updated_at=now() WHERE marca_id=$1 AND referencia_externa=$2 AND estado='CREATING' AND proveedor_suscripcion_id IS NULL`, brandID, reference)
+	return err
 }

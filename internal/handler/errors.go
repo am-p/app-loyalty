@@ -29,6 +29,10 @@ func writeErr(c *gin.Context, err error) {
 		web.Error(c, http.StatusServiceUnavailable, "BILLING_UNAVAILABLE", "La facturación todavía no está habilitada", nil)
 	case errors.Is(err, service.ErrBillingInProgress):
 		web.Error(c, http.StatusConflict, "BILLING_IN_PROGRESS", "La operación no se completó: la suscripción se está preparando o verificando con Mercado Pago; intentá nuevamente más tarde", nil)
+	case errors.Is(err, service.ErrTrialStartUnknown):
+		web.Error(c, http.StatusConflict, "TRIAL_START_UNKNOWN", "No podemos confirmar la fecha del primer acceso. Contactá soporte antes de configurar el pago", nil)
+	case errors.Is(err, service.ErrBillingRejected):
+		web.Error(c, http.StatusServiceUnavailable, "BILLING_REJECTED", "Mercado Pago rechazó el checkout. Podés volver a intentarlo", nil)
 	case errors.Is(err, service.ErrBillingProviderFailure):
 		web.Error(c, http.StatusServiceUnavailable, "BILLING_PROVIDER_ERROR", "La operación no se completó: Mercado Pago no la confirmó; consultá el estado antes de reintentar", nil)
 	case errors.Is(err, service.ErrSubscriptionExists):

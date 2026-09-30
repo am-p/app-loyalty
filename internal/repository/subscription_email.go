@@ -31,13 +31,13 @@ func (r *Repository) enqueueSubscriptionConfirmation(ctx context.Context, tx pgx
 	var ownerID int64
 	var to string
 	err := tx.QueryRow(ctx, `SELECT s.marca_id,s.proveedor_suscripcion_id,m.nombre,u.id,u.email::text,u.nombre,
- p.tipo,s.cantidad_sucursales,s.importe_mensual_minor,s.moneda,s.trial_months,s.updated_at,s.proximo_cobro_at
+ p.tipo,s.cantidad_sucursales,s.importe_mensual_minor,s.moneda,s.trial_months,s.trial_ends_at,s.updated_at,s.proximo_cobro_at
  FROM suscripciones_marca s JOIN marcas m ON m.id=s.marca_id
  JOIN membresias_marca mm ON mm.marca_id=m.id AND mm.rol='PROPIETARIO' AND mm.activo
  JOIN usuarios u ON u.id=mm.usuario_id JOIN programas_fidelidad p ON p.marca_id=m.id AND p.activo
  WHERE s.marca_id=$1 AND s.estado='AUTHORIZED' AND m.activo AND m.deleted_at IS NULL
  AND u.activo AND u.deleted_at IS NULL AND u.email_verified_at IS NOT NULL
- ORDER BY mm.id LIMIT 1`, brandID).Scan(&d.BrandID, &d.ProviderID, &d.BrandName, &ownerID, &to, &d.OwnerName, &d.ProgramType, &d.ActiveBranches, &d.MonthlyAmountMinor, &d.Currency, &d.TrialMonths, &d.ConfirmedAt, &d.NextPaymentDate)
+ ORDER BY mm.id LIMIT 1`, brandID).Scan(&d.BrandID, &d.ProviderID, &d.BrandName, &ownerID, &to, &d.OwnerName, &d.ProgramType, &d.ActiveBranches, &d.MonthlyAmountMinor, &d.Currency, &d.TrialMonths, &d.TrialEndsAt, &d.ConfirmedAt, &d.NextPaymentDate)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}

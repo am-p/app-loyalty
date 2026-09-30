@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -72,7 +73,9 @@ func (c *Client) CreateSubscription(ctx context.Context, in model.BillingSubscri
 		amount = minorJSON(in.AmountMinor)
 	}
 	autoRecurring := map[string]any{"frequency": 1, "frequency_type": "months", "transaction_amount": amount, "currency_id": in.Currency}
-	if in.FreeTrialMonths > 0 {
+	if in.StartDate != nil {
+		autoRecurring["start_date"] = in.StartDate.UTC().Format(time.RFC3339Nano)
+	} else if in.FreeTrialMonths > 0 {
 		autoRecurring["free_trial"] = map[string]any{"frequency": in.FreeTrialMonths, "frequency_type": "months"}
 	}
 	body := map[string]any{
@@ -234,7 +237,7 @@ func (c *Client) do(req *http.Request) (model.BillingSubscriptionResult, error) 
 	limited := io.LimitReader(response.Body, 1<<20)
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		_, _ = io.Copy(io.Discard, limited)
-		return model.BillingSubscriptionResult{}, fmt.Errorf("mercado pago returned %d", response.StatusCode)
+		return model.BillingSubscriptionResult{}, &RequestError{Status: response.StatusCode}
 	}
 	var out preapproval
 	if err = json.NewDecoder(limited).Decode(&out); err != nil {
@@ -288,4 +291,45 @@ func ValidateSignature(header, requestID, resourceID, secret string, now time.Ti
 	mac := hmac.New(sha256.New, []byte(secret))
 	_, _ = mac.Write([]byte(manifest))
 	return subtle.ConstantTimeCompare(provided, mac.Sum(nil)) == 1
+}
+
+// RequestError retains only HTTP status; provider bodies may contain payer details.
+type RequestError struct{ Status int }
+
+func (e *RequestError) HTTPStatus() int { return e.Status }
+func (e *RequestError) Error() string   { return fmt.Sprintf("mercado pago returned %d", e.Status) }
+func (e *RequestError) Rejected() bool {
+	return e.Status == 400 || e.Status == 401 || e.Status == 403 || e.Status == 422
+}
+
+func (c *Client) FindSubscription(ctx context.Context, reference string) (model.BillingSubscriptionResult, bool, error) {
+	var response struct {
+		Results []preapproval `json:"results"`
+	}
+	if err := c.getJSON(ctx, "/preapproval/search?"+url.Values{"external_reference": {reference}, "limit": {"100"}}.Encode(), &response); err != nil {
+		return model.BillingSubscriptionResult{}, false, err
+	}
+	var match *preapproval
+	for i := range response.Results {
+		item := &response.Results[i]
+		if item.ExternalReference != reference {
+			continue
+		}
+		if match != nil || item.ID == "" {
+			return model.BillingSubscriptionResult{}, false, errors.New("ambiguous subscription search")
+		}
+		match = item
+	}
+	if match == nil {
+		return model.BillingSubscriptionResult{}, false, nil
+	}
+	// Fetch authoritative details rather than trusting incomplete search results.
+	out, err := c.GetSubscription(ctx, match.ID)
+	if err != nil {
+		return out, false, err
+	}
+	if out.ExternalReference != reference {
+		return out, false, errors.New("subscription reference mismatch")
+	}
+	return out, true, nil
 }
