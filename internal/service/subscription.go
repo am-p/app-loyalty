@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"strings"
+	"time"
 
 	"clientesFrecuentes/internal/model"
 	"clientesFrecuentes/internal/repository"
@@ -32,11 +34,48 @@ func (s *Service) Subscription(ctx context.Context, actorID, brandID int64) (mod
 		if priceErr != nil {
 			return model.Subscription{}, priceErr
 		}
-		return model.Subscription{BrandID: brandID, Provider: "MERCADO_PAGO", Status: "NOT_CONFIGURED", Currency: "ARS", UnitAmountCents: discounted, ActiveBranches: billing.ActiveBranches, MonthlyAmountCents: discounted * billing.ActiveBranches, FullMonthlyAmountCents: unitPrice * billing.ActiveBranches, DiscountRemainingCharges: remaining, ProviderConfigured: s.Billing != nil, TrialAvailable: true, UpdatedAt: s.Now()}, nil
+		out := model.Subscription{BrandID: brandID, Provider: "MERCADO_PAGO", Status: "NOT_CONFIGURED", Currency: "ARS", UnitAmountCents: discounted, ActiveBranches: billing.ActiveBranches, MonthlyAmountCents: discounted * billing.ActiveBranches, FullMonthlyAmountCents: unitPrice * billing.ActiveBranches, DiscountRemainingCharges: remaining, ProviderConfigured: s.Billing != nil, UpdatedAt: s.Now()}
+		s.setSubscriptionTrial(&out, billing)
+		return out, nil
 	}
 	if err != nil {
 		return model.Subscription{}, err
 	}
+	needsProviderRefresh := record.ProviderID != ""
+	if record.Subscription.Status == "CREATING" && s.Billing != nil {
+		if finder, ok := s.Billing.(subscriptionFinder); ok {
+			provider, found, lookupErr := finder.FindSubscription(ctx, record.ExternalReference)
+			if lookupErr != nil {
+				return model.Subscription{}, ErrBillingProviderFailure
+			}
+			if found {
+				if provider.ExternalReference != record.ExternalReference || provider.ID == "" {
+					return model.Subscription{}, ErrBillingProviderFailure
+				}
+				if _, saveErr := s.Repo.SaveSubscriptionCheckout(ctx, brandID, provider); saveErr != nil && !errors.Is(saveErr, repository.ErrConflict) {
+					return model.Subscription{}, saveErr
+				}
+				record, err = s.Repo.GetSubscriptionRecord(ctx, brandID)
+				if err != nil {
+					return model.Subscription{}, err
+				}
+			}
+		}
+	}
+	if needsProviderRefresh && record.Subscription.Status != "CANCELLED" && s.Billing != nil {
+		provider, lookupErr := s.Billing.GetSubscription(ctx, record.ProviderID)
+		if lookupErr != nil || provider.ID != record.ProviderID || provider.ExternalReference != record.ExternalReference {
+			return model.Subscription{}, ErrBillingProviderFailure
+		}
+		if _, updateErr := s.Repo.UpdateSubscriptionFromProvider(ctx, provider); updateErr != nil {
+			return model.Subscription{}, updateErr
+		}
+		record, err = s.Repo.GetSubscriptionRecord(ctx, brandID)
+		if err != nil {
+			return model.Subscription{}, err
+		}
+	}
+	s.setSubscriptionTrial(&record.Subscription, billing)
 	record.Subscription.ProviderConfigured = s.Billing != nil
 	return record.Subscription, nil
 }
@@ -49,6 +88,13 @@ func (s *Service) CreateSubscriptionCheckout(ctx context.Context, actorID, brand
 	if err != nil {
 		return model.Subscription{}, ErrInvalidRequest
 	}
+	billingContext, contextErr := s.Repo.BillingContext(ctx, actorID, brandID)
+	if contextErr != nil {
+		return model.Subscription{}, contextErr
+	}
+	if billingContext.TrialStartEstimated || billingContext.TrialStartedAt == nil {
+		return model.Subscription{}, ErrTrialStartUnknown
+	}
 	external := fmt.Sprintf("puntazo:brand:%d:%s", brandID, key.String())
 	billing, reserved, err := s.Repo.ReserveSubscriptionCheckout(ctx, actorID, brandID, external, s.Config.MercadoPagoBranchPrice, s.Config.MercadoPagoPointsPrice)
 	if errors.Is(err, repository.ErrConflict) {
@@ -58,6 +104,7 @@ func (s *Service) CreateSubscriptionCheckout(ctx context.Context, actorID, brand
 		return model.Subscription{}, err
 	}
 	if reserved.Subscription.Status != "CREATING" {
+		s.setSubscriptionTrial(&reserved.Subscription, billing)
 		reserved.Subscription.ProviderConfigured = true
 		return reserved.Subscription, nil
 	}
@@ -77,12 +124,33 @@ func (s *Service) CreateSubscriptionCheckout(ctx context.Context, actorID, brand
 	if _, err = uuid.Parse(providerKey); err != nil {
 		return model.Subscription{}, ErrInvalidRequest
 	}
+	var startDate *time.Time
+	freeTrialMonths := reserved.TrialMonths
+	if reserved.Subscription.TrialEndsAt != nil {
+		freeTrialMonths = 0
+		if reserved.Subscription.TrialEndsAt.After(s.Now()) {
+			startDate = reserved.Subscription.TrialEndsAt
+		}
+	}
 	created, err := s.Billing.CreateSubscription(ctx, model.BillingSubscriptionRequest{
 		Reason: fmt.Sprintf("Puntazo %s mensual · %d sucursal(es)", billing.ProgramType, reserved.Subscription.ActiveBranches), ExternalReference: reserved.ExternalReference,
 		PayerEmail: billing.PayerEmail, BackURL: strings.TrimRight(s.Config.PublicAppURL, "/") + "/suscripcion/resultado",
-		IdempotencyKey: providerKey, Currency: "ARS", AmountMinor: reserved.Subscription.MonthlyAmountCents, FreeTrialMonths: reserved.TrialMonths,
+		IdempotencyKey: providerKey, Currency: "ARS", AmountMinor: reserved.Subscription.MonthlyAmountCents, FreeTrialMonths: freeTrialMonths, StartDate: startDate,
 	})
 	if err != nil {
+		var rejection interface{ Rejected() bool }
+		var httpFailure interface{ HTTPStatus() int }
+		status := 0
+		if errors.As(err, &httpFailure) {
+			status = httpFailure.HTTPStatus()
+		}
+		slog.WarnContext(ctx, "subscription_provider_create_failed", "brand_id", brandID, "provider_http_status", status, "error_type", fmt.Sprintf("%T", err))
+		if errors.As(err, &rejection) && rejection.Rejected() {
+			if releaseErr := s.Repo.RejectSubscriptionCheckout(ctx, brandID, reserved.ExternalReference); releaseErr != nil {
+				return model.Subscription{}, releaseErr
+			}
+			return model.Subscription{}, ErrBillingRejected
+		}
 		return model.Subscription{}, ErrBillingProviderFailure
 	}
 	if created.ExternalReference != reserved.ExternalReference || created.ID == "" {
@@ -103,6 +171,7 @@ func (s *Service) CreateSubscriptionCheckout(ctx context.Context, actorID, brand
 	if err != nil {
 		return out, err
 	}
+	s.setSubscriptionTrial(&current.Subscription, billing)
 	current.Subscription.ProviderConfigured = true
 	return current.Subscription, nil
 }
@@ -242,6 +311,20 @@ func (s *Service) CancelSubscription(ctx context.Context, actorID, brandID int64
 		return model.Subscription{}, err
 	}
 	if record.Subscription.Status == "CANCELLED" {
+		if record.Subscription.NextPaymentDate != nil || record.Subscription.CheckoutURL != "" {
+			// Older cancellations may retain metadata that Mercado Pago returns
+			// even after renewals have stopped. Reconcile it without another PUT.
+			_, err = s.Repo.UpdateSubscriptionFromProvider(ctx, model.BillingSubscriptionResult{
+				ID: record.ProviderID, ExternalReference: record.ExternalReference, Status: "cancelled",
+			})
+			if err != nil {
+				return model.Subscription{}, err
+			}
+			record, err = s.Repo.GetSubscriptionRecord(ctx, brandID)
+			if err != nil {
+				return model.Subscription{}, err
+			}
+		}
 		record.Subscription.ProviderConfigured = true
 		return record.Subscription, nil
 	}
@@ -296,4 +379,22 @@ func (s *Service) RequestSubscriptionConfirmation(ctx context.Context, actorID, 
 		return repository.ErrEmailUnavailable
 	}
 	return s.Repo.RequestSubscriptionConfirmation(ctx, actorID, brandID)
+}
+
+type subscriptionFinder interface {
+	FindSubscription(context.Context, string) (model.BillingSubscriptionResult, bool, error)
+}
+
+func (s *Service) setSubscriptionTrial(out *model.Subscription, billing repository.BillingContext) {
+	out.TrialStartedAt = billing.TrialStartedAt
+	out.TrialStartEstimated = billing.TrialStartEstimated
+	// Display the account's known deadline without rewriting a legacy reservation
+	// or the provider's next-payment contract.
+	if out.TrialEndsAt == nil && billing.TrialStartedAt != nil && !billing.TrialStartEstimated {
+		end := repository.TrialEnd(*billing.TrialStartedAt)
+		out.TrialEndsAt = &end
+	}
+	if out.TrialEndsAt != nil {
+		out.TrialAvailable = out.TrialEndsAt.After(s.Now())
+	}
 }

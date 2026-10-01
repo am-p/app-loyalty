@@ -41,6 +41,9 @@ func (r *Repository) CreateDemoMerchant(ctx context.Context, key string, fingerp
 			return IdempotentResult{}, err
 		}
 	} else {
+		if err = recordFirstLogin(ctx, tx, u.ID, authTime); err != nil {
+			return IdempotentResult{}, err
+		}
 		if _, err = tx.Exec(ctx, `INSERT INTO sesiones_auth(id,usuario_id,refresh_hash,expires_at,family_id,auth_time) VALUES($1,$2,$3,$4,$1,$5)`, sessionID, u.ID, refreshHash, sessionExpiresAt, authTime); err != nil {
 			return IdempotentResult{}, err
 		}
@@ -61,7 +64,7 @@ func (r *Repository) CreateDemoMerchant(ctx context.Context, key string, fingerp
 func createMerchantResources(ctx context.Context, tx pgx.Tx, userID int64, brandName, branchName string, location model.BranchRegistrationLocation, programType string) (model.MerchantContext, error) {
 	var brandID, membershipID, branchID, programID int64
 	var started time.Time
-	if err := tx.QueryRow(ctx, `INSERT INTO marcas(nombre) VALUES($1) RETURNING id`, brandName).Scan(&brandID); err != nil {
+	if err := tx.QueryRow(ctx, `INSERT INTO marcas(nombre,trial_started_at,trial_start_estimated) SELECT $1,first_login_at,first_login_estimated FROM usuarios WHERE id=$2 RETURNING id`, brandName, userID).Scan(&brandID); err != nil {
 		return model.MerchantContext{}, err
 	}
 	if err := tx.QueryRow(ctx, `INSERT INTO membresias_marca(usuario_id,marca_id,rol) VALUES($1,$2,'PROPIETARIO') RETURNING id`, userID, brandID).Scan(&membershipID); err != nil {
