@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-func (r *Repository) CreateDemoMerchant(ctx context.Context, key string, fingerprint []byte, email, passwordHash, ownerName, brandName, branchName string, location model.BranchRegistrationLocation, programType, referralCode, sessionID string, refreshHash []byte, sessionExpiresAt, authTime time.Time, verifiedAt *time.Time, verificationHash []byte, verificationExpires time.Time, message *model.EmailMessage, build func(model.User, model.MerchantContext) ([]byte, error)) (IdempotentResult, error) {
+func (r *Repository) CreateDemoMerchant(ctx context.Context, key string, fingerprint []byte, email, passwordHash, ownerName, ownerLastName, brandName, branchName string, location model.BranchRegistrationLocation, programType, referralCode, sessionID string, refreshHash []byte, sessionExpiresAt, authTime time.Time, verifiedAt *time.Time, verificationHash []byte, verificationExpires time.Time, message *model.EmailMessage, build func(model.User, model.MerchantContext) ([]byte, error)) (IdempotentResult, error) {
 	tx, err := r.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return IdempotentResult{}, err
@@ -23,9 +23,13 @@ func (r *Repository) CreateDemoMerchant(ctx context.Context, key string, fingerp
 	if claimed != nil {
 		return *claimed, nil
 	}
+	code, err := allocateUserCode(ctx, tx, ownerName, ownerLastName)
+	if err != nil {
+		return IdempotentResult{}, err
+	}
 	var u model.User
-	err = tx.QueryRow(ctx, `INSERT INTO usuarios(email,password_hash,nombre,tipo_cuenta,email_verified_at) VALUES($1,$2,$3,'PERSONAL_MARCA',$4) RETURNING id,email::text,nombre,apellido,alias,foto_url,tipo_cuenta,activo,(email_verified_at IS NOT NULL),auth_version,version,created_at`, email, passwordHash, ownerName, verifiedAt).
-		Scan(&u.ID, &u.Email, &u.Name, &u.LastName, &u.Alias, &u.PhotoURL, &u.AccountType, &u.Active, &u.EmailVerified, &u.AuthVersion, &u.Version, &u.CreatedAt)
+	err = tx.QueryRow(ctx, `INSERT INTO usuarios(email,password_hash,nombre,tipo_cuenta,email_verified_at,apellido,codigo_usuario) VALUES($1,$2,$3,'PERSONAL_MARCA',$4,$5,$6) RETURNING id,email::text,nombre,apellido,alias,foto_url,tipo_cuenta,activo,(email_verified_at IS NOT NULL),auth_version,version,created_at,COALESCE(codigo_usuario,'#USER-'||lpad(id::text,greatest(4,length(id::text)),'0'))`, email, passwordHash, ownerName, verifiedAt, ownerLastName, code).
+		Scan(&u.ID, &u.Email, &u.Name, &u.LastName, &u.Alias, &u.PhotoURL, &u.AccountType, &u.Active, &u.EmailVerified, &u.AuthVersion, &u.Version, &u.CreatedAt, &u.UserCode)
 	if err != nil {
 		return IdempotentResult{}, normalize(err)
 	}
@@ -101,15 +105,19 @@ func createMerchantResources(ctx context.Context, tx pgx.Tx, userID int64, brand
 	}, nil
 }
 
-func (r *Repository) CreateGoogleMerchant(ctx context.Context, googleID, email, ownerName, brandName, branchName string, location model.BranchRegistrationLocation, programType string, referralCode ...string) (model.User, error) {
+func (r *Repository) CreateGoogleMerchant(ctx context.Context, googleID, email, ownerName, ownerLastName, brandName, branchName string, location model.BranchRegistrationLocation, programType string, referralCode ...string) (model.User, error) {
 	tx, err := r.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return model.User{}, err
 	}
 	defer tx.Rollback(ctx)
+	code, err := allocateUserCode(ctx, tx, ownerName, ownerLastName)
+	if err != nil {
+		return model.User{}, err
+	}
 	var u model.User
-	err = tx.QueryRow(ctx, `INSERT INTO usuarios(email,google_id,nombre,tipo_cuenta,email_verified_at) VALUES($1,$2,$3,'PERSONAL_MARCA',now()) RETURNING id,email::text,nombre,apellido,alias,foto_url,tipo_cuenta,activo,true,auth_version,version,created_at`, email, googleID, ownerName).
-		Scan(&u.ID, &u.Email, &u.Name, &u.LastName, &u.Alias, &u.PhotoURL, &u.AccountType, &u.Active, &u.EmailVerified, &u.AuthVersion, &u.Version, &u.CreatedAt)
+	err = tx.QueryRow(ctx, `INSERT INTO usuarios(email,google_id,nombre,tipo_cuenta,email_verified_at,apellido,codigo_usuario) VALUES($1,$2,$3,'PERSONAL_MARCA',now(),$4,$5) RETURNING id,email::text,nombre,apellido,alias,foto_url,tipo_cuenta,activo,true,auth_version,version,created_at,COALESCE(codigo_usuario,'#USER-'||lpad(id::text,greatest(4,length(id::text)),'0'))`, email, googleID, ownerName, ownerLastName, code).
+		Scan(&u.ID, &u.Email, &u.Name, &u.LastName, &u.Alias, &u.PhotoURL, &u.AccountType, &u.Active, &u.EmailVerified, &u.AuthVersion, &u.Version, &u.CreatedAt, &u.UserCode)
 	if err != nil {
 		return model.User{}, normalize(err)
 	}
@@ -117,11 +125,11 @@ func (r *Repository) CreateGoogleMerchant(ctx context.Context, googleID, email, 
 	if err != nil {
 		return model.User{}, err
 	}
-	code := ""
+	referral := ""
 	if len(referralCode) > 0 {
-		code = referralCode[0]
+		referral = referralCode[0]
 	}
-	if err = AttributeReferral(ctx, tx, merchant.BrandID, programType, code); err != nil {
+	if err = AttributeReferral(ctx, tx, merchant.BrandID, programType, referral); err != nil {
 		return model.User{}, err
 	}
 	if err = tx.Commit(ctx); err != nil {

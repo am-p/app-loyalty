@@ -134,7 +134,7 @@ func (s *Service) Customer(ctx context.Context, actorID int64) (model.Customer, 
 		return model.Customer{}, err
 	}
 	token, _ := s.QRForUser(u.ID)
-	return model.Customer{ID: u.ID, Email: u.Email, Name: u.Name, QRToken: token}, nil
+	return model.Customer{ID: u.ID, Email: u.Email, Name: u.Name, UserCode: u.UserCode, QRToken: token}, nil
 }
 
 func (s *Service) Cards(ctx context.Context, actorID int64, page, size int) ([]model.Card, web.Pagination, error) {

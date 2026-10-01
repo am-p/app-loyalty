@@ -40,10 +40,10 @@ func (r *Repository) RotateSession(ctx context.Context, refreshHash []byte, repl
 	var revokedAt *time.Time
 	var expiresAt, authTime time.Time
 	var u model.User
-	err = tx.QueryRow(ctx, `SELECT s.id,s.family_id,s.revoked_at,s.expires_at,s.auth_time,u.id,u.email::text,u.nombre,u.apellido,u.alias,u.foto_url,u.tipo_cuenta,u.activo,(u.email_verified_at IS NOT NULL),u.auth_version,u.version,u.created_at
+	err = tx.QueryRow(ctx, `SELECT s.id,s.family_id,s.revoked_at,s.expires_at,s.auth_time,u.id,u.email::text,u.nombre,u.apellido,u.alias,u.foto_url,u.tipo_cuenta,u.activo,(u.email_verified_at IS NOT NULL),u.auth_version,u.version,u.created_at,COALESCE(u.codigo_usuario,'#USER-'||lpad(u.id::text,greatest(4,length(u.id::text)),'0'))
 		FROM sesiones_auth s JOIN usuarios u ON u.id=s.usuario_id
 		WHERE s.refresh_hash=$1 AND u.activo AND u.deleted_at IS NULL FOR UPDATE OF s`, refreshHash).
-		Scan(&oldID, &familyID, &revokedAt, &expiresAt, &authTime, &u.ID, &u.Email, &u.Name, &u.LastName, &u.Alias, &u.PhotoURL, &u.AccountType, &u.Active, &u.EmailVerified, &u.AuthVersion, &u.Version, &u.CreatedAt)
+		Scan(&oldID, &familyID, &revokedAt, &expiresAt, &authTime, &u.ID, &u.Email, &u.Name, &u.LastName, &u.Alias, &u.PhotoURL, &u.AccountType, &u.Active, &u.EmailVerified, &u.AuthVersion, &u.Version, &u.CreatedAt, &u.UserCode)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return RotatedSession{}, ErrNotFound
 	}

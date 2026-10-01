@@ -176,7 +176,7 @@ func TestPostgresReferralValidationFinalRegistrationRollback(t *testing.T) {
 				t.Fatal(err)
 			}
 			before := referralState(t, pool)
-			_, err := repo.CreateGoogleMerchant(t.Context(), uuid.NewString(), uuid.NewString()+"@example.test", "Owner", "New brand", "Main", model.BranchRegistrationLocation{}, "SELLOS", "VALID-123")
+			_, err := repo.CreateGoogleMerchant(t.Context(), uuid.NewString(), uuid.NewString()+"@example.test", "Owner", "Test", "New brand", "Main", model.BranchRegistrationLocation{}, "SELLOS", "VALID-123")
 			if !errors.Is(err, repository.ErrReferralCodeInvalid) || !errors.Is(err, repository.ErrInvalidRequest) {
 				t.Fatalf("final validation err=%v", err)
 			}
@@ -184,7 +184,7 @@ func TestPostgresReferralValidationFinalRegistrationRollback(t *testing.T) {
 				t.Fatal("failed registration persisted resources")
 			}
 			// Email signup also rolls back its idempotency reservation and resources.
-			_, err = repo.CreateDemoMerchant(t.Context(), uuid.NewString(), []byte("test fingerprint"), uuid.NewString()+"@example.test", "hash", "Owner", "Email brand", "Main", model.BranchRegistrationLocation{}, "SELLOS", "VALID-123", uuid.NewString(), []byte("refresh"), time.Now().Add(time.Hour), time.Now(), nil, nil, time.Now(), nil, func(model.User, model.MerchantContext) ([]byte, error) { return []byte(`{}`), nil })
+			_, err = repo.CreateDemoMerchant(t.Context(), uuid.NewString(), []byte("test fingerprint"), uuid.NewString()+"@example.test", "hash", "Owner", "Test", "Email brand", "Main", model.BranchRegistrationLocation{}, "SELLOS", "VALID-123", uuid.NewString(), []byte("refresh"), time.Now().Add(time.Hour), time.Now(), nil, nil, time.Now(), nil, func(model.User, model.MerchantContext) ([]byte, error) { return []byte(`{}`), nil })
 			if !errors.Is(err, repository.ErrReferralCodeInvalid) {
 				t.Fatalf("email final validation err=%v", err)
 			}

@@ -60,3 +60,13 @@ func TestVerifyGoogleTokenRejectsUnverifiedEmail(t *testing.T) {
 		t.Fatalf("expected invalid Google token, got %v", err)
 	}
 }
+
+func TestVerifiedGoogleProfileKeepsSeparateClaims(t *testing.T) {
+	validate := func(context.Context, string, string) (*idtoken.Payload, error) {
+		return &idtoken.Payload{Subject: "google-user", Claims: map[string]interface{}{"email_verified": true, "email": "person@example.test", "given_name": "María José", "family_name": "Pérez López", "name": "Display Name"}}, nil
+	}
+	profile, err := verifyGoogleIdentity(context.Background(), "token", []string{"audience"}, validate)
+	if err != nil || profile.Name != "María José" || profile.LastName != "Pérez López" || profile.DisplayName != "Display Name" {
+		t.Fatalf("profile=%+v err=%v", profile, err)
+	}
+}

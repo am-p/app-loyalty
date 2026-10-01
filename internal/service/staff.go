@@ -109,8 +109,11 @@ func (s *Service) RegisterInvitation(ctx context.Context, token string, req mode
 	if err != nil {
 		return model.AuthData{}, err
 	}
-	name, err := cleanName(req.Name, 120)
-	if err != nil || !validPassword(req.Password) {
+	name, lastName, err := registrationNames(req.Name, req.LastName)
+	if err != nil {
+		return model.AuthData{}, err
+	}
+	if !validPassword(req.Password) {
 		return model.AuthData{}, ErrInvalidRequest
 	}
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
@@ -118,9 +121,9 @@ func (s *Service) RegisterInvitation(ctx context.Context, token string, req mode
 		return model.AuthData{}, err
 	}
 	var user model.User
-	err = retry(ctx, func() error {
+	err = retryRegistration(ctx, func() error {
 		var retryErr error
-		user, retryErr = s.Repo.RegisterInvitation(ctx, h, s.Now(), name, string(passwordHash))
+		user, retryErr = s.Repo.RegisterInvitation(ctx, h, s.Now(), name, lastName, string(passwordHash))
 		return retryErr
 	})
 	if errors.Is(err, repository.ErrInvitationInvalid) {

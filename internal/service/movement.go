@@ -24,7 +24,7 @@ func (s *Service) Preview(ctx context.Context, actorID int64, req model.Movement
 	if req.Operation == "CANJE" && req.PointsAmount != nil {
 		return model.Preview{}, ErrInvalidRequest
 	}
-	token, err := s.resolveMovementIdentity(req.QRToken, req.CustomerCode)
+	token, err := s.resolveMovementIdentity(ctx, req.QRToken, req.CustomerCode)
 	if err != nil {
 		return model.Preview{}, err
 	}
@@ -40,7 +40,7 @@ func (s *Service) ConfirmAccumulation(ctx context.Context, actorID int64, key, r
 	if _, err := uuid.Parse(req.PreviewID); err != nil {
 		return repository.IdempotentResult{}, ErrInvalidRequest
 	}
-	token, err := s.resolveMovementIdentity(req.QRToken, req.CustomerCode)
+	token, err := s.resolveMovementIdentity(ctx, req.QRToken, req.CustomerCode)
 	if err != nil {
 		return repository.IdempotentResult{}, err
 	}
@@ -56,7 +56,7 @@ func (s *Service) ConfirmRedemption(ctx context.Context, actorID int64, key, req
 	if _, err := uuid.Parse(req.PreviewID); err != nil {
 		return repository.IdempotentResult{}, ErrInvalidRequest
 	}
-	token, err := s.resolveMovementIdentity(req.QRToken, req.CustomerCode)
+	token, err := s.resolveMovementIdentity(ctx, req.QRToken, req.CustomerCode)
 	if err != nil {
 		return repository.IdempotentResult{}, err
 	}

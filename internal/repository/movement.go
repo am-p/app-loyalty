@@ -31,8 +31,8 @@ func (r *Repository) CreatePreview(ctx context.Context, actorID int64, req model
 		return model.Preview{}, err
 	}
 	var customerID int64
-	var customerName string
-	err = tx.QueryRow(ctx, `SELECT id,nombre FROM usuarios WHERE qr_hash=$1 AND tipo_cuenta='CLIENTE_FINAL' AND activo AND deleted_at IS NULL`, qrHash).Scan(&customerID, &customerName)
+	var customerName, customerCode string
+	err = tx.QueryRow(ctx, `SELECT id,nombre,COALESCE(codigo_usuario,'#USER-'||lpad(id::text,greatest(4,length(id::text)),'0')) FROM usuarios WHERE qr_hash=$1 AND tipo_cuenta='CLIENTE_FINAL' AND activo AND deleted_at IS NULL`, qrHash).Scan(&customerID, &customerName, &customerCode)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.Preview{}, ErrNotFound
 	}
@@ -98,7 +98,7 @@ func (r *Repository) CreatePreview(ctx context.Context, actorID int64, req model
 	if cardID != nil {
 		cardValue = *cardID
 	}
-	return model.Preview{ID: id.String(), ExpiresAt: expires, Operation: req.Operation, ProgramType: programType, Customer: model.PreviewCustomer{ID: customerID, Name: customerName}, CardID: cardValue, BalanceBefore: balance, Amount: amount, BalanceAfter: after, Benefit: benefit}, nil
+	return model.Preview{ID: id.String(), ExpiresAt: expires, Operation: req.Operation, ProgramType: programType, Customer: model.PreviewCustomer{ID: customerID, Name: customerName, UserCode: customerCode}, CardID: cardValue, BalanceBefore: balance, Amount: amount, BalanceAfter: after, Benefit: benefit}, nil
 }
 
 type ConfirmInput struct {

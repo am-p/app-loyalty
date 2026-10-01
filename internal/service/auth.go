@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"clientesFrecuentes/internal/auth"
+	"clientesFrecuentes/internal/identitycode"
 	"clientesFrecuentes/internal/mailer"
 	"clientesFrecuentes/internal/model"
 	"clientesFrecuentes/internal/repository"
@@ -36,7 +37,7 @@ func (s *Service) RegisterCustomer(ctx context.Context, req model.RegisterCustom
 	if err != nil || !validPassword(req.Password) {
 		return model.RegisterCustomerData{}, ErrInvalidRequest
 	}
-	name, err := cleanName(req.Name, 120)
+	name, lastName, err := registrationNames(req.Name, req.LastName)
 	if err != nil {
 		return model.RegisterCustomerData{}, err
 	}
@@ -65,7 +66,7 @@ func (s *Service) RegisterCustomer(ctx context.Context, req model.RegisterCustom
 		verifiedAt = &now
 	}
 	// The final QR is derived after PostgreSQL assigns the immutable user id.
-	u, err := s.Repo.CreateCustomer(ctx, email, string(hash), name, provisional, func(id int64) []byte { _, finalHash := s.QRForUser(id); return finalHash }, verifiedAt, verificationHash, verificationExpires, message)
+	u, err := s.Repo.CreateCustomer(ctx, email, string(hash), name, lastName, provisional, func(id int64) []byte { _, finalHash := s.QRForUser(id); return finalHash }, verifiedAt, verificationHash, verificationExpires, message)
 	if err != nil {
 		return model.RegisterCustomerData{}, err
 	}
@@ -109,17 +110,21 @@ func (s *Service) LoginGoogle(ctx context.Context, req model.GoogleAuthRequest) 
 	}
 	verify := s.VerifyGoogleToken
 	if verify == nil {
-		verify = auth.VerifyGoogleToken
+		verify = auth.VerifyGoogleIdentity
 	}
-	googleID, email, name, err := verify(ctx, req.IDToken)
+	identity, err := verify(ctx, req.IDToken)
+	googleID, email := identity.GoogleID, identity.Email
+	name, lastName := identity.Name, identity.LastName
+	if identitycode.Initial(name) == "" {
+		name = req.Name
+	}
+	if identitycode.Initial(lastName) == "" {
+		lastName = req.LastName
+	}
 	if err != nil {
 		return model.AuthData{}, ErrInvalidCredentials
 	}
 	email, err = normalizeEmail(email)
-	if err != nil {
-		return model.AuthData{}, ErrInvalidCredentials
-	}
-	name, err = cleanName(name, 120)
 	if err != nil {
 		return model.AuthData{}, ErrInvalidCredentials
 	}
@@ -131,7 +136,7 @@ func (s *Service) LoginGoogle(ctx context.Context, req model.GoogleAuthRequest) 
 		return model.AuthData{}, err
 	}
 	if req.AccountType == nil || strings.TrimSpace(*req.AccountType) == "" {
-		return model.AuthData{}, ErrAccountTypeRequired
+		return model.AuthData{}, &SignupProfileError{Name: name, LastName: lastName, AccountTypeRequired: true}
 	}
 	accountType := strings.TrimSpace(*req.AccountType)
 	if accountType != "CLIENTE_FINAL" && accountType != "PERSONAL_MARCA" {
@@ -139,6 +144,10 @@ func (s *Service) LoginGoogle(ctx context.Context, req model.GoogleAuthRequest) 
 	}
 	if !s.Config.DemoSignupEnabled {
 		return model.AuthData{}, ErrDemoDisabled
+	}
+	name, lastName, err = registrationNames(name, lastName)
+	if err != nil {
+		return model.AuthData{}, &SignupProfileError{Name: identity.Name, LastName: identity.LastName}
 	}
 	if accountType == "CLIENTE_FINAL" {
 		if req.MerchantRegistration != nil {
@@ -148,8 +157,8 @@ func (s *Service) LoginGoogle(ctx context.Context, req model.GoogleAuthRequest) 
 		if _, err = rand.Read(provisional); err != nil {
 			return model.AuthData{}, err
 		}
-		err = retry(ctx, func() error {
-			u, err = s.Repo.CreateGoogleCustomer(ctx, googleID, email, name, provisional, func(id int64) []byte { _, hash := s.QRForUser(id); return hash })
+		err = retryRegistration(ctx, func() error {
+			u, err = s.Repo.CreateGoogleCustomer(ctx, googleID, email, name, lastName, provisional, func(id int64) []byte { _, hash := s.QRForUser(id); return hash })
 			return err
 		})
 	} else {
@@ -157,12 +166,12 @@ func (s *Service) LoginGoogle(ctx context.Context, req model.GoogleAuthRequest) 
 		if validationErr != nil {
 			return model.AuthData{}, validationErr
 		}
-		err = retry(ctx, func() error {
+		err = retryRegistration(ctx, func() error {
 			location := model.BranchRegistrationLocation{
 				BranchAddress: registration.BranchAddress, BranchLocality: registration.BranchLocality, BranchProvince: registration.BranchProvince,
 				BranchPostalCode: registration.BranchPostalCode, BranchLatitude: registration.BranchLatitude, BranchLongitude: registration.BranchLongitude,
 			}
-			u, err = s.Repo.CreateGoogleMerchant(ctx, googleID, email, name, registration.BrandName, registration.BranchName, location, registration.ProgramType, registration.ReferralCode)
+			u, err = s.Repo.CreateGoogleMerchant(ctx, googleID, email, name, lastName, registration.BrandName, registration.BranchName, location, registration.ProgramType, registration.ReferralCode)
 			return err
 		})
 	}

@@ -3,7 +3,9 @@ package repository
 import (
 	"context"
 	"errors"
+	"strings"
 
+	"clientesFrecuentes/internal/identitycode"
 	"clientesFrecuentes/internal/model"
 
 	"github.com/jackc/pgx/v5"
@@ -113,32 +115,44 @@ func (r *Repository) ListBrandCustomers(ctx context.Context, actorID, brandID in
 		return nil, 0, ErrNotFound
 	}
 
+	isPublicCode := false
+	normalized := strings.ToUpper(strings.TrimPrefix(strings.TrimSpace(search), "#"))
+	if code, ok := identitycode.Normalize(search); ok {
+		search = code
+		isPublicCode = true
+	} else if strings.HasPrefix(normalized, "USER-") {
+		search = strings.TrimLeft(strings.TrimPrefix(normalized, "USER-"), "0")
+		if search == "" {
+			search = "0"
+		}
+	}
 	const cardsFrom = ` FROM tarjetas t
 		JOIN usuarios u ON u.id=t.usuario_id AND u.tipo_cuenta='CLIENTE_FINAL' AND u.activo AND u.deleted_at IS NULL`
 	const cardsWhere = ` WHERE t.marca_id=$1 AND t.activo AND t.deleted_at IS NULL
 		AND CASE
 			WHEN $2='' THEN true
 			WHEN $2 ~ '^[0-9]{1,19}$' THEN u.id::text=$2
+			WHEN $3 THEN u.codigo_usuario=$2
 			ELSE strpos(lower(u.nombre),lower($2))>0 OR strpos(lower(u.email::text),lower($2))>0
 		END`
 	var total int64
-	if err = tx.QueryRow(ctx, `SELECT count(*)`+cardsFrom+cardsWhere, brandID, search).Scan(&total); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT count(*)`+cardsFrom+cardsWhere, brandID, search, isPublicCode).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 
 	rows, err := tx.Query(ctx, `SELECT u.id,t.id,u.nombre,u.email::text,p.tipo,t.saldo_sellos,t.saldo_puntos,
-		count(h.id),max(h.occurred_at),t.created_at`+cardsFrom+`
+		count(h.id),max(h.occurred_at),t.created_at,COALESCE(u.codigo_usuario,'#USER-'||lpad(u.id::text,greatest(4,length(u.id::text)),'0'))`+cardsFrom+`
 		JOIN programas_fidelidad p ON p.marca_id=t.marca_id AND p.activo
 		LEFT JOIN historial_movimientos h ON h.tarjeta_id=t.id AND h.marca_id=t.marca_id`+cardsWhere+`
 		GROUP BY u.id,t.id,u.nombre,u.email,p.tipo,t.saldo_sellos,t.saldo_puntos,t.created_at
-		ORDER BY max(h.occurred_at) DESC NULLS LAST,t.id DESC LIMIT $3 OFFSET $4`, brandID, search, pageSize, (page-1)*pageSize)
+		ORDER BY max(h.occurred_at) DESC NULLS LAST,t.id DESC LIMIT $4 OFFSET $5`, brandID, search, isPublicCode, pageSize, (page-1)*pageSize)
 	if err != nil {
 		return nil, 0, err
 	}
 	items := make([]model.BrandCustomer, 0)
 	for rows.Next() {
 		var item model.BrandCustomer
-		if err = rows.Scan(&item.CustomerID, &item.CardID, &item.Name, &item.Email, &item.ProgramType, &item.BalanceStamps, &item.BalancePoints, &item.MovementsCount, &item.LastMovementAt, &item.JoinedAt); err != nil {
+		if err = rows.Scan(&item.CustomerID, &item.CardID, &item.Name, &item.Email, &item.ProgramType, &item.BalanceStamps, &item.BalancePoints, &item.MovementsCount, &item.LastMovementAt, &item.JoinedAt, &item.UserCode); err != nil {
 			rows.Close()
 			return nil, 0, err
 		}

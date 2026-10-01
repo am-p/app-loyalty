@@ -66,3 +66,36 @@ func TestDecodeGoogleAuthAcceptsAccountSelectionAndRejectsUnknownNestedFields(t 
 		t.Fatal("unknown merchant_registration field was accepted")
 	}
 }
+
+func TestRegistrationProfileErrors(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, requiredType := range []bool{true, false} {
+		response := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(response)
+		writeErr(c, &service.SignupProfileError{Name: "María José", AccountTypeRequired: requiredType})
+		if response.Code != 422 {
+			t.Fatal(response.Code)
+		}
+		var body struct {
+			Error struct {
+				Code, Message string
+				Details       struct {
+					Profile struct {
+						Name     string `json:"name"`
+						LastName string `json:"apellido"`
+					}
+					MissingFields []string `json:"missing_fields"`
+				}
+			}
+		}
+		if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		if body.Error.Details.Profile.Name != "María José" || len(body.Error.Details.MissingFields) != 1 || body.Error.Details.MissingFields[0] != "apellido" {
+			t.Fatal(response.Body.String())
+		}
+		if !requiredType && (body.Error.Code != "REGISTRATION_PROFILE_REQUIRED" || !strings.Contains(body.Error.Message, "actualizá")) {
+			t.Fatal(response.Body.String())
+		}
+	}
+}

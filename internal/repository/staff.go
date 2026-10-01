@@ -238,7 +238,7 @@ func maskEmail(email string) string {
 	return "***"
 }
 
-func (r *Repository) RegisterInvitation(ctx context.Context, hash []byte, now time.Time, name, passwordHash string) (model.User, error) {
+func (r *Repository) RegisterInvitation(ctx context.Context, hash []byte, now time.Time, name, lastName, passwordHash string) (model.User, error) {
 	tx, err := r.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return model.User{}, err
@@ -261,11 +261,15 @@ func (r *Repository) RegisterInvitation(ctx context.Context, hash []byte, now ti
 	if exists {
 		return model.User{}, ErrEmailExists
 	}
+	code, err := allocateUserCode(ctx, tx, name, lastName)
+	if err != nil {
+		return model.User{}, err
+	}
 	var user model.User
-	err = tx.QueryRow(ctx, `INSERT INTO usuarios(email,password_hash,nombre,tipo_cuenta,qr_hash,email_verified_at)
-		VALUES($1,$2,$3,'PERSONAL_MARCA',NULL,$4)
-		RETURNING id,email::text,nombre,apellido,alias,foto_url,tipo_cuenta,activo,true,auth_version,version,created_at`, email, passwordHash, name, now).
-		Scan(&user.ID, &user.Email, &user.Name, &user.LastName, &user.Alias, &user.PhotoURL, &user.AccountType, &user.Active, &user.EmailVerified, &user.AuthVersion, &user.Version, &user.CreatedAt)
+	err = tx.QueryRow(ctx, `INSERT INTO usuarios(email,password_hash,nombre,tipo_cuenta,qr_hash,email_verified_at,apellido,codigo_usuario)
+		VALUES($1,$2,$3,'PERSONAL_MARCA',NULL,$4,$5,$6)
+		RETURNING id,email::text,nombre,apellido,alias,foto_url,tipo_cuenta,activo,true,auth_version,version,created_at,COALESCE(codigo_usuario,'#USER-'||lpad(id::text,greatest(4,length(id::text)),'0'))`, email, passwordHash, name, now, lastName, code).
+		Scan(&user.ID, &user.Email, &user.Name, &user.LastName, &user.Alias, &user.PhotoURL, &user.AccountType, &user.Active, &user.EmailVerified, &user.AuthVersion, &user.Version, &user.CreatedAt, &user.UserCode)
 	if err != nil {
 		return model.User{}, normalize(err)
 	}
@@ -290,7 +294,7 @@ func (r *Repository) RegisterInvitation(ctx context.Context, hash []byte, now ti
 
 func (r *Repository) staffMemberByID(ctx context.Context, brandID, membershipID int64) (model.StaffMember, error) {
 	var item model.StaffMember
-	err := r.Pool.QueryRow(ctx, `SELECT target.id,u.id,u.email::text,u.nombre,target.rol,COALESCE(array_agg(ms.sucursal_id ORDER BY ms.sucursal_id) FILTER(WHERE ms.activo),'{}'),target.activo,target.version FROM membresias_marca target JOIN usuarios u ON u.id=target.usuario_id LEFT JOIN membresias_sucursales ms ON ms.membresia_id=target.id WHERE target.marca_id=$1 AND target.id=$2 GROUP BY target.id,u.id`, brandID, membershipID).Scan(&item.MembershipID, &item.UserID, &item.Email, &item.Name, &item.Role, &item.BranchIDs, &item.Active, &item.Version)
+	err := r.Pool.QueryRow(ctx, `SELECT target.id,u.id,u.email::text,u.nombre,target.rol,COALESCE(array_agg(ms.sucursal_id ORDER BY ms.sucursal_id) FILTER(WHERE ms.activo),'{}'),target.activo,target.version,COALESCE(u.codigo_usuario,'#USER-'||lpad(u.id::text,greatest(4,length(u.id::text)),'0')) FROM membresias_marca target JOIN usuarios u ON u.id=target.usuario_id LEFT JOIN membresias_sucursales ms ON ms.membresia_id=target.id WHERE target.marca_id=$1 AND target.id=$2 GROUP BY target.id,u.id`, brandID, membershipID).Scan(&item.MembershipID, &item.UserID, &item.Email, &item.Name, &item.Role, &item.BranchIDs, &item.Active, &item.Version, &item.UserCode)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return item, ErrNotFound
 	}
@@ -299,7 +303,7 @@ func (r *Repository) staffMemberByID(ctx context.Context, brandID, membershipID 
 
 func (r *Repository) GetStaffMember(ctx context.Context, actorID, brandID, membershipID int64) (model.StaffMember, error) {
 	var item model.StaffMember
-	err := r.Pool.QueryRow(ctx, `SELECT target.id,u.id,u.email::text,u.nombre,target.rol,COALESCE(array_agg(ms.sucursal_id ORDER BY ms.sucursal_id) FILTER(WHERE ms.activo),'{}'),target.activo,target.version FROM membresias_marca actor JOIN membresias_marca target ON target.marca_id=actor.marca_id JOIN usuarios u ON u.id=target.usuario_id LEFT JOIN membresias_sucursales ms ON ms.membresia_id=target.id WHERE actor.usuario_id=$1 AND actor.marca_id=$2 AND actor.activo AND actor.rol IN ('PROPIETARIO','ADMINISTRADOR') AND target.id=$3 GROUP BY target.id,u.id`, actorID, brandID, membershipID).Scan(&item.MembershipID, &item.UserID, &item.Email, &item.Name, &item.Role, &item.BranchIDs, &item.Active, &item.Version)
+	err := r.Pool.QueryRow(ctx, `SELECT target.id,u.id,u.email::text,u.nombre,target.rol,COALESCE(array_agg(ms.sucursal_id ORDER BY ms.sucursal_id) FILTER(WHERE ms.activo),'{}'),target.activo,target.version,COALESCE(u.codigo_usuario,'#USER-'||lpad(u.id::text,greatest(4,length(u.id::text)),'0')) FROM membresias_marca actor JOIN membresias_marca target ON target.marca_id=actor.marca_id JOIN usuarios u ON u.id=target.usuario_id LEFT JOIN membresias_sucursales ms ON ms.membresia_id=target.id WHERE actor.usuario_id=$1 AND actor.marca_id=$2 AND actor.activo AND actor.rol IN ('PROPIETARIO','ADMINISTRADOR') AND target.id=$3 GROUP BY target.id,u.id`, actorID, brandID, membershipID).Scan(&item.MembershipID, &item.UserID, &item.Email, &item.Name, &item.Role, &item.BranchIDs, &item.Active, &item.Version, &item.UserCode)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return item, ErrNotFound
 	}
@@ -307,7 +311,7 @@ func (r *Repository) GetStaffMember(ctx context.Context, actorID, brandID, membe
 }
 
 func (r *Repository) ListStaff(ctx context.Context, actorID, brandID int64) ([]model.StaffMember, error) {
-	rows, err := r.Pool.Query(ctx, `SELECT target.id,u.id,u.email::text,u.nombre,target.rol,COALESCE(array_agg(ms.sucursal_id ORDER BY ms.sucursal_id) FILTER(WHERE ms.activo),'{}'),target.activo,target.version FROM membresias_marca actor JOIN membresias_marca target ON target.marca_id=actor.marca_id JOIN usuarios u ON u.id=target.usuario_id LEFT JOIN membresias_sucursales ms ON ms.membresia_id=target.id WHERE actor.usuario_id=$1 AND actor.marca_id=$2 AND actor.activo AND actor.rol IN ('PROPIETARIO','ADMINISTRADOR') GROUP BY target.id,u.id ORDER BY u.nombre`, actorID, brandID)
+	rows, err := r.Pool.Query(ctx, `SELECT target.id,u.id,u.email::text,u.nombre,target.rol,COALESCE(array_agg(ms.sucursal_id ORDER BY ms.sucursal_id) FILTER(WHERE ms.activo),'{}'),target.activo,target.version,COALESCE(u.codigo_usuario,'#USER-'||lpad(u.id::text,greatest(4,length(u.id::text)),'0')) FROM membresias_marca actor JOIN membresias_marca target ON target.marca_id=actor.marca_id JOIN usuarios u ON u.id=target.usuario_id LEFT JOIN membresias_sucursales ms ON ms.membresia_id=target.id WHERE actor.usuario_id=$1 AND actor.marca_id=$2 AND actor.activo AND actor.rol IN ('PROPIETARIO','ADMINISTRADOR') GROUP BY target.id,u.id ORDER BY u.nombre`, actorID, brandID)
 	if err != nil {
 		return nil, err
 	}
@@ -315,7 +319,7 @@ func (r *Repository) ListStaff(ctx context.Context, actorID, brandID int64) ([]m
 	items := make([]model.StaffMember, 0)
 	for rows.Next() {
 		var x model.StaffMember
-		if err = rows.Scan(&x.MembershipID, &x.UserID, &x.Email, &x.Name, &x.Role, &x.BranchIDs, &x.Active, &x.Version); err != nil {
+		if err = rows.Scan(&x.MembershipID, &x.UserID, &x.Email, &x.Name, &x.Role, &x.BranchIDs, &x.Active, &x.Version, &x.UserCode); err != nil {
 			return nil, err
 		}
 		items = append(items, x)

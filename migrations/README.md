@@ -107,3 +107,27 @@ Readiness requiere `0032`. Aplicar después de 0031, conservando 0001–0031.
 La reversión de 0032 aborta para preservar el primer acceso y los plazos.
 Este cambio está en propuesta de integración; testing no se actualiza por editar
 este repositorio.
+
+
+## Códigos públicos de usuario (`0033`)
+
+Aplicar `0033_user_codes` **después** de `0032_first_login_trial` (PR #24).
+Esta propuesta requiere reconciliar esa dependencia en main antes de integrar:
+no omitir 0032 ni renumerar migraciones aplicadas. Readiness ahora requiere 0033.
+
+`usuarios.codigo_usuario` es nullable y único. Las cuentas anteriores mantienen
+el valor NULL y la API devuelve `#USER-` con su ID numérico (mínimo cuatro dígitos).
+No hay backfill. Las nuevas altas guardan las iniciales de nombre y apellido
+separados, mayúsculas sin tildes, y el contador global del prefijo desde 1.
+`allocateUserCode` incrementa `contadores_codigo_usuario` mediante UPSERT atómico
+**en la transacción del alta**. Un fallo revierte ambos; no reutilizar códigos
+tras una baja ni borrar/reiniciar los contadores. La anonimización conserva el
+código y un trigger impide cambiarlo, incluso al editar nombres.
+
+Las PK/FK numéricas y los IDs de marcas/sucursales siguen vigentes. Código público
+no es credencial: movimientos consultan sólo clientes activos y mantienen los
+controles de membresía/sucursal. `down0033` aborta para preservar reservas; una
+reversión funcional debe ser una migración hacia adelante.
+
+Activación: integrar PR24, migración/API de códigos y luego publicar frontend.
+Este checkout no implica migración ni despliegue de ningún ambiente.
