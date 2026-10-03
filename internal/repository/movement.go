@@ -272,6 +272,11 @@ func (r *Repository) ConfirmMovement(ctx context.Context, in ConfirmInput, build
 	if _, err = tx.Exec(ctx, `SELECT pg_notify('puntazo_customer_cards',$1)`, strconv.FormatInt(p.CustomerID, 10)); err != nil {
 		return IdempotentResult{}, err
 	}
+	if _, err = tx.Exec(ctx, `INSERT INTO web_push_notifications(subscription_id,operation_id,card_id)
+		SELECT id,$2,$3 FROM web_push_subscriptions WHERE usuario_id=$1
+		ON CONFLICT(subscription_id,operation_id) DO NOTHING`, p.CustomerID, operationID.String(), cardID); err != nil {
+		return IdempotentResult{}, err
+	}
 	if err = tx.Commit(ctx); err != nil {
 		return IdempotentResult{}, normalize(err)
 	}

@@ -246,6 +246,9 @@ func (r *Repository) AnonymizeAccount(ctx context.Context, id int64, expectedVer
 	if _, err = tx.Exec(ctx, `DELETE FROM push_tokens WHERE usuario_id=$1`, id); err != nil {
 		return time.Time{}, err
 	}
+	if _, err = tx.Exec(ctx, `DELETE FROM web_push_subscriptions WHERE usuario_id=$1`, id); err != nil {
+		return time.Time{}, err
+	}
 	tombstone := fmt.Sprintf("deleted-%d@anon.invalid", id)
 	if _, err = tx.Exec(ctx, `UPDATE email_outbox SET destinatario=$2,estado=CASE WHEN estado IN ('PENDING','SENDING') THEN 'FAILED' ELSE estado END,cuerpo_texto=NULL,cuerpo_html=NULL,ultimo_error=NULL,lease_until=NULL,lease_owner=NULL,token_ciphertext=NULL,token_nonce=NULL,token_expires_at=NULL,disponible_at=$3 WHERE usuario_id=$1 OR destinatario=$4 OR invitation_id IN(SELECT id FROM invitaciones_marca WHERE accepted_by=$1)`, id, tombstone, deletedAt, currentEmail); err != nil {
 		return time.Time{}, err
