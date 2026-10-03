@@ -4,6 +4,7 @@ import argparse,datetime,json,pathlib,re,stat
 
 ROOT=pathlib.Path('/data/coolify/backups/databases/puntazo-1')
 DATABASES=('puntazo-db-production-cyteflibvyp3bigscehixwav','puntazo-db-testing-etgqnghwdsne7nqscht94r3m')
+DATABASE_NAMES=dict(zip(DATABASES,('puntazo','puntazo_preview_testing')))
 
 def candidates(root, now):
     cutoff=now-60*86400
@@ -18,7 +19,8 @@ def candidates(root, now):
             if root.resolve() not in path.resolve().parents: raise RuntimeError('Backup escapes root')
             # Coolify uses a Unix creation timestamp, not the file's mtime.
             # Unknown/manual backup names need a separate operator audit.
-            match=re.fullmatch(r'pg-dump-puntazo-(\d{10})\.dmp',path.name)
+            prefix=re.escape(DATABASE_NAMES[database])
+            match=re.fullmatch(r'pg-dump-'+prefix+r'-(\d{10})\.dmp',path.name)
             if match and int(match.group(1)) < cutoff:
                 yield path
 

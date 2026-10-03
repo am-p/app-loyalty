@@ -1,0 +1,11 @@
+/var/log/puntazo-privacy-ops.log {
+    daily
+    rotate 60
+    maxage 60
+    missingok
+    notifempty
+    compress
+    dateext
+    copytruncate
+    create 0600 root root
+}
