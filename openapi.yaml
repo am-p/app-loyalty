@@ -1017,7 +1017,7 @@ paths:
               required: [endpoint, keys]
               properties:
                 endpoint: { type: string, format: uri, maxLength: 4096 }
-                expirationTime: { type: integer, nullable: true }
+                expirationTime: { type: [integer, 'null'] }
                 keys:
                   type: object
                   required: [p256dh, auth]
