@@ -71,6 +71,19 @@ func (w Worker) RunMediaCleanup(ctx context.Context) {
 	}
 	started := time.Now()
 	leaseOwner := w.LeaseOwner
+	keys, profileErr := w.Repo.PendingProfileDeletions(ctx, w.Config.RetentionBatchSize)
+	if profileErr != nil {
+		w.Logger.Error("profile deletion lookup failed", "error", profileErr)
+	}
+	for _, key := range keys {
+		if err := w.Store.Delete(ctx, key); err != nil {
+			w.Logger.Warn("profile deletion will retry")
+			continue
+		}
+		if err := w.Repo.CompleteProfileDeletion(ctx, key); err != nil {
+			w.Logger.Warn("profile deletion completion will retry")
+		}
+	}
 	if leaseOwner == "" {
 		leaseOwner = uuid.NewString()
 	}

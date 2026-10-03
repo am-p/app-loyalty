@@ -9,7 +9,8 @@ RUN go mod download
 COPY cmd ./cmd
 COPY internal ./internal
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /out/puntazo-api ./cmd/server \
-    && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /out/puntazo-migrate ./cmd/migrate
+    && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /out/puntazo-migrate ./cmd/migrate \
+    && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /out/puntazo-deletion-journal ./cmd/deletion-journal
 
 FROM alpine:3.21 AS runtime
 
@@ -30,6 +31,7 @@ CMD ["up"]
 FROM runtime AS api
 
 COPY --from=build /out/puntazo-api /usr/local/bin/puntazo-api
+COPY --from=build /out/puntazo-deletion-journal /usr/local/bin/puntazo-deletion-journal
 COPY --from=build /out/puntazo-migrate /usr/local/bin/puntazo-migrate
 COPY migrations /migrations
 

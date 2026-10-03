@@ -39,6 +39,11 @@ func (r *Repository) ReplaceProfilePhoto(ctx context.Context, userID int64, expe
 	if _, err = tx.Exec(ctx, `UPDATE usuarios SET foto_url=$2,version=version+1 WHERE id=$1`, userID, reference); err != nil {
 		return nil, model.CurrentUser{}, err
 	}
+	if previous != nil && *previous != reference {
+		if _, err = tx.Exec(ctx, `INSERT INTO profile_media_deletions(object_key) SELECT substring($1::text from 14) WHERE $1::text LIKE 's3://puntazo/profiles/%' ON CONFLICT DO NOTHING`, *previous); err != nil {
+			return nil, model.CurrentUser{}, err
+		}
+	}
 	if err = tx.Commit(ctx); err != nil {
 		return nil, model.CurrentUser{}, err
 	}

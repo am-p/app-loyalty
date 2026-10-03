@@ -325,6 +325,30 @@ paths:
       responses:
         '204': { description: Sesión revocada }
         '401': { $ref: '#/components/responses/Unauthenticated' }
+  /me/age-confirmation:
+    post:
+      tags: [Cuenta]
+      summary: Registra la declaración de mayoría de edad para la versión vigente
+      operationId: confirmAdult
+      x-puntazo-implementation: IMPLEMENTED
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [confirmed]
+              properties:
+                confirmed: { type: boolean, enum: [true] }
+      responses:
+        '200':
+          description: Cuenta con confirmación persistida
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CurrentUserEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '422': { description: Falta confirmar 18 años o más }
   /me:
     get:
       tags: [Cuenta]
@@ -2515,7 +2539,7 @@ components:
         id_solicitud: { type: string, format: uuid }
         estado: { type: string, const: COMPLETADA }
         acceso_revocado: { type: boolean, const: true }
-        ledger_preservado: { type: boolean, const: true }
+        ledger_preservado: { type: boolean, const: false }
         requested_at: { $ref: '#/components/schemas/Timestamp' }
     AnonymizationEnvelope:
       type: object
@@ -2773,13 +2797,14 @@ components:
     CurrentUser:
       type: object
       additionalProperties: false
-      required: [user, memberships, onboarding_complete]
+      required: [user, memberships, onboarding_complete, adult_confirmed]
       properties:
         user: { $ref: '#/components/schemas/User' }
         memberships:
           type: array
           items: { $ref: '#/components/schemas/Membership' }
         onboarding_complete: { type: boolean }
+        adult_confirmed: { type: boolean }
     CurrentUserEnvelope:
       type: object
       additionalProperties: false

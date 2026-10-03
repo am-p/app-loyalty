@@ -14,6 +14,7 @@ import (
 	"clientesFrecuentes/internal/cardevents"
 	"clientesFrecuentes/internal/config"
 	"clientesFrecuentes/internal/handler"
+	"clientesFrecuentes/internal/logging"
 	"clientesFrecuentes/internal/mailer"
 	"clientesFrecuentes/internal/maintenance"
 	"clientesFrecuentes/internal/mercadopago"
@@ -30,6 +31,16 @@ import (
 func main() {
 	_ = godotenv.Load()
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	var retainedLogs *logging.Daily
+	if directory := os.Getenv("LOG_DIRECTORY"); directory != "" {
+		var logErr error
+		retainedLogs, logErr = logging.New(directory)
+		if logErr != nil {
+			logger.Error("log retention initialization failed")
+			os.Exit(1)
+		}
+		logger = slog.New(slog.NewJSONHandler(retainedLogs, nil))
+	}
 	cfg, err := config.Load()
 	if err != nil {
 		logger.Error("invalid configuration", "error", err)
@@ -51,6 +62,9 @@ func main() {
 	repo := repository.New(pool, cfg.OutboxEncryptionKey)
 	workerCtx, stopWorker := context.WithCancel(context.Background())
 	defer stopWorker()
+	if retainedLogs != nil {
+		go retainedLogs.Run(workerCtx)
+	}
 	tokens := auth.NewTokens(cfg.JWTSecret, cfg.JWTIssuer)
 	cardEvents := cardevents.New(poolConfig.ConnConfig, logger)
 	go cardEvents.Run(workerCtx)

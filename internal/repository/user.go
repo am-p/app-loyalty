@@ -219,5 +219,9 @@ func (r *Repository) GetCurrentUser(ctx context.Context, id int64) (model.Curren
 			return model.CurrentUser{}, err
 		}
 	}
-	return model.CurrentUser{User: u, Memberships: memberships, OnboardingComplete: onboardingComplete}, nil
+	confirmed, err := r.AdultConfirmed(ctx, id)
+	if err != nil {
+		return model.CurrentUser{}, err
+	}
+	return model.CurrentUser{User: u, Memberships: memberships, OnboardingComplete: onboardingComplete, AdultConfirmed: confirmed}, nil
 }

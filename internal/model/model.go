@@ -231,6 +231,7 @@ type UpdateStaffRequest struct {
 	BranchIDs *[]int64 `json:"sucursal_ids,omitempty"`
 }
 type CurrentUser struct {
+	AdultConfirmed     bool         `json:"adult_confirmed"`
 	User               User         `json:"user"`
 	Memberships        []Membership `json:"memberships"`
 	OnboardingComplete bool         `json:"onboarding_complete"`

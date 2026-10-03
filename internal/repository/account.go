@@ -246,6 +246,22 @@ func (r *Repository) AnonymizeAccount(ctx context.Context, id int64, expectedVer
 	if _, err = tx.Exec(ctx, `DELETE FROM push_tokens WHERE usuario_id=$1`, id); err != nil {
 		return time.Time{}, err
 	}
+	// Remove the customer's ledger, but preserve other customers' balances and
+	// movements after removing attribution to a departing staff member.
+	for _, statement := range []string{
+		`INSERT INTO profile_media_deletions(object_key,requested_at) SELECT substring(foto_url from 14),$2 FROM usuarios WHERE id=$1 AND foto_url LIKE 's3://puntazo/profiles/%' ON CONFLICT DO NOTHING`,
+		`INSERT INTO account_deletion_journal(user_id,deleted_at) VALUES($1,$2) ON CONFLICT(user_id) DO NOTHING`,
+		`UPDATE solicitudes_idempotentes SET response_body='{}'::bytea WHERE estado='COMPLETED' AND EXISTS(SELECT 1 FROM historial_movimientos h JOIN tarjetas t ON t.id=h.tarjeta_id WHERE t.usuario_id=$1 AND strpos(convert_from(response_body,'UTF8'),h.operation_id::text)>0) AND $2::timestamptz IS NOT NULL`,
+		`UPDATE invitaciones_resenas SET tarjeta_id=NULL,operation_id=NULL,usuario_id=NULL,reservation_token=NULL,lease_until=NULL,cancelled_at=COALESCE(cancelled_at,$2) WHERE tarjeta_id IN(SELECT id FROM tarjetas WHERE usuario_id=$1) OR operation_id IN(SELECT operation_id FROM historial_movimientos WHERE tarjeta_id IN(SELECT id FROM tarjetas WHERE usuario_id=$1))`,
+		`DELETE FROM previews_movimiento WHERE (cliente_id=$1 OR actor_id=$1) AND $2::timestamptz IS NOT NULL`,
+		`DELETE FROM historial_movimientos WHERE tarjeta_id IN(SELECT id FROM tarjetas WHERE usuario_id=$1) AND $2::timestamptz IS NOT NULL`,
+		`UPDATE historial_movimientos SET usuario_operador_id=NULL WHERE usuario_operador_id=$1 AND $2::timestamptz IS NOT NULL`,
+		`DELETE FROM tarjetas WHERE usuario_id=$1 AND $2::timestamptz IS NOT NULL`,
+	} {
+		if _, err = tx.Exec(ctx, statement, id, deletedAt); err != nil {
+			return time.Time{}, err
+		}
+	}
 	tombstone := fmt.Sprintf("deleted-%d@anon.invalid", id)
 	if _, err = tx.Exec(ctx, `UPDATE email_outbox SET destinatario=$2,estado=CASE WHEN estado IN ('PENDING','SENDING') THEN 'FAILED' ELSE estado END,cuerpo_texto=NULL,cuerpo_html=NULL,ultimo_error=NULL,lease_until=NULL,lease_owner=NULL,token_ciphertext=NULL,token_nonce=NULL,token_expires_at=NULL,disponible_at=$3 WHERE usuario_id=$1 OR destinatario=$4 OR invitation_id IN(SELECT id FROM invitaciones_marca WHERE accepted_by=$1)`, id, tombstone, deletedAt, currentEmail); err != nil {
 		return time.Time{}, err
