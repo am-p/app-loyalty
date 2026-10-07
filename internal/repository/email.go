@@ -162,6 +162,21 @@ func (r *Repository) VerifyEmail(ctx context.Context, tokenHash []byte, now time
 	defer tx.Rollback(ctx)
 	var tokenID uuid.UUID
 	var userID int64
+	// Lock the account before token/session rows, matching enqueue and reauth.
+	err = tx.QueryRow(ctx, `SELECT usuario_id FROM tokens_identidad_email WHERE token_hash=$1 AND proposito='VERIFY_EMAIL' AND consumed_at IS NULL AND expires_at>$2`, tokenHash, now).Scan(&userID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrIdentityTokenInvalid
+	}
+	if err != nil {
+		return err
+	}
+	var lockedUserID int64
+	if err = tx.QueryRow(ctx, `SELECT id FROM usuarios WHERE id=$1 AND activo AND deleted_at IS NULL FOR UPDATE`, userID).Scan(&lockedUserID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrIdentityTokenInvalid
+		}
+		return err
+	}
 	err = tx.QueryRow(ctx, `SELECT id,usuario_id FROM tokens_identidad_email WHERE token_hash=$1 AND proposito='VERIFY_EMAIL' AND consumed_at IS NULL AND expires_at>$2 FOR UPDATE`, tokenHash, now).Scan(&tokenID, &userID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrIdentityTokenInvalid
@@ -190,6 +205,21 @@ func (r *Repository) ResetPassword(ctx context.Context, tokenHash []byte, passwo
 	defer tx.Rollback(ctx)
 	var tokenID uuid.UUID
 	var userID int64
+	// Lock the account before token/session rows, matching enqueue and reauth.
+	err = tx.QueryRow(ctx, `SELECT usuario_id FROM tokens_identidad_email WHERE token_hash=$1 AND proposito='RESET_PASSWORD' AND consumed_at IS NULL AND expires_at>$2`, tokenHash, now).Scan(&userID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrIdentityTokenInvalid
+	}
+	if err != nil {
+		return err
+	}
+	var lockedUserID int64
+	if err = tx.QueryRow(ctx, `SELECT id FROM usuarios WHERE id=$1 AND activo AND deleted_at IS NULL FOR UPDATE`, userID).Scan(&lockedUserID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrIdentityTokenInvalid
+		}
+		return err
+	}
 	err = tx.QueryRow(ctx, `SELECT id,usuario_id FROM tokens_identidad_email WHERE token_hash=$1 AND proposito='RESET_PASSWORD' AND consumed_at IS NULL AND expires_at>$2 FOR UPDATE`, tokenHash, now).Scan(&tokenID, &userID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrIdentityTokenInvalid
@@ -269,5 +299,32 @@ func (r *Repository) MarkEmailFailed(ctx context.Context, id, leaseOwner string,
 	if err == nil && tag.RowsAffected() != 1 {
 		return ErrNotFound
 	}
+	return err
+}
+
+// ValidatePasswordReset rejects unknown/expired/consumed tokens before hashing.
+// ResetPassword repeats this check under transaction locks before any write.
+func (r *Repository) ValidatePasswordReset(ctx context.Context, hash []byte, now time.Time) error {
+	var valid bool
+	err := r.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM tokens_identidad_email t JOIN usuarios u ON u.id=t.usuario_id WHERE t.token_hash=$1 AND t.proposito='RESET_PASSWORD' AND t.consumed_at IS NULL AND t.expires_at>$2 AND u.activo AND u.deleted_at IS NULL AND u.password_hash IS NOT NULL)`, hash, now).Scan(&valid)
+	if err != nil {
+		return err
+	}
+	if !valid {
+		return ErrIdentityTokenInvalid
+	}
+	return nil
+}
+
+// DeferEmail leaves payload and retry attempts intact when a shared delivery
+// budget is exhausted. Workers claim it again after the bounded delay.
+func (r *Repository) DeferEmail(ctx context.Context, id, owner string, retry int) error {
+	if retry < 1 {
+		retry = 1
+	}
+	if retry > 3600 {
+		retry = 3600
+	}
+	_, err := r.Pool.Exec(ctx, `UPDATE email_outbox SET estado='PENDING',intentos=greatest(intentos-1,0),disponible_at=$3,lease_until=NULL,lease_owner=NULL WHERE id=$1 AND estado='SENDING' AND lease_owner=$2`, id, owner, r.Now().Add(time.Duration(retry)*time.Second))
 	return err
 }

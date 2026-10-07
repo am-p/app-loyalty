@@ -66,6 +66,21 @@ func (r *Repository) ConfirmEmailChange(ctx context.Context, tokenHash []byte, n
 	var userID int64
 	var target string
 	var version int
+	// Lock the account before token/session rows, matching enqueue and reauth.
+	err = tx.QueryRow(ctx, `SELECT usuario_id FROM tokens_identidad_email WHERE token_hash=$1 AND proposito='CHANGE_EMAIL' AND consumed_at IS NULL AND expires_at>$2`, tokenHash, now).Scan(&userID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrIdentityTokenInvalid
+	}
+	if err != nil {
+		return err
+	}
+	var lockedUserID int64
+	if err = tx.QueryRow(ctx, `SELECT id FROM usuarios WHERE id=$1 AND activo AND deleted_at IS NULL FOR UPDATE`, userID).Scan(&lockedUserID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrIdentityTokenInvalid
+		}
+		return err
+	}
 	err = tx.QueryRow(ctx, `SELECT id,usuario_id,pending_email::text,account_version FROM tokens_identidad_email WHERE token_hash=$1 AND proposito='CHANGE_EMAIL' AND consumed_at IS NULL AND expires_at>$2 FOR UPDATE`, tokenHash, now).Scan(&tokenID, &userID, &target, &version)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrIdentityTokenInvalid
