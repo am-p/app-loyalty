@@ -34,7 +34,7 @@ test("emits bounded startup, unhealthy, and recovery alerts once per transition"
       response.end(JSON.stringify({ status: readinessStatus === 200 ? "ok" : "unavailable" }));
     } else if (request.url === "/v1/version") {
       response.writeHead(200);
-      response.end(JSON.stringify({ version: "v".repeat(3_000), commit: "c".repeat(3_000), schema_version: 34 }));
+      response.end(JSON.stringify({ version: "v".repeat(3_000), commit: "c".repeat(3_000), schema_version: "0035" }));
     } else {
       response.writeHead(404).end();
     }
@@ -74,6 +74,7 @@ test("emits bounded startup, unhealthy, and recovery alerts once per transition"
   assert.ok(received.every((entry) => !/password|token|secret|authorization/i.test(entry.body)));
   assert.ok(received.every((entry) => JSON.parse(entry.body).checks.version.version.length <= 96));
   assert.ok(received.every((entry) => JSON.parse(entry.body).checks.version.commit.length <= 96));
+  assert.ok(received.every((entry) => JSON.parse(entry.body).checks.version.schema_version === "0035"));
   assert.equal(emitted.filter((entry) => entry.kind === "webhook_delivery" && entry.status === "delivered").length, 4);
 });
 
@@ -84,13 +85,64 @@ test("rejects any webhook that is not plain HTTP loopback", () => {
   }
 });
 
+test("accepts the real API version schema string and rejects malformed schema values", async () => {
+  let schema = "0035";
+  const monitor = createHealthMonitor({
+    baseUrl: "http://127.0.0.1:55441",
+    confirmTarget: "local",
+    emit: () => {},
+    fetchImpl: async (url) => Response.json(url.endsWith("/v1/version")
+      ? { version: "stress-integrated-20261007", commit: "04cd4b2", schema_version: schema }
+      : { status: "ok" }),
+  });
+  const healthy = await monitor.poll();
+  assert.equal(healthy.status, "healthy");
+  assert.equal(healthy.version.schema_version, "0035", "leading zeros must be preserved");
+  for (schema of [35, 34, 3.5, null, undefined, false, {}, [], "35", "035", "00035", " 0035", "0035\n", "00a5"]) {
+    const result = await monitor.poll();
+    assert.equal(result.status, "unhealthy");
+    assert.equal(result.version.reason, "version_invalid");
+    assert.equal(result.version.schema_version, undefined);
+  }
+  schema = "0035";
+  assert.equal((await monitor.poll()).event, "recovery");
+});
+
+test("journals dependency failure and recovery once without a webhook", async (t) => {
+  let readinessStatus = 200;
+  let postRequests = 0;
+  const api = await listen((request, response) => {
+    if (request.method === "POST") postRequests++;
+    response.setHeader("Content-Type", "application/json");
+    if (request.url === "/v1/version") {
+      response.end(JSON.stringify({ version: "stress-integrated-20261007", commit: "04cd4b2", schema_version: "0035" }));
+    } else {
+      response.writeHead(readinessStatus);
+      response.end(JSON.stringify({ status: readinessStatus === 200 ? "ok" : "unavailable" }));
+    }
+  });
+  t.after(() => close(api.server));
+  const entries = [];
+  const monitor = createHealthMonitor({ baseUrl: api.url, confirmTarget: "local", emit: (entry) => entries.push(entry) });
+  assert.equal((await monitor.poll()).event, null);
+  readinessStatus = 503;
+  assert.equal((await monitor.poll()).event, "unhealthy");
+  assert.equal((await monitor.poll()).event, null);
+  readinessStatus = 200;
+  assert.equal((await monitor.poll()).event, "recovery");
+  assert.equal((await monitor.poll()).event, null);
+  assert.deepEqual(entries.filter((entry) => entry.event).map((entry) => entry.event), ["unhealthy", "recovery"]);
+  assert.equal(postRequests, 0);
+  assert.equal(entries.filter((entry) => entry.kind === "webhook_delivery").length, 0);
+});
+
 test("reports an endpoint timeout without exposing response content", async (t) => {
   const api = await listen((request, response) => {
     if (request.url === "/v1/health/ready") {
       return;
     }
     response.writeHead(200, { "Content-Type": "application/json" });
-    response.end(JSON.stringify({ version: "local", commit: "test", schema_version: 34 }));
+    response.end(JSON.stringify({ version: "local", commit: "test", schema_version: "0035" }));
   });
   t.after(() => close(api.server));
 

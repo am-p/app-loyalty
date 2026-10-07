@@ -66,6 +66,43 @@ The image is pinned to the official `grafana/k6` v2.3.0 digest `sha256:e66db15b8
 
 For the larger scenario, use this isolated seed or a reviewed local restore that documents schema, account/card/movement counts, and balance-ledger checks. An optional PostgreSQL CPU increase is a separate measurement and should be temporary; routine testing remains on the VPS's existing resource limits. Production sizing is a separate campaign.
 
+## Readiness monitor
+
+`monitor-health.mjs` uses Node.js 20 or newer to check `/v1/health/ready` and `/v1/version` every 30 seconds. It accepts the API's four-digit schema string, such as `"0035"`, preserving its leading zeros. Requests time out after three seconds, response bodies are limited to 8 KiB, and transition alerts are limited to 2 KiB. Polls do not overlap.
+
+```sh
+BASE_URL=https://api-testing.puntazo.pro \
+STRESS_ALLOW_REMOTE=true \
+STRESS_CONFIRM_TARGET=api-testing.puntazo.pro \
+MONITOR_INTERVAL_SECONDS=30 \
+node --max-old-space-size=32 scripts/stress-remediation/monitor-health.mjs
+```
+
+For local verification, use a loopback `BASE_URL` and `STRESS_CONFIRM_TARGET=local`. Without `WEBHOOK_URL`, the monitor only writes JSON lines to standard output, suitable for a service journal. A failing first probe emits `startup_failure`; later failure and recovery emit one `unhealthy` or `recovery` event per transition. Repeated probes in the same state do not repeat the alert. Healthy startup produces a probe without a transition alert. No session, credentials, private endpoint, or external webhook is required. An optional webhook is restricted to HTTP loopback.
+
+The Node heap limit does not limit total process memory. The isolated local dependency test observed about 80 MiB RSS with a 32 MiB heap limit. The selected worker budget is therefore 96 MiB total memory and 0.1 CPU, with no published ports. Installing or creating that worker is a separate infrastructure action; this script is not included in the API runtime image.
+
+The separate `Dockerfile.monitor` copies only the Node binary from the pinned official Node 22 image into pinned Alpine 3.24, updates Alpine packages, and installs CA certificates and the C++ runtime. npm, Yarn and their dependency trees are absent. After fetching the selected current source branch and passing the clean-source gate, build and scan the monitor separately from the API:
+
+```sh
+docker build --platform linux/amd64 \
+  --build-arg SOURCE_COMMIT="$(git rev-parse HEAD)" \
+  -f scripts/stress-remediation/Dockerfile.monitor \
+  -t puntazo-readiness-monitor:20261007 .
+docker scout cves --only-severity critical,high puntazo-readiness-monitor:20261007
+docker run --rm --name puntazo-readiness-monitor-testing \
+  --network host --user 65534:65534 --read-only --cap-drop ALL \
+  --security-opt no-new-privileges --memory 96m --cpus 0.1 \
+  --log-driver json-file --log-opt max-size=10m --log-opt max-file=3 \
+  --env BASE_URL=https://api-testing.puntazo.pro \
+  --env STRESS_ALLOW_REMOTE=true \
+  --env STRESS_CONFIRM_TARGET=api-testing.puntazo.pro \
+  --env MONITOR_INTERVAL_SECONDS=30 \
+  puntazo-readiness-monitor:20261007
+```
+
+Deployment must use the scanned image ID recorded after that build and verify three healthy probes with the resource limits applied. Image tags and SHAs in previous reports are evidence; future builds start from the fetched current selected branch.
+
 ## Validation
 
 Run the non-network guard tests with `npm test` from this directory. Validate a private fixture and confirm the destination with `node fixture-check.js <fixture> smoke` and `node target-check.js`. Those commands do not make network requests. `run.sh` is the only entry point that starts k6 requests.
