@@ -9,36 +9,30 @@ export const ACCEPTANCE = Object.freeze({
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]", "host.docker.internal"]);
 const TEST_HOSTS = new Set(["testing.puntazo.pro", "api-testing.puntazo.pro"]);
 
+// k6 has no browser URL global. Restrict this parser to plain allowed origins.
+export function originHost(raw) {
+  const match = /^(https?):\/\/(\[::1\]|[a-zA-Z0-9.-]+)(?::([0-9]{1,5}))?\/?$/.exec(raw || "");
+  if (!match || (match[3] && (+match[3] < 1 || +match[3] > 65535))) {
+    throw new Error("BASE_URL debe ser un origen absoluto sin credenciales, path, query ni fragmento.");
+  }
+  return { hostname: match[2].toLowerCase(), protocol: match[1] + ':', origin: `${match[1]}://${match[2].toLowerCase()}${match[3] ? ':' + match[3] : ''}` };
+}
+
 export function validateBaseUrl(raw, { allowRemoteTesting = false, confirmTarget = "" } = {}) {
-  if (!raw) throw new Error("Define BASE_URL explícitamente.");
-
-  let url;
-  try {
-    url = new URL(raw);
-  } catch {
-    throw new Error("BASE_URL debe ser una URL absoluta válida.");
-  }
-
-  if (url.username || url.password || url.search || url.hash || (url.pathname !== "/" && url.pathname !== "")) {
-    throw new Error("BASE_URL no puede contener credenciales, query, fragmento ni path.");
-  }
-
-  const hostname = url.hostname.toLowerCase();
+  const url = originHost(raw);
+  const hostname = url.hostname;
   if (LOCAL_HOSTS.has(hostname)) {
     if (confirmTarget !== "local") throw new Error("Destino local requiere STRESS_CONFIRM_TARGET=local.");
-    if (!new Set(["http:", "https:"]).has(url.protocol)) throw new Error("El destino local debe usar HTTP o HTTPS.");
     return url.origin;
   }
-
   if (TEST_HOSTS.has(hostname)) {
     if (url.protocol !== "https:") throw new Error("El testing remoto debe usar HTTPS.");
     if (!allowRemoteTesting || confirmTarget !== hostname) {
-      throw new Error("Testing remoto requiere STRESS_ALLOW_REMOTE=true y STRESS_CONFIRM_TARGET=testing.puntazo.pro.");
+      throw new Error("Testing remoto requiere STRESS_ALLOW_REMOTE=true y confirmación del hostname exacto.");
     }
     return url.origin;
   }
-
-  throw new Error("Destino bloqueado. La suite solo permite loopback/local o testing.puntazo.pro con confirmación explícita.");
+  throw new Error("Destino bloqueado. La suite solo permite loopback/local o los hosts de testing explícitamente confirmados.");
 }
 
 export function validateProfile(profile, env = {}) {

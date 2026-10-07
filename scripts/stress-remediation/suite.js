@@ -3,6 +3,7 @@ import { check, sleep } from "k6";
 import { Counter, Rate, Trend } from "k6/metrics";
 import {
   evaluateSmokeSummary,
+  originHost,
   validateBaseUrl,
   validateFixtureDocument,
   validateProfile,
@@ -230,7 +231,7 @@ export function setup() {
   const plannedEnd = now + profile.durationMs;
   const refreshLifetimeMs = 30 * 24 * 60 * 60 * 1000;
   const runId = `${new Date(now).toISOString().replace(/[:.]/g, "-")}-${profileName}`;
-  console.log(`stress_run=${runId} profile=${profileName} target=${new URL(baseUrl).hostname} version=${version.version || "unknown"} commit=${version.commit || "unknown"} schema=${version.schema_version} vus_cap=${profile.maxVus} planned_end_utc=${new Date(plannedEnd).toISOString()} maximum_unrevoked_session_expiry_utc=${new Date(plannedEnd + refreshLifetimeMs).toISOString()}`);
+  console.log(`stress_run=${runId} profile=${profileName} target=${originHost(baseUrl).hostname} version=${version.version || "unknown"} commit=${version.commit || "unknown"} schema=${version.schema_version} vus_cap=${profile.maxVus} planned_end_utc=${new Date(plannedEnd).toISOString()} maximum_unrevoked_session_expiry_utc=${new Date(plannedEnd + refreshLifetimeMs).toISOString()}`);
   return { plannedEnd, maximumExpiry: new Date(plannedEnd + refreshLifetimeMs).toISOString(), runId };
 }
 
