@@ -140,10 +140,11 @@ function refresh(state) {
   state.lastRefreshAt = Date.now();
 }
 
-function ensureSession(identity) {
+function ensureSession(identity, initialSession) {
   let state = vuState.get(__VU);
   if (!state) {
-    const session = login(identity);
+    const session = initialSession;
+    if (!session) throw new Error("Falta sesión inicial exclusiva para este VU.");
     state = {
       accessToken: session.access_token,
       refreshToken: session.refresh_token,
@@ -234,13 +235,20 @@ export function setup() {
   const refreshLifetimeMs = 30 * 24 * 60 * 60 * 1000;
   const runId = `${new Date(now).toISOString().replace(/[:.]/g, "-")}-${profileName}`;
   console.log(`stress_run=${runId} profile=${profileName} target=${originHost(baseUrl).hostname} version=${version.version || "unknown"} commit=${version.commit || "unknown"} schema=${version.schema_version} vus_cap=${profile.maxVus} planned_end_utc=${new Date(plannedEnd).toISOString()} maximum_unrevoked_session_expiry_utc=${new Date(plannedEnd + refreshLifetimeMs).toISOString()}`);
-  return { plannedEnd, maximumExpiry: new Date(plannedEnd + refreshLifetimeMs).toISOString(), runId };
+  const initialSessions = {};
+  try {
+    for (let vu = 1; vu <= profile.maxVus; vu += 1) initialSessions[String(vu)] = login(credentialsByVu.get(vu));
+  } catch (error) {
+    closeInitialFamilies(initialSessions);
+    throw error;
+  }
+  return { plannedEnd, maximumExpiry: new Date(plannedEnd + refreshLifetimeMs).toISOString(), runId, initialSessions };
 }
 
 export function authenticatedReadJourney(run) {
   const identity = credentialsByVu.get(__VU);
   if (!identity) throw new Error(`No hay fixture para VU ${__VU}; se aborta sin iniciar requests de carga.`);
-  let state = ensureSession(identity);
+  let state = ensureSession(identity, run.initialSessions[String(__VU)]);
 
   // Keep the final iteration available for revoking this VU's current rotating session.
   if (Date.now() >= run.plannedEnd - 12_000) {
@@ -261,6 +269,20 @@ export function authenticatedReadJourney(run) {
   else sleep(1);
 }
 
+function closeInitialFamilies(sessions) {
+  let failed = false;
+  for (const session of Object.values(sessions)) {
+    const response = http.post(`${baseUrl}/v1/auth/logout`, JSON.stringify({ refresh_token: session.refresh_token }), {
+      headers: { "Content-Type": "application/json", "X-Client-Platform": "native" }, timeout: "5s", tags: { name: "auth_cleanup" },
+    });
+    failed = !expectedApiStatus(response, "auth_cleanup", 204) || failed;
+  }
+  if (failed) throw new Error("No se confirmó cierre de todas las familias fixture.");
+}
+
 export function teardown(run) {
-  console.log(`stress_run=${run.runId} finished; logout_count es métrica session_logout. Si hubo abort/interrupción antes del cierre por VU, sesiones no revocadas pueden seguir válidas hasta ${run.maximumExpiry}; revisar/vencer por identidad fixture mediante el procedimiento operativo, sin imprimir tokens.`);
+  // Original token identifies the same family after rotation; no expired bearer.
+  // Covers VUs removed by ramp-down before their final iteration.
+  closeInitialFamilies(run.initialSessions);
+  console.log(`stress_run=${run.runId} finished; all fixture families received idempotent logout. Abrupt process interruption still requires fixture-family review, without printing tokens.`);
 }

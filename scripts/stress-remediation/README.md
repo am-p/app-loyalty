@@ -2,7 +2,7 @@
 
 Reproducible, low-resource k6 scenarios for authenticated reads against a local API or the explicitly selected testing API. This harness does not create users, run migrations, seed databases, or send load while validating fixtures. The selected source checkout is the API evidence plane; it does not make the candidate equal to the deployed runtime.
 
-The router currently registers the flow as four authenticated reads: `GET /v1/me`, `GET /v1/clientes/me`, `GET /v1/clientes/me/tarjetas?page=1&page_size=20`, and `GET /v1/clientes/me/movimientos?page=1&page_size=20`. Login, refresh, and logout use the native transport header `X-Client-Platform: native`; native auth returns tokens in JSON. Each VU owns a different synthetic customer identity, logs in once, retains its refresh token in that VU's JavaScript state, and refreshes before the 900-second access token expires. There is no registration/password-hashing workload in the iteration loop.
+The router currently registers the flow as four authenticated reads: `GET /v1/me`, `GET /v1/clientes/me`, `GET /v1/clientes/me/tarjetas?page=1&page_size=20`, and `GET /v1/clientes/me/movimientos?page=1&page_size=20`. Login, refresh, and logout use the native transport header `X-Client-Platform: native`; native auth returns tokens in JSON. Setup logs in once per distinct synthetic customer and each VU uses only its assigned session, retains its refresh token in that VU's JavaScript state, and refreshes before the 900-second access token expires. There is no registration/password-hashing workload in the iteration loop.
 
 ## Profiles
 
@@ -17,7 +17,7 @@ Each completed journey sleeps one second before its next iteration. No rate or c
 
 The `api_error_rate` excludes only HTTP 429 routes explicitly listed in `STRESS_EXPECT_429_ROUTES`, and every 429 is separately counted in `expected_429` or `unexpected_429`. This read suite has no expected 429 route by default. Do not mark a route's 429 expected to hide a regression; only do so for a separately approved quota test, and report both counters with the result.
 
-Thresholds are configured with `abortOnFail`. k6 cannot pass the per-VU rotated refresh token to `teardown()`. The script therefore attempts logout during each VU's final iteration and reports `session_logout`. If a threshold abort, machine interruption, or forced stop prevents logout, sessions may remain active until the backend's 30-day refresh expiry. The run prints a maximum expiry bound (planned run end +30 days) without printing account emails or tokens. Inspect/revoke only the dedicated fixture identities through the approved operational procedure before reuse; never store tokens in artifacts.
+Thresholds use `abortOnFail`. The final iteration attempts logout; teardown also sends idempotent logout using each original family token, covering spike VUs removed during ramp-down and rotated descendants. These tokens stay only in k6 memory and never enter summaries or artifacts. A forced process stop that bypasses teardown may still leave fixture sessions active; inspect/revoke only the new dedicated fixture identities, never historical test accounts.
 
 ## Fixture contract
 
