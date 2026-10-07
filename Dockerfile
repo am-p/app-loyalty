@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM golang:1.25.13-alpine AS build
+FROM golang:1.25.14-alpine AS build
 
 WORKDIR /src
 
@@ -12,7 +12,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /out/puntazo
     && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /out/puntazo-migrate ./cmd/migrate \
     && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /out/puntazo-deletion-journal ./cmd/deletion-journal
 
-FROM alpine:3.21 AS runtime
+FROM alpine:3.21.8 AS runtime
 
 RUN apk add --no-cache ca-certificates wget \
     && addgroup -S app \
