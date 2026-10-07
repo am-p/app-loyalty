@@ -84,7 +84,7 @@ async function checkEndpoint(fetchImpl, url, timeoutMs, versionEndpoint = false)
     if (!body.ok) return { status: response.status, ok: false, reason: controller.signal.aborted ? "timeout" : body.reason };
     if (versionEndpoint) {
       const value = body.value;
-      if (!value || typeof value !== "object" || typeof value.version !== "string" || typeof value.commit !== "string" || !Number.isInteger(value.schema_version)) {
+      if (!value || typeof value !== "object" || typeof value.version !== "string" || typeof value.commit !== "string" || typeof value.schema_version !== "string" || !/^\d{4}$/.test(value.schema_version)) {
         return { status: response.status, ok: false, reason: "version_invalid" };
       }
       return {
