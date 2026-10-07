@@ -54,7 +54,7 @@ func (s *Service) renewAuthentication(ctx context.Context, userID int64, session
 			return model.AuthData{}, ErrInvalidCredentials
 		}
 		subject, email = identity.GoogleID, strings.ToLower(strings.TrimSpace(identity.Email))
-		if subject == "" || (link && email != u.User.Email) {
+		if subject == "" || (link && !strings.EqualFold(email, strings.TrimSpace(u.User.Email))) {
 			return model.AuthData{}, ErrInvalidCredentials
 		}
 		if !link && (u.GoogleID == nil || *u.GoogleID != subject) {

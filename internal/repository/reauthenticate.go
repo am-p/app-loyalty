@@ -19,7 +19,7 @@ func (r *Repository) RenewAuthentication(ctx context.Context, proof AuthUser, ex
 	var version int
 	var password, subject *string
 	var email string
-	err = tx.QueryRow(ctx, `SELECT auth_version,password_hash,google_id,email::text FROM usuarios WHERE id=$1 AND activo AND deleted_at IS NULL FOR UPDATE`, proof.User.ID).Scan(&version, &password, &subject, &email)
+	err = tx.QueryRow(ctx, `SELECT auth_version,password_hash,google_id,lower(email::text) FROM usuarios WHERE id=$1 AND activo AND deleted_at IS NULL FOR UPDATE`, proof.User.ID).Scan(&version, &password, &subject, &email)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.User{}, ErrNotFound
 	}
