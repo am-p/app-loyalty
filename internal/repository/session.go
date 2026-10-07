@@ -15,12 +15,22 @@ type RotatedSession struct {
 	AuthTime time.Time
 }
 
-func (r *Repository) CreateSession(ctx context.Context, id string, userID int64, refreshHash []byte, expiresAt, authTime time.Time) error {
+func (r *Repository) CreateSession(ctx context.Context, id string, userID int64, refreshHash []byte, expiresAt, authTime time.Time, expectedAuthVersion int) error {
 	tx, err := r.Pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
+	var version int
+	if err = tx.QueryRow(ctx, `SELECT auth_version FROM usuarios WHERE id=$1 AND activo AND deleted_at IS NULL FOR UPDATE`, userID).Scan(&version); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		return err
+	}
+	if version != expectedAuthVersion {
+		return ErrNotFound
+	}
 	if err = recordFirstLogin(ctx, tx, userID, authTime); err != nil {
 		return err
 	}
@@ -36,6 +46,23 @@ func (r *Repository) RotateSession(ctx context.Context, refreshHash []byte, repl
 		return RotatedSession{}, err
 	}
 	defer tx.Rollback(ctx)
+	var ownerID int64
+	if err = tx.QueryRow(ctx, `SELECT usuario_id FROM sesiones_auth WHERE refresh_hash=$1`, refreshHash).Scan(&ownerID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return RotatedSession{}, ErrNotFound
+		}
+		return RotatedSession{}, err
+	}
+	var active bool
+	if err = tx.QueryRow(ctx, `SELECT activo AND deleted_at IS NULL FROM usuarios WHERE id=$1 FOR UPDATE`, ownerID).Scan(&active); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return RotatedSession{}, ErrNotFound
+		}
+		return RotatedSession{}, err
+	}
+	if !active {
+		return RotatedSession{}, ErrNotFound
+	}
 	var oldID, familyID string
 	var revokedAt *time.Time
 	var expiresAt, authTime time.Time
@@ -75,14 +102,29 @@ func (r *Repository) RotateSession(ctx context.Context, refreshHash []byte, repl
 }
 
 func (r *Repository) RevokeSession(ctx context.Context, userID int64, sessionID string) error {
-	command, err := r.Pool.Exec(ctx, `UPDATE sesiones_auth SET revoked_at=COALESCE(revoked_at,now()) WHERE id=$1 AND usuario_id=$2`, sessionID, userID)
+	tx, err := r.Pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
-	if command.RowsAffected() != 1 {
-		return ErrNotFound
+	defer tx.Rollback(ctx)
+	var locked int64
+	if err = tx.QueryRow(ctx, `SELECT id FROM usuarios WHERE id=$1 FOR UPDATE`, userID).Scan(&locked); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		return err
 	}
-	return nil
+	var family string
+	if err = tx.QueryRow(ctx, `SELECT family_id FROM sesiones_auth WHERE id=$1 AND usuario_id=$2`, sessionID, userID).Scan(&family); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		return err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE sesiones_auth SET revoked_at=COALESCE(revoked_at,now()) WHERE family_id=$1`, family); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (r *Repository) ActiveSessionAccountType(ctx context.Context, userID int64, sessionID string, authVersion int) (string, error) {
@@ -100,4 +142,32 @@ func recordFirstLogin(ctx context.Context, tx pgx.Tx, userID int64, authTime tim
 		return err
 	}
 	return nil
+}
+
+// RevokeRefreshFamily permits idempotent logout without renewing access.
+func (r *Repository) RevokeRefreshFamily(ctx context.Context, hash []byte) error {
+	tx, err := r.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var userID int64
+	if err = tx.QueryRow(ctx, `SELECT usuario_id FROM sesiones_auth WHERE refresh_hash=$1`, hash).Scan(&userID); errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var locked int64
+	if err = tx.QueryRow(ctx, `SELECT id FROM usuarios WHERE id=$1 FOR UPDATE`, userID).Scan(&locked); err != nil {
+		return err
+	}
+	var family string
+	if err = tx.QueryRow(ctx, `SELECT family_id FROM sesiones_auth WHERE refresh_hash=$1`, hash).Scan(&family); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE sesiones_auth SET revoked_at=COALESCE(revoked_at,now()) WHERE family_id=$1`, family); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }

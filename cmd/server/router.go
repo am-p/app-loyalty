@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"clientesFrecuentes/internal/auth"
+	"clientesFrecuentes/internal/challenge"
 	"clientesFrecuentes/internal/handler"
 	"clientesFrecuentes/internal/middleware"
 	"clientesFrecuentes/internal/web"
@@ -16,7 +17,12 @@ import (
 func newRouter(h *handler.Handler, tokens *auth.Tokens, logger *slog.Logger) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
-	r.Use(middleware.RequestContext(logger), middleware.Recovery(logger), middleware.CORS())
+	r.Use(middleware.RequestContext(logger), middleware.Recovery(logger), middleware.CORS(), func(c *gin.Context) {
+		c.Header("Cache-Control", "no-store, private")
+		c.Header("Pragma", "no-cache")
+		c.Request = c.Request.WithContext(challenge.WithReceipt(c.Request.Context(), c.GetHeader("X-Captcha-Token")))
+		c.Next()
+	})
 	r.NoRoute(func(c *gin.Context) { web.Error(c, http.StatusNotFound, "NOT_FOUND", "Recurso no encontrado", nil) })
 	// A stream must not inherit the REST deadline. Authentication still runs
 	// before the SSE handler, and the handler revalidates the session while open.
@@ -71,7 +77,8 @@ func newRouter(h *handler.Handler, tokens *auth.Tokens, logger *slog.Logger) *gi
 	authenticated.POST("/me/foto", h.UploadProfilePhoto)
 	authenticated.GET("/me/export", h.ExportMe)
 	authenticated.DELETE("/me", h.DeleteMe)
-	authenticated.POST("/auth/logout", h.Logout)
+	authenticated.POST("/auth/google/link", h.LinkGoogle)
+	authenticated.POST("/auth/reauthenticate", h.Reauthenticate)
 	registerMerchantRoutes(authenticated, h)
 	registerCustomerRoutes(authenticated, h)
 	registerMovementRoutes(authenticated, h)

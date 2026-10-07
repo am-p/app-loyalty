@@ -139,3 +139,28 @@ func secondsUntil(end, now time.Time) int {
 	}
 	return retry
 }
+
+var consumeProofScript = redis.NewScript(`
+local value=redis.call('GET',KEYS[1])
+if value==ARGV[1] then redis.call('DEL',KEYS[1]);return 1 end
+return 0
+`)
+
+// Proofs always require shared Redis and never use the development fallback.
+func (l *RateLimiter) PutProof(ctx context.Context, key, value string, ttl time.Duration) (bool, error) {
+	if l.redis == nil {
+		return false, errors.New("shared proof store unavailable")
+	}
+	bounded, cancel := context.WithTimeout(ctx, l.timeout)
+	defer cancel()
+	return l.redis.SetNX(bounded, l.hashedKey(key), value, ttl).Result()
+}
+func (l *RateLimiter) ConsumeProof(ctx context.Context, key, value string) (bool, error) {
+	if l.redis == nil {
+		return false, errors.New("shared proof store unavailable")
+	}
+	bounded, cancel := context.WithTimeout(ctx, l.timeout)
+	defer cancel()
+	result, err := consumeProofScript.Run(bounded, l.redis, []string{l.hashedKey(key)}, value).Int()
+	return result == 1, err
+}

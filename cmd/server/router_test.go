@@ -21,7 +21,7 @@ func TestRouteInventoryAndAuthentication(t *testing.T) {
 	r := newRouter(h, auth.NewTokens("01234567890123456789012345678901", "puntazo"), logger)
 	public := []string{
 		"GET /v1/health/live", "GET /v1/health/ready", "GET /v1/version",
-		"POST /v1/auth/register", "POST /v1/auth/login", "POST /v1/auth/google", "POST /v1/auth/refresh", "POST /v1/demo/comercios",
+		"GET /v1/auth/challenge", "POST /v1/auth/challenge/verify", "POST /v1/auth/logout", "POST /v1/auth/register", "POST /v1/auth/login", "POST /v1/auth/google", "POST /v1/auth/refresh", "POST /v1/demo/comercios",
 		"POST /v1/auth/email-verification/request", "POST /v1/auth/email-verification/confirm",
 		"POST /v1/auth/email-change/confirm",
 		"POST /v1/auth/password-reset/request", "POST /v1/auth/password-reset/confirm",
@@ -69,7 +69,9 @@ func TestRouteInventoryAndAuthentication(t *testing.T) {
 		{"POST", "/v1/me/email-change/request", "/v1/me/email-change/request"},
 		{"GET", "/v1/me/export", "/v1/me/export"},
 		{"DELETE", "/v1/me", "/v1/me"},
-		{"POST", "/v1/auth/logout", "/v1/auth/logout"},
+
+		{"POST", "/v1/auth/google/link", "/v1/auth/google/link"},
+		{"POST", "/v1/auth/reauthenticate", "/v1/auth/reauthenticate"},
 		{"GET", "/v1/me/foto", "/v1/me/foto"},
 		{"POST", "/v1/me/foto", "/v1/me/foto"},
 		{"GET", "/me", "/me"},

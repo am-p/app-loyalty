@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"clientesFrecuentes/internal/config"
 	"clientesFrecuentes/internal/model"
 	"clientesFrecuentes/internal/service"
 	"clientesFrecuentes/internal/web"
@@ -54,7 +55,7 @@ func (h *Handler) UploadProfilePhoto(c *gin.Context) {
 		writeErr(c, service.ErrMediaType)
 		return
 	}
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, (5<<20)+(64<<10))
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, config.MaxMultipartBytes)
 	if err := c.Request.ParseMultipartForm(64 << 10); err != nil {
 		var maxBytesErr *http.MaxBytesError
 		if errors.As(err, &maxBytesErr) {
@@ -75,12 +76,12 @@ func (h *Handler) UploadProfilePhoto(c *gin.Context) {
 		return
 	}
 	defer file.Close()
-	body, err := io.ReadAll(io.LimitReader(file, (5<<20)+1))
+	body, err := io.ReadAll(io.LimitReader(file, config.MaxUploadFileBytes+1))
 	if err != nil {
 		writeErr(c, service.ErrInvalidRequest)
 		return
 	}
-	if len(body) > 5<<20 {
+	if int64(len(body)) > config.MaxUploadFileBytes {
 		writeErr(c, service.ErrMediaTooLarge)
 		return
 	}

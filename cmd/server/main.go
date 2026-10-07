@@ -12,12 +12,14 @@ import (
 
 	"clientesFrecuentes/internal/auth"
 	"clientesFrecuentes/internal/cardevents"
+	"clientesFrecuentes/internal/challenge"
 	"clientesFrecuentes/internal/config"
 	"clientesFrecuentes/internal/handler"
 	"clientesFrecuentes/internal/mailer"
 	"clientesFrecuentes/internal/maintenance"
 	"clientesFrecuentes/internal/mercadopago"
 	"clientesFrecuentes/internal/middleware"
+	"clientesFrecuentes/internal/password"
 	"clientesFrecuentes/internal/push"
 	"clientesFrecuentes/internal/repository"
 	"clientesFrecuentes/internal/service"
@@ -35,6 +37,7 @@ func main() {
 		logger.Error("invalid configuration", "error", err)
 		os.Exit(1)
 	}
+	password.Configure(cfg.PasswordConcurrency)
 	poolConfig, err := cfg.PoolConfig()
 	if err != nil {
 		logger.Error("invalid database configuration", "error", err)
@@ -83,17 +86,20 @@ func main() {
 		if cfg.MailProvider == "capture" {
 			sender = mailer.CaptureSender{Directory: cfg.MailCaptureDirectory, FromName: cfg.MailFromName, FromAddress: cfg.MailFromAddress}
 		}
-		go (mailer.Worker{Repo: repo, Sender: sender, Logger: logger, Interval: cfg.MailPollInterval, PublicAppURL: cfg.PublicAppURL, CipherKey: cfg.OutboxEncryptionKey, LogoStore: mediaStore}).Run(workerCtx)
+		go (mailer.Worker{GlobalHourlyBudget: cfg.MailGlobalHourlyBudget, RecipientHourlyBudget: cfg.MailRecipientHourlyBudget, Budget: limiter, Repo: repo, Sender: sender, Logger: logger, Interval: cfg.MailPollInterval, PublicAppURL: cfg.PublicAppURL, CipherKey: cfg.OutboxEncryptionKey, LogoStore: mediaStore}).Run(workerCtx)
 	}
 	go (push.Worker{Repo: repo, Sender: push.NewClient(&http.Client{Timeout: 10 * time.Second}), Logger: logger, Interval: time.Second}).Run(workerCtx)
 	go (maintenance.Worker{Repo: repo, Store: mediaStore, Logger: logger, Config: cfg}).Run(workerCtx)
 	svc := service.New(repo, tokens, cfg, mediaStore)
+	svc.Challenge = &challenge.Manager{Enabled: cfg.CaptchaEnabled, SiteKey: cfg.CaptchaSiteKey, Secret: cfg.CaptchaSecret, Hostnames: cfg.CaptchaHostnames, Store: limiter}
 	if cfg.MercadoPagoProvider == "api" {
 		svc.Billing = mercadopago.New(cfg.MercadoPagoAPIURL, cfg.MercadoPagoAccessToken, cfg.MercadoPagoTimeout)
 	}
 	go svc.RunSubscriptionPriceChanges(workerCtx, logger)
 	go svc.RunBranchProration(workerCtx, logger)
-	h := &handler.Handler{Service: svc, Repo: repo, Tokens: tokens, CardEvents: cardEvents, Limiter: limiter, Uploads: middleware.NewUploadSemaphore(cfg.MediaUploadGlobalLimit, cfg.MediaUploadActorLimit), Logger: logger, TrustedProxyCount: cfg.TrustedProxyCount}
+	trustedProxyCIDRs, _ := middleware.ParseTrustedProxyCIDRs(cfg.TrustedProxyCIDRs)
+	h := &handler.Handler{TrustedProxyCIDRs: trustedProxyCIDRs, Service: svc, Repo: repo, Tokens: tokens, CardEvents: cardEvents, Limiter: limiter, Uploads: middleware.NewUploadSemaphore(cfg.MediaUploadGlobalLimit, cfg.MediaUploadActorLimit), Logger: logger, TrustedProxyCount: cfg.TrustedProxyCount}
+	go logCapacity(workerCtx, pool, h.Uploads, logger)
 	router := newRouter(h, tokens, logger)
 	listenAddress := ":" + cfg.Port
 	if cfg.BranchPaymentSimulator || (cfg.BranchProrationEnabled && !cfg.Production) {

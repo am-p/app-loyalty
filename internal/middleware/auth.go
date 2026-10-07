@@ -21,6 +21,7 @@ type Actor struct {
 	AccountType string
 	SessionID   string
 	AuthTime    time.Time
+	AuthVersion int
 }
 
 type ActiveActorStore interface {
@@ -51,7 +52,7 @@ func RequireAuth(tokens *auth.Tokens, actors ActiveActorStore) gin.HandlerFunc {
 			unauthenticated(c)
 			return
 		}
-		c.Set(ActorKey, Actor{ID: userID, AccountType: activeAccountType, SessionID: sessionID, AuthTime: authTime})
+		c.Set(ActorKey, Actor{ID: userID, AccountType: activeAccountType, SessionID: sessionID, AuthTime: authTime, AuthVersion: authVersion})
 		c.Next()
 	}
 }

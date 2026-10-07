@@ -59,10 +59,10 @@ func TestPostgresFirstLoginTrialAndCheckoutRecovery(t *testing.T) {
 		}
 	}
 	start := time.Date(2026, 9, 30, 15, 0, 0, 0, time.UTC)
-	if err := repo.CreateSession(ctx, uuid.NewString(), user, []byte("first"), start.AddDate(0, 0, 60), start); err != nil {
+	if err := repo.CreateSession(ctx, uuid.NewString(), user, []byte("first"), start.AddDate(0, 0, 60), start, 1); err != nil {
 		t.Fatal(err)
 	}
-	if err := repo.CreateSession(ctx, uuid.NewString(), user, []byte("second"), start.AddDate(0, 0, 90), start.AddDate(0, 0, 20)); err != nil {
+	if err := repo.CreateSession(ctx, uuid.NewString(), user, []byte("second"), start.AddDate(0, 0, 90), start.AddDate(0, 0, 20), 1); err != nil {
 		t.Fatal(err)
 	}
 	var saved time.Time
@@ -159,7 +159,7 @@ func TestPostgresTrialMigrationPreservesHistoricalDeadline(t *testing.T) {
 	if !estimated || start.Year() != 2025 {
 		t.Fatalf("legacy account received a fresh trial: %v %v", start, estimated)
 	}
-	if err = repository.New(pool).CreateSession(ctx, uuid.NewString(), user, []byte("legacy"), time.Now().Add(time.Hour), time.Now()); err != nil {
+	if err = repository.New(pool).CreateSession(ctx, uuid.NewString(), user, []byte("legacy"), time.Now().Add(time.Hour), time.Now(), 1); err != nil {
 		t.Fatal(err)
 	}
 	var unchanged time.Time

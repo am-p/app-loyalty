@@ -303,14 +303,15 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if _, err = repo.LoginGoogle(ctx, "legacy-google", "legacy-google@example.com", "Legacy Google", "Test", false, make([]byte, 32), func(int64) []byte { return make([]byte, 32) }); err != nil {
 		t.Fatalf("existing Google login blocked while signup disabled: %v", err)
 	}
-	if _, err = repo.LoginGoogle(ctx, "legacy-password-google", "legacy-password@example.com", "Legacy password", "Test", false, make([]byte, 32), func(int64) []byte { return make([]byte, 32) }); err != nil {
-		t.Fatalf("existing email link blocked while signup disabled: %v", err)
+	if _, err = repo.LoginGoogle(ctx, "legacy-password-google", "legacy-password@example.com", "Legacy password", "Test", false, make([]byte, 32), func(int64) []byte { return make([]byte, 32) }); !errors.Is(err, repository.ErrGoogleLinkRequired) {
+		t.Fatalf("email login must require explicit link: %v", err)
 	}
-	var linkedGoogleID string
+	var linkedGoogleID *string
 	var linkedEmailVerified bool
-	if err = pool.QueryRow(ctx, `SELECT google_id,email_verified_at IS NOT NULL FROM usuarios WHERE email='legacy-password@example.com'`).Scan(&linkedGoogleID, &linkedEmailVerified); err != nil || linkedGoogleID != "legacy-password-google" || !linkedEmailVerified {
-		t.Fatalf("existing email link google_id=%q verified=%t err=%v", linkedGoogleID, linkedEmailVerified, err)
+	if err = pool.QueryRow(ctx, `SELECT google_id,email_verified_at IS NOT NULL FROM usuarios WHERE email='legacy-password@example.com'`).Scan(&linkedGoogleID, &linkedEmailVerified); err != nil || linkedGoogleID != nil || linkedEmailVerified {
+		t.Fatalf("login mutated identity: %v %v %v", linkedGoogleID, linkedEmailVerified, err)
 	}
+
 	tokens := auth.NewTokens(cfg.JWTSecret, cfg.JWTIssuer)
 	media := &fakeMediaStore{objects: map[string][]byte{}}
 	svc := service.New(repo, tokens, cfg, media)
