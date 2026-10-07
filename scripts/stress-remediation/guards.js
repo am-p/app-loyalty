@@ -7,7 +7,7 @@ export const ACCEPTANCE = Object.freeze({
 });
 
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]", "host.docker.internal"]);
-const TEST_HOST = "testing.puntazo.pro";
+const TEST_HOSTS = new Set(["testing.puntazo.pro", "api-testing.puntazo.pro"]);
 
 export function validateBaseUrl(raw, { allowRemoteTesting = false, confirmTarget = "" } = {}) {
   if (!raw) throw new Error("Define BASE_URL explícitamente.");
@@ -30,9 +30,9 @@ export function validateBaseUrl(raw, { allowRemoteTesting = false, confirmTarget
     return url.origin;
   }
 
-  if (hostname === TEST_HOST) {
+  if (TEST_HOSTS.has(hostname)) {
     if (url.protocol !== "https:") throw new Error("El testing remoto debe usar HTTPS.");
-    if (!allowRemoteTesting || confirmTarget !== TEST_HOST) {
+    if (!allowRemoteTesting || confirmTarget !== hostname) {
       throw new Error("Testing remoto requiere STRESS_ALLOW_REMOTE=true y STRESS_CONFIRM_TARGET=testing.puntazo.pro.");
     }
     return url.origin;
