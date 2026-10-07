@@ -8,6 +8,8 @@ import (
 )
 
 var (
+	ErrGoogleLinkRequired         = errors.New("google link required")
+	ErrGoogleIdentityConflict     = errors.New("google identity conflict")
 	ErrNotFound                   = errors.New("not found")
 	ErrEmailExists                = errors.New("email exists")
 	ErrIdempotencyConflict        = errors.New("idempotency conflict")

@@ -292,6 +292,64 @@ paths:
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '422': { $ref: '#/components/responses/GoogleAuthValidationError' }
         '429': { $ref: '#/components/responses/RateLimited' }
+  /auth/google/link:
+    post:
+      tags: [Auth]
+      operationId: linkGoogle
+      x-puntazo-implementation: IMPLEMENTED
+      summary: Vincula Google explícitamente tras comprobar contraseña actual
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ClientPlatform'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [id_token, password]
+              properties:
+                id_token: { type: string }
+                password: { type: string, maxLength: 72 }
+      responses:
+        '200':
+          description: AuthData con sesión nueva; sesiones anteriores revocadas y auth_version incrementado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '409': { description: GOOGLE_IDENTITY_CONFLICT; sin mutación }
+  /auth/reauthenticate:
+    post:
+      tags: [Auth]
+      operationId: reauthenticate
+      x-puntazo-implementation: IMPLEMENTED
+      summary: Comprueba contraseña o mismo Google sub ya asociado; revoca sesiones y renueva auth_time
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ClientPlatform'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              oneOf:
+                - required: [password]
+                - required: [id_token]
+              properties:
+                password: { type: string, maxLength: 72 }
+                id_token: { type: string }
+      responses:
+        '200':
+          description: AuthData con sesión nueva
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+
   /auth/refresh:
     post:
       tags: [Auth]
@@ -318,12 +376,18 @@ paths:
     post:
       tags: [Auth]
       operationId: logout
-      summary: Revoca la sesión autenticada
+      summary: Revoca toda la familia refresh, incluso con access expirado
+      security: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RefreshTransportRequest' }
       x-puntazo-implementation: IMPLEMENTED
       parameters:
         - $ref: '#/components/parameters/ClientPlatform'
       responses:
-        '204': { description: Sesión revocada }
+        '204': { description: Familia revocada; idempotente, web cookie o native refresh_token }
         '401': { $ref: '#/components/responses/Unauthenticated' }
   /me/age-confirmation:
     post:

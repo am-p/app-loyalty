@@ -12,6 +12,7 @@ import (
 	"clientesFrecuentes/internal/repository"
 	"clientesFrecuentes/internal/web"
 
+	"clientesFrecuentes/internal/password"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -116,7 +117,13 @@ func (s *Service) RegisterInvitation(ctx context.Context, token string, req mode
 	if !validPassword(req.Password) {
 		return model.AuthData{}, ErrInvalidRequest
 	}
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	if _, err = s.PublicInvitation(ctx, token); err != nil {
+		return model.AuthData{}, err
+	}
+	if err = s.checkCaptcha(ctx, "signup"); err != nil {
+		return model.AuthData{}, err
+	}
+	passwordHash, err := password.Generate(ctx, []byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
 		return model.AuthData{}, err
 	}

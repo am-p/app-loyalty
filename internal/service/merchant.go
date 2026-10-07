@@ -11,6 +11,7 @@ import (
 	"clientesFrecuentes/internal/repository"
 	"clientesFrecuentes/internal/web"
 
+	"clientesFrecuentes/internal/password"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -49,7 +50,10 @@ func (s *Service) RegisterDemoMerchant(ctx context.Context, key, requestID strin
 	if err != nil {
 		return repository.IdempotentResult{}, ErrInvalidRequest
 	}
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	if err = s.checkCaptcha(ctx, "signup"); err != nil {
+		return repository.IdempotentResult{}, err
+	}
+	passwordHash, err := password.Generate(ctx, []byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
 		return repository.IdempotentResult{}, err
 	}

@@ -22,7 +22,11 @@ func RequestContext(logger *slog.Logger) gin.HandlerFunc {
 		c.Set(web.RequestIDKey, requestID)
 		c.Header("X-Request-ID", requestID)
 		if c.Request.Body != nil {
-			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, config.MaxJSONBytes)
+			limit := config.MaxJSONBytes
+			if c.Request.Method == http.MethodPost && (c.FullPath() == "/v1/me/foto" || c.FullPath() == "/v1/marcas/:brand_id/imagenes") {
+				limit = config.MaxMultipartBytes
+			}
+			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, limit)
 		}
 		c.Next()
 		logger.Info("request", "request_id", requestID, "method", c.Request.Method, "route", c.FullPath(), "status", c.Writer.Status(), "duration_ms", time.Since(started).Milliseconds())

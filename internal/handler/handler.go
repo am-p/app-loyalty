@@ -2,8 +2,10 @@ package handler
 
 import (
 	"log/slog"
+	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"clientesFrecuentes/internal/auth"
@@ -25,6 +27,7 @@ type Handler struct {
 	Uploads           *middleware.UploadSemaphore
 	Logger            *slog.Logger
 	TrustedProxyCount int
+	TrustedProxyCIDRs []*net.IPNet
 }
 
 func actor(c *gin.Context) (middleware.Actor, bool) {
@@ -36,6 +39,21 @@ func actor(c *gin.Context) (middleware.Actor, bool) {
 }
 
 func (h *Handler) limit(c *gin.Context, key string, n int, w time.Duration) bool {
+	if strings.Contains(key, ":ip:") {
+		flow, _, _ := strings.Cut(key, ":")
+		budget := 120
+		if strings.Contains(flow, "register") {
+			budget = 20
+		} else if strings.Contains(flow, "verify") || strings.Contains(flow, "reset") || strings.Contains(flow, "email-change") {
+			budget = 30
+		}
+		if !h.allowLimit(c, "flow-global:"+flow, budget, time.Minute) {
+			return false
+		}
+	}
+	return h.allowLimit(c, key, n, w)
+}
+func (h *Handler) allowLimit(c *gin.Context, key string, n int, w time.Duration) bool {
 	ok, retry, err := h.Limiter.Allow(c.Request.Context(), key, n, w)
 	if err != nil {
 		if h.Logger != nil {
@@ -52,4 +70,6 @@ func (h *Handler) limit(c *gin.Context, key string, n int, w time.Duration) bool
 	return false
 }
 
-func (h *Handler) clientIP(c *gin.Context) string { return middleware.ClientIP(c, h.TrustedProxyCount) }
+func (h *Handler) clientIP(c *gin.Context) string {
+	return middleware.ClientIP(c, h.TrustedProxyCount, h.TrustedProxyCIDRs...)
+}
