@@ -1,0 +1,9 @@
+# Local fixtures contain synthetic-account credentials and must never be committed.
+fixtures.local.json
+fixtures.*.local.json
+*.secrets.json
+
+# Load outputs are reproducible artifacts, not source inputs.
+results/*
+!results/.gitkeep
+*.log
