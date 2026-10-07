@@ -58,6 +58,7 @@ const scenario = profile.type === "spike"
     };
 
 export const options = {
+  summaryTrendStats: ["avg", "min", "med", "max", "p(90)", "p(95)", "p(99)"],
   scenarios: { authenticated_reads: { ...scenario, exec: "authenticatedReadJourney" } },
   thresholds: {
     api_error_rate: [threshold("rate<0.01")],
@@ -151,7 +152,7 @@ function ensureSession(identity) {
       closed: false,
     };
     vuState.set(__VU, state);
-  } else if (Date.now() >= Math.min(state.accessExpiresAt - 60_000, state.lastRefreshAt + 14 * 60_000)) {
+  } else if (!state.closed && Date.now() >= Math.min(state.accessExpiresAt - 60_000, state.lastRefreshAt + 14 * 60_000)) {
     refresh(state);
   }
   return state;
@@ -244,6 +245,7 @@ export function authenticatedReadJourney(run) {
   // Keep the final iteration available for revoking this VU's current rotating session.
   if (Date.now() >= run.plannedEnd - 12_000) {
     logout(state);
+    sleep(1);
     return;
   }
 
