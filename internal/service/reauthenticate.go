@@ -4,6 +4,7 @@ import (
 	"clientesFrecuentes/internal/auth"
 	"clientesFrecuentes/internal/model"
 	passwordwork "clientesFrecuentes/internal/password"
+	"clientesFrecuentes/internal/repository"
 	"context"
 	"errors"
 	"strings"
@@ -21,6 +22,9 @@ func (s *Service) Reauthenticate(ctx context.Context, userID int64, sessionID st
 func (s *Service) renewAuthentication(ctx context.Context, userID int64, sessionID string, version int, password, idToken string, link bool) (model.AuthData, error) {
 	u, err := s.Repo.GetAuthUserByID(ctx, userID)
 	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return model.AuthData{}, ErrInvalidCredentials
+		}
 		return model.AuthData{}, err
 	}
 	if password != "" {
@@ -59,10 +63,16 @@ func (s *Service) renewAuthentication(ctx context.Context, userID int64, session
 	}
 	credentials, err := newSessionCredentials()
 	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return model.AuthData{}, ErrInvalidCredentials
+		}
 		return model.AuthData{}, err
 	}
 	updated, err := s.Repo.RenewAuthentication(ctx, u, version, sessionID, subject, email, link, credentials.id, credentials.hash, credentials.expiresAt, credentials.authTime)
 	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return model.AuthData{}, ErrInvalidCredentials
+		}
 		return model.AuthData{}, err
 	}
 	session, err := s.session(updated, credentials)
