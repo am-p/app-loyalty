@@ -449,7 +449,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/ClientPlatform'
       responses:
-        '204': { description: Familia revocada; idempotente, web cookie o native refresh_token }
+        '204': { description: 'Familia revocada; idempotente, web cookie o native refresh_token' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
   /me:
     get:
@@ -499,11 +499,13 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorEnvelope' }
     delete:
-      description: Requiere prueba de autenticación de los últimos diez minutos. Refresh conserva auth_time; reauthenticate devuelve sesión nueva. RECENT_AUTH_REQUIRED si la prueba falta o venció.
       tags: [Cuenta]
       operationId: anonymizeCurrentUser
       summary: Anonimiza la cuenta y preserva el ledger histórico
       description: >-
+        Requiere prueba de autenticación de los últimos diez minutos. Refresh
+        conserva auth_time; reauthenticate devuelve sesión nueva.
+        RECENT_AUTH_REQUIRED si la prueba falta o venció.
         Baja definitiva e irreversible una vez completada. Si el usuario es el
         último propietario activo de una marca, cancela primero sus cobros
         recurrentes y cierra marca, sucursales, membresías, códigos y tarjetas.
