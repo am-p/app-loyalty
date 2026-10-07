@@ -22,7 +22,7 @@ func TestPostgresGoogleExplicitLinkAndSessionFence(t *testing.T) {
 	ctx := context.Background()
 	hashed, _ := bcrypt.GenerateFromPassword([]byte("test-password"), bcrypt.MinCost)
 	var id int64
-	if err := p.QueryRow(ctx, `INSERT INTO usuarios(email,password_hash,nombre,tipo_cuenta,email_verified_at) VALUES('link@example.test',$1,'Link','PERSONAL_MARCA',now()) RETURNING id`, string(hashed)).Scan(&id); err != nil {
+	if err := p.QueryRow(ctx, `INSERT INTO usuarios(email,password_hash,nombre,tipo_cuenta,email_verified_at) VALUES('Link@Example.Test',$1,'Link','PERSONAL_MARCA',now()) RETURNING id`, string(hashed)).Scan(&id); err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 8; i++ {
