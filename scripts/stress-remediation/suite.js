@@ -19,6 +19,7 @@ const profiles = {
 
 validateProfile(profileName, __ENV);
 const profile = profiles[profileName];
+const previousSmokeSummary = profileName === "smoke" ? null : JSON.parse(open(__ENV.STRESS_SMOKE_SUMMARY));
 const fixtureDocument = __ENV.STRESS_FIXTURE_FILE ? JSON.parse(open(__ENV.STRESS_FIXTURE_FILE)) : { identities: [] };
 const baseUrl = __ENV.BASE_URL ? validateBaseUrl(__ENV.BASE_URL, {
   allowRemoteTesting: __ENV.STRESS_ALLOW_REMOTE === "true",
@@ -212,15 +213,15 @@ export function setup() {
   } catch {
     throw new Error("Preflight /v1/version devolvió una respuesta inválida.");
   }
-  if (!version || typeof version.schema_version !== "number") throw new Error("Preflight /v1/version no informó schema_version.");
-  if (__ENV.STRESS_EXPECT_SCHEMA && version.schema_version !== Number(__ENV.STRESS_EXPECT_SCHEMA)) {
+  if (!version || typeof version.schema_version !== "string" || !/^[0-9]{4}$/.test(version.schema_version)) throw new Error("Preflight /v1/version no informó schema_version.");
+  if (__ENV.STRESS_EXPECT_SCHEMA && version.schema_version !== __ENV.STRESS_EXPECT_SCHEMA) {
     throw new Error(`Schema observado ${version.schema_version} difiere del esperado; no se inició carga.`);
   }
 
   if (profileName !== "smoke") {
     let summary;
     try {
-      summary = JSON.parse(open(__ENV.STRESS_SMOKE_SUMMARY));
+      summary = previousSmokeSummary;
       evaluateSmokeSummary(summary);
     } catch (error) {
       throw new Error(`El summary smoke previo no pasó el gate: ${error.message}`);
