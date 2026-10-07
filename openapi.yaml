@@ -449,7 +449,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/ClientPlatform'
       responses:
-        '204': { description: Familia revocada; idempotente, web cookie o native refresh_token }
+        '204': { description: 'Familia revocada; idempotente, web cookie o native refresh_token' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
   /me/age-confirmation:
     post:

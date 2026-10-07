@@ -2,12 +2,14 @@ package middleware
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
 
 	"clientesFrecuentes/internal/auth"
 	"clientesFrecuentes/internal/web"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/gin-gonic/gin"
 )
@@ -49,7 +51,11 @@ func RequireAuth(tokens *auth.Tokens, actors ActiveActorStore) gin.HandlerFunc {
 		}
 		activeAccountType, err := actors.ActiveSessionAccountType(c.Request.Context(), userID, sessionID, authVersion)
 		if err != nil {
-			unauthenticated(c)
+			if errors.Is(err, pgx.ErrNoRows) {
+				unauthenticated(c)
+			} else {
+				web.AbortError(c, http.StatusServiceUnavailable, "DEPENDENCY_UNAVAILABLE", "No se pudo verificar la sesión", nil)
+			}
 			return
 		}
 		c.Set(ActorKey, Actor{ID: userID, AccountType: activeAccountType, SessionID: sessionID, AuthTime: authTime, AuthVersion: authVersion})
