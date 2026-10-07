@@ -84,11 +84,13 @@ export function evaluateSmokeSummary(summary) {
   const metrics = summary?.metrics;
   if (!metrics) throw new Error("El summary no contiene metrics; vuelve a exportarlo con --summary-export.");
 
-  const apiErrorRate = metrics.api_error_rate?.values?.rate;
-  const checksRate = metrics.checks?.values?.rate;
-  const apiP95 = metrics.api_read_duration?.values?.["p(95)"];
-  const apiP99 = metrics.api_read_duration?.values?.["p(99)"];
-  const workflowP95 = metrics.workflow_duration?.values?.["p(95)"];
+  const values = (metric) => metric?.values || metric || {};
+  const rate = (metric) => values(metric).rate ?? values(metric).value;
+  const apiErrorRate = rate(metrics.api_error_rate);
+  const checksRate = rate(metrics.checks);
+  const apiP95 = values(metrics.api_read_duration)["p(95)"];
+  const apiP99 = values(metrics.api_read_duration)["p(99)"];
+  const workflowP95 = values(metrics.workflow_duration)["p(95)"];
   const observed = [apiErrorRate, checksRate, apiP95, apiP99, workflowP95];
   if (observed.some((value) => typeof value !== "number" || !Number.isFinite(value))) {
     throw new Error("El summary no trae las cinco métricas requeridas para abrir fases posteriores.");

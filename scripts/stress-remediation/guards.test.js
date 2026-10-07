@@ -63,3 +63,11 @@ test("gates later profiles on explicit opt-in and a passing smoke summary", () =
   failing.metrics.api_read_duration.values["p(99)"] = 1000;
   assert.throws(() => evaluateSmokeSummary(failing), /api_read_duration p\(99\)/);
 });
+
+// k6 v2.3 --summary-export uses flat legacy metric fields.
+test("accepts real k6 export shape and requires recorded p99", () => {
+  const metrics = { api_error_rate: { value: 0 }, checks: { value: 1, passes: 711, fails: 0 }, api_read_duration: { "p(95)": 7.585, "p(99)": 10.2 }, workflow_duration: { "p(95)": 26 } };
+  assert.equal(evaluateSmokeSummary({ metrics }).apiP99, 10.2);
+  delete metrics.api_read_duration["p(99)"];
+  assert.throws(() => evaluateSmokeSummary({ metrics }), /cinco métricas/);
+});
