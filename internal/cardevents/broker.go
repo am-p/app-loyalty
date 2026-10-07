@@ -29,12 +29,18 @@ type subscription struct {
 // Broker uses one PostgreSQL LISTEN connection per API process. Notifications
 // contain only the affected customer ID; clients receive no customer IDs.
 type Broker struct {
-	config      *pgx.ConnConfig
-	logger      *slog.Logger
-	mu          sync.Mutex
-	ready       bool
-	subscribers map[int64]map[*subscription]struct{}
-	total       int
+	config        *pgx.ConnConfig
+	logger        *slog.Logger
+	mu            sync.Mutex
+	ready         bool
+	subscribers   map[int64]map[*subscription]struct{}
+	total         int
+	enqueued      uint64
+	coalesced     uint64
+	rejected      uint64
+	disconnects   uint64
+	delivered     uint64
+	writeFailures uint64
 }
 
 func New(config *pgx.ConnConfig, logger *slog.Logger) *Broker {
@@ -48,6 +54,7 @@ func (b *Broker) Subscribe(customerID int64) (<-chan struct{}, <-chan struct{}, 
 		return nil, nil, nil, ErrUnavailable
 	}
 	if b.total >= maxSubscribers || len(b.subscribers[customerID]) >= maxSubscribersPerUser {
+		b.rejected++
 		return nil, nil, nil, ErrCapacity
 	}
 	s := &subscription{events: make(chan struct{}, 1), down: make(chan struct{})}
@@ -78,7 +85,9 @@ func (b *Broker) publish(customerID int64) {
 	for s := range b.subscribers[customerID] {
 		select {
 		case s.events <- struct{}{}:
+			b.enqueued++
 		default: // One pending refresh covers all committed changes.
+			b.coalesced++
 		}
 	}
 }
@@ -92,6 +101,9 @@ func (b *Broker) setReady() {
 func (b *Broker) setDown() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if b.ready {
+		b.disconnects++
+	}
 	b.ready = false
 	for _, group := range b.subscribers {
 		for s := range group {
@@ -148,5 +160,27 @@ func (b *Broker) listen(ctx context.Context) error {
 		if err == nil && customerID > 0 {
 			b.publish(customerID)
 		}
+	}
+}
+
+// Stats returns aggregate process counts with no customer identifiers.
+type Stats struct {
+	Active                                                               int
+	Ready                                                                bool
+	Enqueued, Coalesced, Rejected, Disconnects, Delivered, WriteFailures uint64
+}
+
+func (b *Broker) Stats() Stats {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return Stats{Active: b.total, Ready: b.ready, Enqueued: b.enqueued, Coalesced: b.coalesced, Rejected: b.rejected, Disconnects: b.disconnects, Delivered: b.delivered, WriteFailures: b.writeFailures}
+}
+func (b *Broker) RecordDelivery(success bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if success {
+		b.delivered++
+	} else {
+		b.writeFailures++
 	}
 }

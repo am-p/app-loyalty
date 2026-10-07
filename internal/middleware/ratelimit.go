@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -18,13 +19,16 @@ type rateEntry struct {
 }
 
 type RateLimiter struct {
-	mu       sync.Mutex
-	entries  map[string]rateEntry
-	now      func() time.Time
-	redis    *redis.Client
-	prefix   string
-	timeout  time.Duration
-	fallback bool
+	mu              sync.Mutex
+	entries         map[string]rateEntry
+	now             func() time.Time
+	redis           *redis.Client
+	prefix          string
+	timeout         time.Duration
+	fallback        bool
+	redisCalls      atomic.Uint64
+	redisErrors     atomic.Uint64
+	redisDurationNS atomic.Uint64
 }
 
 const maxRateEntries = 10_000
@@ -58,7 +62,9 @@ func (l *RateLimiter) Allow(ctx context.Context, key string, limit int, window t
 	}
 	bounded, cancel := context.WithTimeout(ctx, l.timeout)
 	defer cancel()
+	started := time.Now()
 	values, err := fixedWindowScript.Run(bounded, l.redis, []string{hashed}, limit, window.Milliseconds()).Slice()
+	l.recordRedis(started, err)
 	if err != nil {
 		if l.fallback {
 			return l.allowMemory(hashed, limit, window)
@@ -153,7 +159,10 @@ func (l *RateLimiter) PutProof(ctx context.Context, key, value string, ttl time.
 	}
 	bounded, cancel := context.WithTimeout(ctx, l.timeout)
 	defer cancel()
-	return l.redis.SetNX(bounded, l.hashedKey(key), value, ttl).Result()
+	started := time.Now()
+	ok, err := l.redis.SetNX(bounded, l.hashedKey(key), value, ttl).Result()
+	l.recordRedis(started, err)
+	return ok, err
 }
 func (l *RateLimiter) ConsumeProof(ctx context.Context, key, value string) (bool, error) {
 	if l.redis == nil {
@@ -161,6 +170,24 @@ func (l *RateLimiter) ConsumeProof(ctx context.Context, key, value string) (bool
 	}
 	bounded, cancel := context.WithTimeout(ctx, l.timeout)
 	defer cancel()
+	started := time.Now()
 	result, err := consumeProofScript.Run(bounded, l.redis, []string{l.hashedKey(key)}, value).Int()
+	l.recordRedis(started, err)
 	return result == 1, err
+}
+
+type RedisStats struct {
+	Calls, Errors uint64
+	Duration      time.Duration
+}
+
+func (l *RateLimiter) recordRedis(started time.Time, err error) {
+	l.redisCalls.Add(1)
+	l.redisDurationNS.Add(uint64(time.Since(started)))
+	if err != nil {
+		l.redisErrors.Add(1)
+	}
+}
+func (l *RateLimiter) RedisStats() RedisStats {
+	return RedisStats{Calls: l.redisCalls.Load(), Errors: l.redisErrors.Load(), Duration: time.Duration(l.redisDurationNS.Load())}
 }

@@ -113,7 +113,7 @@ func main() {
 	go svc.RunBranchProration(workerCtx, logger)
 	trustedProxyCIDRs, _ := middleware.ParseTrustedProxyCIDRs(cfg.TrustedProxyCIDRs)
 	h := &handler.Handler{TrustedProxyCIDRs: trustedProxyCIDRs, Service: svc, Repo: repo, Tokens: tokens, CardEvents: cardEvents, Limiter: limiter, Uploads: middleware.NewUploadSemaphore(cfg.MediaUploadGlobalLimit, cfg.MediaUploadActorLimit), Logger: logger, TrustedProxyCount: cfg.TrustedProxyCount}
-	go logCapacity(workerCtx, pool, h.Uploads, logger)
+	go logCapacity(workerCtx, pool, h.Uploads, limiter, cardEvents, logger)
 	router := newRouter(h, tokens, logger)
 	listenAddress := ":" + cfg.Port
 	if cfg.BranchPaymentSimulator || (cfg.BranchProrationEnabled && !cfg.Production) {

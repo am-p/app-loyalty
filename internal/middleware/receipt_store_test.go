@@ -72,3 +72,18 @@ func TestRedisCaptchaReceiptsAreSharedSingleUseBoundAndExpire(t *testing.T) {
 		t.Fatal("captcha proof fell back to local memory")
 	}
 }
+
+func TestRedisMetricsCountOperationFailureWithoutKeyLabels(t *testing.T) {
+	limiter, e := NewRedisRateLimiter("redis://127.0.0.1:1", "puntazo:metrics", 50*time.Millisecond, true)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer limiter.Close()
+	if ok, _, e := limiter.Allow(context.Background(), "private@example.test", 1, time.Minute); !ok || e != nil {
+		t.Fatal(ok, e)
+	}
+	stats := limiter.RedisStats()
+	if stats.Calls != 1 || stats.Errors != 1 || stats.Duration <= 0 {
+		t.Fatalf("Redis failure lost by local fallback: %+v", stats)
+	}
+}
