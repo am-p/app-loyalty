@@ -27,7 +27,7 @@ The fixture command is intentionally restricted to an empty database named `punt
 
 ## Safety and run procedure
 
-The only permitted targets are loopback/local hosts and `https://testing.puntazo.pro`. Production and every other remote host are hard blocked in `guards.js`. Every run requires `STRESS_CONFIRM_TARGET=local` for a local target. Testing also requires `STRESS_ALLOW_REMOTE=true` and `STRESS_CONFIRM_TARGET=testing.puntazo.pro`; no testing load should run until separately authorized. k6 preflights `/v1/health/ready` and `/v1/version`, records version/commit/schema, and refuses a schema mismatch when `STRESS_EXPECT_SCHEMA` is set.
+The only permitted targets are loopback/local hosts and `https://api-testing.puntazo.pro` (current independent API) or the legacy testing host. Production and every other remote host are hard blocked in `guards.js`. Every run requires `STRESS_CONFIRM_TARGET=local` for a local target. Testing also requires `STRESS_ALLOW_REMOTE=true` and `STRESS_CONFIRM_TARGET=api-testing.puntazo.pro`; testing load is authorized by the remediation plan; confirm the exact target before running. k6 preflights `/v1/health/ready` and `/v1/version`, records version/commit/schema, and refuses a schema mismatch when `STRESS_EXPECT_SCHEMA` is set.
 
 1. After migrating the isolated local `puntazo_load` database through schema 0034, create the representative dataset and a private credential fixture outside the repository. The command refuses a non-empty database or a non-loopback target:
 
