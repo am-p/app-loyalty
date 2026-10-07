@@ -863,7 +863,8 @@ paths:
       operationId: registerBrandInvitation
       x-puntazo-implementation: IMPLEMENTED
       parameters:
-        - $ref: '#/components/parameters/CaptchaReceipt' [{ name: token, in: path, required: true, schema: { type: string, minLength: 40, maxLength: 256 } }]
+        - $ref: '#/components/parameters/CaptchaReceipt'
+        - { name: token, in: path, required: true, schema: { type: string, minLength: 40, maxLength: 256 } }
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/RegisterInvitationRequest' } } } }
       responses:
         '201': { description: Cuenta y membresía creadas; sesión iniciada, content: { application/json: { schema: { $ref: '#/components/schemas/AuthEnvelope' } } } }
