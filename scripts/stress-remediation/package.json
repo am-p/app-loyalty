@@ -1,0 +1,8 @@
+{
+  "name": "puntazo-stress-remediation-suite",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test guards.test.js"
+  }
+}

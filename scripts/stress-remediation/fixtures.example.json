@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "identities": [
+    { "vu": 1, "email": "load-01@example.invalid", "password": "REPLACE_WITH_SYNTHETIC_SECRET_01", "account_type": "CLIENTE_FINAL" },
+    { "vu": 2, "email": "load-02@example.invalid", "password": "REPLACE_WITH_SYNTHETIC_SECRET_02", "account_type": "CLIENTE_FINAL" },
+    { "vu": 3, "email": "load-03@example.invalid", "password": "REPLACE_WITH_SYNTHETIC_SECRET_03", "account_type": "CLIENTE_FINAL" },
+    { "vu": 4, "email": "load-04@example.invalid", "password": "REPLACE_WITH_SYNTHETIC_SECRET_04", "account_type": "CLIENTE_FINAL" },
+    { "vu": 5, "email": "load-05@example.invalid", "password": "REPLACE_WITH_SYNTHETIC_SECRET_05", "account_type": "CLIENTE_FINAL" }
+  ]
+}
