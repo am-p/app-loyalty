@@ -1,7 +1,84 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { createHealthMonitor, validateWebhookUrl } from "./monitor-health.mjs";
+import { getEventListeners } from "node:events";
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { createHealthMonitor, validateWebhookUrl, wait } from "./monitor-health.mjs";
+
+test("completed poll waits do not retain abort listeners across repeated cycles", async () => {
+  const controller = new AbortController();
+  const existingListener = () => {};
+  controller.signal.addEventListener("abort", existingListener);
+  for (let cycle = 0; cycle < 25; cycle++) await wait(0, controller.signal);
+  assert.deepEqual(getEventListeners(controller.signal, "abort"), [existingListener]);
+  controller.signal.removeEventListener("abort", existingListener);
+});
+
+test("an already aborted wait does not allocate a timer or listener", async (t) => {
+  const controller = new AbortController();
+  controller.abort();
+  const timers = t.mock.method(globalThis, "setTimeout");
+  await wait(60_000, controller.signal);
+  assert.equal(timers.mock.calls.length, 0);
+  assert.equal(getEventListeners(controller.signal, "abort").length, 0);
+});
+
+test("aborting concurrent waits cancels their timers and removes only their listeners", async (t) => {
+  const controller = new AbortController();
+  const existingListener = () => {};
+  controller.signal.addEventListener("abort", existingListener);
+  const timers = t.mock.method(globalThis, "setTimeout");
+  const cleared = t.mock.method(globalThis, "clearTimeout");
+  const completed = wait(0, controller.signal);
+  const pending = [wait(60_000, controller.signal), wait(60_000, controller.signal)];
+  const handles = timers.mock.calls.map((call) => call.result);
+  await completed;
+  assert.equal(getEventListeners(controller.signal, "abort").length, 3);
+  controller.abort();
+  await Promise.all(pending);
+  assert.deepEqual(getEventListeners(controller.signal, "abort"), [existingListener]);
+  for (const handle of handles) {
+    assert.ok(cleared.mock.calls.some((call) => call.arguments[0] === handle), "each wait must cancel its own timer");
+  }
+  controller.signal.removeEventListener("abort", existingListener);
+});
+
+test("SIGTERM stops the real monitor process during its poll wait cleanly", { timeout: 5_000 }, async (t) => {
+  const api = await listen((request, response) => {
+    response.setHeader("Content-Type", "application/json");
+    response.end(JSON.stringify(request.url === "/v1/version"
+      ? { version: "local", commit: "test", schema_version: "0035" }
+      : { status: "ok" }));
+  });
+  t.after(() => close(api.server));
+  const child = spawn(process.execPath, [fileURLToPath(new URL("./monitor-health.mjs", import.meta.url))], {
+    env: { BASE_URL: api.url, STRESS_CONFIRM_TARGET: "local", MONITOR_INTERVAL_SECONDS: "30" },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  t.after(() => { if (child.exitCode === null) child.kill("SIGKILL"); });
+  let stderr = "";
+  child.stderr.setEncoding("utf8").on("data", (chunk) => { stderr += chunk; });
+  const exited = new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", (code, signal) => resolve({ code, signal }));
+  });
+  await new Promise((resolve, reject) => {
+    child.stdout.setEncoding("utf8");
+    let stdout = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+      if (stdout.includes('"kind":"health_probe"') && stdout.includes('"status":"healthy"')) resolve();
+    });
+    child.once("error", reject);
+    child.once("close", () => reject(new Error("monitor exited before its first healthy poll")));
+  });
+  const stoppedAt = performance.now();
+  assert.equal(child.kill("SIGTERM"), true);
+  assert.deepEqual(await exited, { code: 0, signal: null });
+  assert.ok(performance.now() - stoppedAt < 1_500, "shutdown must cancel the thirty-second wait");
+  assert.equal(stderr, "");
+});
 
 async function listen(handler) {
   const server = createServer(handler);

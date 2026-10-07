@@ -195,18 +195,16 @@ export function createHealthMonitor({
   return { poll, get state() { return state; } };
 }
 
-function wait(ms, signal) {
+export function wait(ms, signal) {
   return new Promise((resolve) => {
     if (signal?.aborted) return resolve();
     const timer = setTimeout(done, ms);
     function done() {
+      clearTimeout(timer);
       signal?.removeEventListener("abort", done);
       resolve();
     }
-    signal?.addEventListener("abort", () => {
-      clearTimeout(timer);
-      done();
-    }, { once: true });
+    signal?.addEventListener("abort", done, { once: true });
   });
 }
 
