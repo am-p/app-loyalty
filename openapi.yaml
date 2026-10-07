@@ -92,6 +92,7 @@ paths:
       summary: Registra exclusivamente una cuenta cliente final gratuita
       security: []
       parameters:
+        - $ref: '#/components/parameters/CaptchaReceipt'
         - $ref: '#/components/parameters/ClientPlatform'
       x-puntazo-implementation: IMPLEMENTED
       requestBody:
@@ -147,6 +148,8 @@ paths:
       summary: Solicita un correo sin revelar si la cuenta existe
       security: []
       x-puntazo-implementation: IMPLEMENTED
+      parameters:
+        - $ref: '#/components/parameters/CaptchaReceipt'
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/EmailRequest' } } } }
       responses:
         '202':
@@ -179,6 +182,8 @@ paths:
       summary: Solicita recuperación sin revelar si la cuenta existe
       security: []
       x-puntazo-implementation: IMPLEMENTED
+      parameters:
+        - $ref: '#/components/parameters/CaptchaReceipt'
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/EmailRequest' } } } }
       responses:
         '202':
@@ -212,6 +217,7 @@ paths:
       security: []
       x-puntazo-implementation: IMPLEMENTED
       parameters:
+        - $ref: '#/components/parameters/CaptchaReceipt'
         - $ref: '#/components/parameters/ClientPlatform'
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -259,6 +265,7 @@ paths:
       operationId: loginGoogle
       summary: Inicia sesión o crea una cuenta elegida con un ID token de Google verificado
       description: |
+        Login sólo por subject ya asociado. Email existente no vincula ni modifica; requiere operación autenticada explícita.
         Para una cuenta existente basta `id_token`; `account_type` y `merchant_registration`
         se ignoran y nunca convierten la cuenta. Una identidad nueva debe indicar
         `CLIENTE_FINAL` o `PERSONAL_MARCA`. El alta `PERSONAL_MARCA` provisiona en una
@@ -276,6 +283,7 @@ paths:
       security: []
       x-puntazo-implementation: IMPLEMENTED
       parameters:
+        - $ref: '#/components/parameters/CaptchaReceipt'
         - $ref: '#/components/parameters/ClientPlatform'
       requestBody:
         required: true
@@ -290,8 +298,62 @@ paths:
               schema: { $ref: '#/components/schemas/AuthEnvelope' }
         '403': { $ref: '#/components/responses/DemoSignupClosed' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
+        '409': { description: GOOGLE_LINK_REQUIRED o GOOGLE_IDENTITY_CONFLICT; sin sesión ni mutación }
         '422': { $ref: '#/components/responses/GoogleAuthValidationError' }
         '429': { $ref: '#/components/responses/RateLimited' }
+  /auth/challenge:
+    get:
+      tags: [Auth]
+      operationId: beginCaptchaChallenge
+      summary: Desafío Turnstile alojado; integración deshabilitada hasta configurar claves reales
+      security: []
+      x-puntazo-implementation: IMPLEMENTED
+      parameters:
+        - { name: flow, in: query, required: true, schema: { type: string, enum: [signup, identity] } }
+        - { name: state, in: query, required: true, schema: { type: string }, description: Estado base64url aleatorio de 24 a 64 bytes; un uso }
+        - { name: platform, in: query, schema: { type: string, enum: [web, native], default: native } }
+      responses:
+        '200': { description: HTML widget con CSP; postMessage web o callback puntazo://auth/captcha con receipt y state; nunca token proveedor en URL }
+        '422': { description: CAPTCHA_INVALID }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { description: CAPTCHA_UNAVAILABLE; integración deshabilitada o dependencia no disponible }
+  /auth/challenge/verify:
+    post:
+      tags: [Auth]
+      operationId: verifyCaptchaChallenge
+      summary: Siteverify valida hostname, action y cdata; emite receipt opaco compartido de un uso
+      security: []
+      x-puntazo-implementation: IMPLEMENTED
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [token, flow, state]
+              properties:
+                token: { type: string, maxLength: 2048 }
+                flow: { type: string, enum: [signup, identity] }
+                state: { type: string }
+      responses:
+        '200':
+          description: Envelope con receipt, expires_in 120 y state; entregar receipt en X-Captcha-Token del flujo correspondiente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      receipt: { type: string }
+                      expires_in: { type: integer, const: 120 }
+                      state: { type: string }
+                  request_id: { type: string }
+        '422': { description: CAPTCHA_INVALID }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { description: CAPTCHA_UNAVAILABLE }
   /auth/google/link:
     post:
       tags: [Auth]
@@ -461,6 +523,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorEnvelope' }
     delete:
+      description: Requiere prueba de autenticación de los últimos diez minutos. Refresh conserva auth_time; reauthenticate devuelve sesión nueva. RECENT_AUTH_REQUIRED si la prueba falta o venció.
       tags: [Cuenta]
       operationId: anonymizeCurrentUser
       summary: Anonimiza la cuenta y preserva el ledger histórico
@@ -814,6 +877,7 @@ paths:
       parameters: [{ name: token, in: path, required: true, schema: { type: string, minLength: 40, maxLength: 256 } }]
       responses:
         '200': { description: Invitación válida, content: { application/json: { schema: { $ref: '#/components/schemas/PublicInvitationEnvelope' } } } }
+        '429': { $ref: '#/components/responses/RateLimited' }
         '422': { description: IDENTITY_TOKEN_INVALID }
   /invitaciones/{token}/registrar:
     post:
@@ -822,7 +886,8 @@ paths:
       summary: Crea la cuenta de personal desde una invitación y activa su membresía
       operationId: registerBrandInvitation
       x-puntazo-implementation: IMPLEMENTED
-      parameters: [{ name: token, in: path, required: true, schema: { type: string, minLength: 40, maxLength: 256 } }]
+      parameters:
+        - $ref: '#/components/parameters/CaptchaReceipt' [{ name: token, in: path, required: true, schema: { type: string, minLength: 40, maxLength: 256 } }]
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/RegisterInvitationRequest' } } } }
       responses:
         '201': { description: Cuenta y membresía creadas; sesión iniciada, content: { application/json: { schema: { $ref: '#/components/schemas/AuthEnvelope' } } } }
@@ -1998,6 +2063,12 @@ components:
       in: header
       required: true
       schema: { type: string, const: '1' }
+    CaptchaReceipt:
+      name: X-Captcha-Token
+      in: header
+      required: false
+      description: Receipt CAPTCHA de un uso, flow signup en altas o identity en solicitudes de correo. Exigido sólo si CAPTCHA_ENABLED; activación pendiente de claves reales.
+      schema: { type: string }
     ClientPlatform:
       name: X-Client-Platform
       in: header
@@ -2861,7 +2932,7 @@ components:
     CurrentUser:
       type: object
       additionalProperties: false
-      required: [user, memberships, onboarding_complete, adult_confirmed]
+      required: [user, memberships, onboarding_complete, adult_confirmed, auth_methods]
       properties:
         user: { $ref: '#/components/schemas/User' }
         memberships:
@@ -2869,6 +2940,13 @@ components:
           items: { $ref: '#/components/schemas/Membership' }
         onboarding_complete: { type: boolean }
         adult_confirmed: { type: boolean }
+        auth_methods:
+          type: object
+          additionalProperties: false
+          required: [password, google]
+          properties:
+            password: { type: boolean }
+            google: { type: boolean }
     CurrentUserEnvelope:
       type: object
       additionalProperties: false

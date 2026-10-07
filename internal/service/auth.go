@@ -93,7 +93,10 @@ func (s *Service) Login(ctx context.Context, req model.LoginRequest) (model.Auth
 	}
 	u, err := s.Repo.GetUserByEmail(ctx, email)
 	if err != nil {
-		return model.AuthData{}, ErrInvalidCredentials
+		if errors.Is(err, repository.ErrNotFound) {
+			return model.AuthData{}, ErrInvalidCredentials
+		}
+		return model.AuthData{}, err
 	}
 	if !u.User.Active || u.PasswordHash == nil || len(req.Password) > 72 {
 		return model.AuthData{}, ErrInvalidCredentials
@@ -279,6 +282,9 @@ func (s *Service) issueSession(ctx context.Context, u model.User) (model.Session
 		return model.Session{}, err
 	}
 	if err = s.Repo.CreateSession(ctx, credentials.id, u.ID, credentials.hash, credentials.expiresAt, credentials.authTime, u.AuthVersion); err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return model.Session{}, ErrInvalidCredentials
+		}
 		return model.Session{}, err
 	}
 	return s.session(u, credentials)
