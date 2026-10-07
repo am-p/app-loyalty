@@ -50,7 +50,8 @@ func (r *Repository) CreatePreview(ctx context.Context, actorID int64, req model
 		balance = 0
 	}
 	amount := int64(1)
-	if programType == "PUNTOS" {
+	// Manual points are input for credit only; redemption uses the benefit cost.
+	if programType == "PUNTOS" && req.Operation == "ACUMULACION" {
 		if req.PointsAmount == nil || *req.PointsAmount < 1 || *req.PointsAmount > 100000 {
 			return model.Preview{}, ErrInvalidRequest
 		}
