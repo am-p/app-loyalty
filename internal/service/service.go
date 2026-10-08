@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"clientesFrecuentes/internal/auth"
+	"clientesFrecuentes/internal/challenge"
 	"clientesFrecuentes/internal/config"
 	"clientesFrecuentes/internal/model"
 	"clientesFrecuentes/internal/places"
@@ -43,6 +44,7 @@ type MediaStore interface {
 }
 
 type Service struct {
+	Challenge         *challenge.Manager
 	Repo              *repository.Repository
 	Tokens            *auth.Tokens
 	Config            config.Config
@@ -65,4 +67,14 @@ func New(repo *repository.Repository, tokens *auth.Tokens, cfg config.Config, me
 		s.Media = media[0]
 	}
 	return s
+}
+
+func (s *Service) checkCaptcha(ctx context.Context, flow string) error {
+	if !s.Config.CaptchaEnabled {
+		return nil
+	}
+	if s.Challenge == nil {
+		return challenge.ErrUnavailable
+	}
+	return s.Challenge.Check(ctx, flow)
 }

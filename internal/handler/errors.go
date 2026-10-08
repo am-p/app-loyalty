@@ -4,7 +4,9 @@ import (
 	"errors"
 	"net/http"
 
+	"clientesFrecuentes/internal/challenge"
 	"clientesFrecuentes/internal/identitycode"
+	"clientesFrecuentes/internal/password"
 	"clientesFrecuentes/internal/repository"
 	"clientesFrecuentes/internal/service"
 	"clientesFrecuentes/internal/web"
@@ -33,6 +35,15 @@ func writeErr(c *gin.Context, err error) {
 	}
 
 	switch {
+	case errors.Is(err, challenge.ErrUnavailable):
+		web.Error(c, http.StatusServiceUnavailable, "CAPTCHA_UNAVAILABLE", "El desafío de seguridad no está disponible", nil)
+	case errors.Is(err, challenge.ErrRequired):
+		web.Error(c, http.StatusUnprocessableEntity, "CAPTCHA_REQUIRED", "Completá el desafío de seguridad", nil)
+	case errors.Is(err, challenge.ErrInvalid):
+		web.Error(c, http.StatusUnprocessableEntity, "CAPTCHA_INVALID", "El desafío venció o ya fue utilizado", nil)
+	case errors.Is(err, password.ErrBusy):
+		c.Header("Retry-After", "1")
+		web.Error(c, http.StatusServiceUnavailable, "AUTH_CAPACITY_EXCEEDED", "Demasiados intentos; reintentá en un momento", nil)
 	case errors.Is(err, repository.ErrQuoteExpired):
 		web.Error(c, http.StatusConflict, "QUOTE_EXPIRED", "La cotización venció. Revisá el importe actualizado.", nil)
 	case errors.Is(err, repository.ErrQuoteChanged):
@@ -73,6 +84,10 @@ func writeErr(c *gin.Context, err error) {
 		web.Error(c, http.StatusUnprocessableEntity, "INVALID_REQUEST", "Solicitud inválida", nil)
 	case errors.Is(err, service.ErrAccountTypeRequired):
 		web.Error(c, http.StatusUnprocessableEntity, "ACCOUNT_TYPE_REQUIRED", "Elegí si la cuenta es cliente o comercio", map[string]any{"next_action": "SELECT_ACCOUNT_TYPE"})
+	case errors.Is(err, repository.ErrGoogleLinkRequired):
+		web.Error(c, http.StatusConflict, "GOOGLE_LINK_REQUIRED", "Ingresá con tu contraseña y vinculá Google desde tu cuenta", nil)
+	case errors.Is(err, repository.ErrGoogleIdentityConflict):
+		web.Error(c, http.StatusConflict, "GOOGLE_IDENTITY_CONFLICT", "La identidad Google ya está vinculada a otra cuenta", nil)
 	case errors.Is(err, service.ErrInvalidCredentials):
 		web.Error(c, http.StatusUnauthorized, "UNAUTHENTICATED", "Credenciales inválidas", nil)
 	case errors.Is(err, service.ErrRecentAuthRequired):

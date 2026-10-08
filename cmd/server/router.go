@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"clientesFrecuentes/internal/auth"
+	"clientesFrecuentes/internal/challenge"
 	"clientesFrecuentes/internal/handler"
 	"clientesFrecuentes/internal/middleware"
 	"clientesFrecuentes/internal/web"
@@ -16,12 +17,18 @@ import (
 func newRouter(h *handler.Handler, tokens *auth.Tokens, logger *slog.Logger) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
-	r.Use(middleware.RequestContext(logger), middleware.Recovery(logger), middleware.CORS())
+	r.Use(middleware.RequestContext(logger), middleware.Recovery(logger), middleware.CORS(), func(c *gin.Context) {
+		c.Header("Cache-Control", "no-store, private")
+		c.Header("Pragma", "no-cache")
+		c.Request = c.Request.WithContext(challenge.WithReceipt(c.Request.Context(), c.GetHeader("X-Captcha-Token")))
+		c.Next()
+	})
 	r.NoRoute(func(c *gin.Context) { web.Error(c, http.StatusNotFound, "NOT_FOUND", "Recurso no encontrado", nil) })
 	// A stream must not inherit the REST deadline. Authentication still runs
 	// before the SSE handler, and the handler revalidates the session while open.
 	stream := r.Group("/v1")
 	stream.Use(middleware.RequireAuth(tokens, h.Repo))
+	stream.Use(h.RequireAdult)
 	stream.GET("/clientes/me/tarjetas/events", h.CardEventsStream)
 	rest := r.Group("")
 	rest.Use(middleware.Timeout(12 * time.Second))
@@ -65,16 +72,19 @@ func newRouter(h *handler.Handler, tokens *auth.Tokens, logger *slog.Logger) *gi
 	authenticated := v1.Group("")
 	authenticated.Use(middleware.RequireAuth(tokens, h.Repo))
 	authenticated.GET("/me", h.Me)
+	authenticated.POST("/me/age-confirmation", h.ConfirmAdult)
 	authenticated.PATCH("/me", h.UpdateMe)
 	authenticated.POST("/me/email-change/request", h.RequestEmailChange)
 	authenticated.GET("/me/foto", h.ProfilePhoto)
 	authenticated.POST("/me/foto", h.UploadProfilePhoto)
 	authenticated.GET("/me/export", h.ExportMe)
 	authenticated.DELETE("/me", h.DeleteMe)
-	authenticated.POST("/auth/logout", h.Logout)
+	authenticated.POST("/auth/google/link", h.LinkGoogle)
+	authenticated.POST("/auth/reauthenticate", h.Reauthenticate)
+	authenticated.Use(h.RequireAdult)
 	registerMerchantRoutes(authenticated, h)
 	registerCustomerRoutes(authenticated, h)
 	registerMovementRoutes(authenticated, h)
-	registerLegacyRoutes(rest, h, middleware.RequireAuth(tokens, h.Repo))
+	registerLegacyRoutes(rest, h, middleware.RequireAuth(tokens, h.Repo), h.RequireAdult)
 	return r
 }

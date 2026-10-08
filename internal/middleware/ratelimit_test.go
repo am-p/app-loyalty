@@ -110,7 +110,7 @@ func TestRedisFailureIsClosedUnlessDevelopmentFallbackWasExplicit(t *testing.T) 
 	}
 }
 
-func TestClientIPHonorsExactProxyCount(t *testing.T) {
+func TestClientIPRequiresCIDRTrust(t *testing.T) {
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest("GET", "/", nil)
 	c.Request.RemoteAddr = "10.0.0.3:1234"
@@ -118,7 +118,8 @@ func TestClientIPHonorsExactProxyCount(t *testing.T) {
 	if got := ClientIP(c, 0); got != "10.0.0.3" {
 		t.Fatalf("untrusted got %s", got)
 	}
-	if got := ClientIP(c, 2); got != "203.0.113.7" {
+	trusted, _ := ParseTrustedProxyCIDRs([]string{"10.0.0.0/8"})
+	if got := ClientIP(c, 2, trusted...); got != "203.0.113.7" {
 		t.Fatalf("trusted got %s", got)
 	}
 }

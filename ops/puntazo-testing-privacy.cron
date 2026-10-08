@@ -1,0 +1,4 @@
+SHELL=/bin/sh
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+* * * * * root /usr/bin/flock -n /run/puntazo-testing-journal.lock /opt/puntazo/export-testing-deletions.py >> /var/log/puntazo-privacy-ops.log 2>&1
+13 3 * * * root /opt/puntazo/testing-backup-with-journal.sh >> /var/log/puntazo-privacy-ops.log 2>&1

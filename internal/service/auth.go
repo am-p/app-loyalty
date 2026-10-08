@@ -15,6 +15,7 @@ import (
 	"clientesFrecuentes/internal/model"
 	"clientesFrecuentes/internal/repository"
 
+	"clientesFrecuentes/internal/password"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -41,7 +42,10 @@ func (s *Service) RegisterCustomer(ctx context.Context, req model.RegisterCustom
 	if err != nil {
 		return model.RegisterCustomerData{}, err
 	}
-	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	if err = s.checkCaptcha(ctx, "signup"); err != nil {
+		return model.RegisterCustomerData{}, err
+	}
+	hash, err := password.Generate(ctx, []byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
 		return model.RegisterCustomerData{}, err
 	}
@@ -89,9 +93,18 @@ func (s *Service) Login(ctx context.Context, req model.LoginRequest) (model.Auth
 	}
 	u, err := s.Repo.GetUserByEmail(ctx, email)
 	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return model.AuthData{}, ErrInvalidCredentials
+		}
+		return model.AuthData{}, err
+	}
+	if !u.User.Active || u.PasswordHash == nil || len(req.Password) > 72 {
 		return model.AuthData{}, ErrInvalidCredentials
 	}
-	if !u.User.Active || u.PasswordHash == nil || bcrypt.CompareHashAndPassword([]byte(*u.PasswordHash), []byte(req.Password)) != nil {
+	if err = password.Compare(ctx, []byte(*u.PasswordHash), []byte(req.Password)); err != nil {
+		if errors.Is(err, password.ErrBusy) {
+			return model.AuthData{}, err
+		}
 		return model.AuthData{}, ErrInvalidCredentials
 	}
 	if u.EmailVerifiedAt == nil {
@@ -148,6 +161,9 @@ func (s *Service) LoginGoogle(ctx context.Context, req model.GoogleAuthRequest) 
 	name, lastName, err = registrationNames(name, lastName)
 	if err != nil {
 		return model.AuthData{}, &SignupProfileError{Name: identity.Name, LastName: identity.LastName}
+	}
+	if err = s.checkCaptcha(ctx, "signup"); err != nil {
+		return model.AuthData{}, err
 	}
 	if accountType == "CLIENTE_FINAL" {
 		if req.MerchantRegistration != nil {
@@ -265,7 +281,10 @@ func (s *Service) issueSession(ctx context.Context, u model.User) (model.Session
 	if err != nil {
 		return model.Session{}, err
 	}
-	if err = s.Repo.CreateSession(ctx, credentials.id, u.ID, credentials.hash, credentials.expiresAt, credentials.authTime); err != nil {
+	if err = s.Repo.CreateSession(ctx, credentials.id, u.ID, credentials.hash, credentials.expiresAt, credentials.authTime, u.AuthVersion); err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return model.Session{}, ErrInvalidCredentials
+		}
 		return model.Session{}, err
 	}
 	return s.session(u, credentials)
@@ -303,6 +322,9 @@ func (s *Service) RequestEmailVerification(ctx context.Context, req model.EmailR
 	if err != nil {
 		return ErrInvalidRequest
 	}
+	if err = s.checkCaptcha(ctx, "identity"); err != nil {
+		return err
+	}
 	token, hash, err := identityToken()
 	if err != nil {
 		return err
@@ -326,6 +348,9 @@ func (s *Service) RequestPasswordReset(ctx context.Context, req model.EmailReque
 	if err != nil {
 		return ErrInvalidRequest
 	}
+	if err = s.checkCaptcha(ctx, "identity"); err != nil {
+		return err
+	}
 	token, hash, err := identityToken()
 	if err != nil {
 		return err
@@ -341,7 +366,13 @@ func (s *Service) ConfirmPasswordReset(ctx context.Context, req model.PasswordRe
 	if err != nil {
 		return ErrIdentityToken
 	}
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
+	if err = s.Repo.ValidatePasswordReset(ctx, hash, s.Now()); err != nil {
+		if errors.Is(err, repository.ErrIdentityTokenInvalid) {
+			return ErrIdentityToken
+		}
+		return err
+	}
+	passwordHash, err := password.Generate(ctx, []byte(req.NewPassword), bcrypt.DefaultCost)
 	if err != nil {
 		return err
 	}
@@ -360,4 +391,15 @@ func newSessionCredentials() (sessionCredentials, error) {
 	hash := sha256.Sum256([]byte(encoded))
 	now := time.Now().UTC()
 	return sessionCredentials{id: uuid.NewString(), raw: encoded, hash: hash[:], expiresAt: now.Add(refreshLifetime), authTime: now}, nil
+}
+
+func (s *Service) LogoutRefresh(ctx context.Context, token string) error {
+	if token == "" {
+		return nil
+	}
+	if len(token) < 40 || len(token) > 256 {
+		return ErrInvalidRequest
+	}
+	hash := sha256.Sum256([]byte(token))
+	return s.Repo.RevokeRefreshFamily(ctx, hash[:])
 }

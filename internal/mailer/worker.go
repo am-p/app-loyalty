@@ -7,17 +7,24 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"strings"
 	"time"
 )
 
+type DeliveryBudget interface {
+	Allow(context.Context, string, int, time.Duration) (bool, int, error)
+}
 type Worker struct {
-	Repo         *repository.Repository
-	Sender       Sender
-	Logger       *slog.Logger
-	Interval     time.Duration
-	PublicAppURL string
-	CipherKey    []byte
-	LogoStore    interface {
+	GlobalHourlyBudget    int
+	RecipientHourlyBudget int
+	Budget                DeliveryBudget
+	Repo                  *repository.Repository
+	Sender                Sender
+	Logger                *slog.Logger
+	Interval              time.Duration
+	PublicAppURL          string
+	CipherKey             []byte
+	LogoStore             interface {
 		ReadEmailImage(context.Context, string) ([]byte, string, error)
 	}
 }
@@ -38,6 +45,12 @@ func (w Worker) Run(ctx context.Context) {
 	}
 }
 func (w Worker) flush(ctx context.Context) {
+	if w.GlobalHourlyBudget < 1 {
+		w.GlobalHourlyBudget = 200
+	}
+	if w.RecipientHourlyBudget < 1 {
+		w.RecipientHourlyBudget = 6
+	}
 	items, err := w.Repo.ClaimEmails(ctx, 20)
 	if err != nil {
 		w.Logger.Error("email outbox claim failed", "error", err)
@@ -101,6 +114,19 @@ func (w Worker) flush(ctx context.Context) {
 		}
 		if item.Kind == "RESET_PASSWORD" || item.Kind == "BRAND_INVITATION" || item.Kind == "INFLUENCER_WELCOME" || item.Kind == "SUBSCRIPTION_CONFIRMATION" {
 			message.InlineImages = append(message.InlineImages, model.EmailInlineImage{ContentID: mascotContentID, Filename: "mr-puntazo.png", ContentType: "image/png", Data: mascotPNG})
+		}
+		if w.Budget != nil {
+			allowed, retry, budgetErr := w.Budget.Allow(ctx, "mail-delivery:global", w.GlobalHourlyBudget, time.Hour)
+			if budgetErr == nil && allowed {
+				allowed, retry, budgetErr = w.Budget.Allow(ctx, "mail-delivery:recipient:"+strings.ToLower(item.To), w.RecipientHourlyBudget, time.Hour)
+			}
+			if budgetErr != nil || !allowed {
+				if budgetErr != nil {
+					retry = 60
+				}
+				_ = w.Repo.DeferEmail(ctx, item.ID, item.LeaseOwner, retry)
+				continue
+			}
 		}
 		if err = w.Sender.Send(ctx, message); err != nil {
 			w.Logger.Warn("email delivery failed", "outbox_id", item.ID, "attempt", item.Attempts, "error", err)

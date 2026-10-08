@@ -73,40 +73,44 @@ func (r *Repository) LoginGoogle(ctx context.Context, googleID, email, name, las
 	return r.CreateGoogleCustomer(ctx, googleID, email, name, lastName, provisionalQRHash, finalQRHash)
 }
 
-// ResolveGoogleUser logs in an already linked account or links Google to the
-// active account with the same verified email. It never creates an account.
+// ResolveGoogleUser resolves only an already associated subject. Email possession
+// never authorizes linking or replacing another identity.
 func (r *Repository) ResolveGoogleUser(ctx context.Context, googleID, email string) (model.User, error) {
-	tx, err := r.Pool.BeginTx(ctx, pgx.TxOptions{})
+	var u model.User
+	err := r.Pool.QueryRow(ctx, `SELECT id,email::text,nombre,apellido,alias,foto_url,tipo_cuenta,activo,(email_verified_at IS NOT NULL),auth_version,version,created_at,COALESCE(codigo_usuario,'#USER-'||lpad(id::text,greatest(4,length(id::text)),'0')) FROM usuarios WHERE google_id=$1 AND activo AND deleted_at IS NULL`, googleID).Scan(&u.ID, &u.Email, &u.Name, &u.LastName, &u.Alias, &u.PhotoURL, &u.AccountType, &u.Active, &u.EmailVerified, &u.AuthVersion, &u.Version, &u.CreatedAt, &u.UserCode)
+	if err == nil {
+		return u, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return model.User{}, err
+	}
+	existing, err := r.GetUserByEmail(ctx, email)
+	if errors.Is(err, ErrNotFound) {
+		return model.User{}, ErrNotFound
+	}
 	if err != nil {
 		return model.User{}, err
 	}
-	defer tx.Rollback(ctx)
-	var u model.User
-	err = tx.QueryRow(ctx, `SELECT id,email::text,nombre,apellido,alias,foto_url,tipo_cuenta,activo,(email_verified_at IS NOT NULL),auth_version,version,created_at,COALESCE(codigo_usuario,'#USER-'||lpad(id::text,greatest(4,length(id::text)),'0')) FROM usuarios WHERE google_id=$1 AND activo AND deleted_at IS NULL FOR UPDATE`, googleID).Scan(&u.ID, &u.Email, &u.Name, &u.LastName, &u.Alias, &u.PhotoURL, &u.AccountType, &u.Active, &u.EmailVerified, &u.AuthVersion, &u.Version, &u.CreatedAt, &u.UserCode)
-	if err == nil {
-		if err = tx.Commit(ctx); err != nil {
-			return model.User{}, err
-		}
-		return u, nil
+	if !existing.User.Active {
+		return model.User{}, ErrForbidden
 	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return model.User{}, err
+	if existing.GoogleID != nil && *existing.GoogleID == googleID {
+		return existing.User, nil
 	}
-	err = tx.QueryRow(ctx, `SELECT id,email::text,nombre,apellido,alias,foto_url,tipo_cuenta,activo,(email_verified_at IS NOT NULL),auth_version,version,created_at,COALESCE(codigo_usuario,'#USER-'||lpad(id::text,greatest(4,length(id::text)),'0')) FROM usuarios WHERE email=$1 AND activo AND deleted_at IS NULL FOR UPDATE`, email).Scan(&u.ID, &u.Email, &u.Name, &u.LastName, &u.Alias, &u.PhotoURL, &u.AccountType, &u.Active, &u.EmailVerified, &u.AuthVersion, &u.Version, &u.CreatedAt, &u.UserCode)
-	if err == nil {
-		if _, err = tx.Exec(ctx, `UPDATE usuarios SET google_id=$1,email_verified_at=COALESCE(email_verified_at,now()) WHERE id=$2`, googleID, u.ID); err != nil {
-			return model.User{}, normalize(err)
-		}
-		if err = tx.Commit(ctx); err != nil {
-			return model.User{}, err
-		}
-		u.EmailVerified = true
-		return u, nil
+	if existing.GoogleID != nil && *existing.GoogleID != googleID {
+		return model.User{}, ErrGoogleIdentityConflict
 	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return model.User{}, err
+	return model.User{}, ErrGoogleLinkRequired
+}
+
+func (r *Repository) GetAuthUserByID(ctx context.Context, id int64) (AuthUser, error) {
+	var u AuthUser
+	err := r.Pool.QueryRow(ctx, `SELECT id,email::text,password_hash,google_id,nombre,apellido,alias,foto_url,tipo_cuenta,activo,email_verified_at,auth_version,version,created_at,COALESCE(codigo_usuario,'#USER-'||lpad(id::text,greatest(4,length(id::text)),'0')) FROM usuarios WHERE id=$1 AND activo AND deleted_at IS NULL`, id).Scan(&u.User.ID, &u.User.Email, &u.PasswordHash, &u.GoogleID, &u.User.Name, &u.User.LastName, &u.User.Alias, &u.User.PhotoURL, &u.User.AccountType, &u.User.Active, &u.EmailVerifiedAt, &u.User.AuthVersion, &u.User.Version, &u.User.CreatedAt, &u.User.UserCode)
+	u.User.EmailVerified = u.EmailVerifiedAt != nil
+	if errors.Is(err, pgx.ErrNoRows) {
+		return AuthUser{}, ErrNotFound
 	}
-	return model.User{}, ErrNotFound
+	return u, err
 }
 
 func (r *Repository) CreateGoogleCustomer(ctx context.Context, googleID, email, name, lastName string, provisionalQRHash []byte, finalQRHash func(int64) []byte) (model.User, error) {
@@ -219,5 +223,13 @@ func (r *Repository) GetCurrentUser(ctx context.Context, id int64) (model.Curren
 			return model.CurrentUser{}, err
 		}
 	}
-	return model.CurrentUser{User: u, Memberships: memberships, OnboardingComplete: onboardingComplete}, nil
+	confirmed, err := r.AdultConfirmed(ctx, id)
+	if err != nil {
+		return model.CurrentUser{}, err
+	}
+	var methods model.AuthMethods
+	if err = r.Pool.QueryRow(ctx, `SELECT password_hash IS NOT NULL,google_id IS NOT NULL FROM usuarios WHERE id=$1`, id).Scan(&methods.Password, &methods.Google); err != nil {
+		return model.CurrentUser{}, err
+	}
+	return model.CurrentUser{User: u, Memberships: memberships, OnboardingComplete: onboardingComplete, AdultConfirmed: confirmed, AuthMethods: methods}, nil
 }

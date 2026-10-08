@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"clientesFrecuentes/internal/service"
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
@@ -11,10 +12,10 @@ import (
 	"strings"
 	"time"
 
+	"clientesFrecuentes/internal/password"
 	"clientesFrecuentes/internal/repository"
 	"clientesFrecuentes/internal/web"
 	"github.com/gin-gonic/gin"
-	"golang.org/x/crypto/bcrypt"
 )
 
 const backofficeCookie = "puntazo_backoffice"
@@ -34,7 +35,15 @@ func (h *Handler) BackofficeLogin(c *gin.Context) {
 		return
 	}
 	u, err := h.Repo.BackofficeUserByEmail(c.Request.Context(), strings.ToLower(strings.TrimSpace(in.Email)))
-	if err != nil || bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(in.Password)) != nil {
+	if err != nil {
+		writeErr(c, service.ErrInvalidCredentials)
+		return
+	}
+	if err = password.Compare(c.Request.Context(), []byte(u.PasswordHash), []byte(in.Password)); err != nil {
+		if errors.Is(err, password.ErrBusy) {
+			writeErr(c, err)
+			return
+		}
 		web.Error(c, http.StatusUnauthorized, "UNAUTHENTICATED", "Credenciales inválidas", nil)
 		return
 	}

@@ -63,8 +63,10 @@ func (h *Handler) CardEventsStream(c *gin.Context) {
 	lastSent := c.GetHeader("Last-Event-ID")
 	if lastSent != revision {
 		if err := writeCardEvent(c, controller, revision); err != nil {
+			h.CardEvents.RecordDelivery(false)
 			return
 		}
+		h.CardEvents.RecordDelivery(true)
 		lastSent = revision
 	} else if err := writeSSE(c, controller, ": connected\n\n"); err != nil {
 		return
@@ -101,8 +103,10 @@ func (h *Handler) CardEventsStream(c *gin.Context) {
 			}
 			if current != lastSent {
 				if err := writeCardEvent(c, controller, current); err != nil {
+					h.CardEvents.RecordDelivery(false)
 					return
 				}
+				h.CardEvents.RecordDelivery(true)
 				lastSent = current
 			}
 		}

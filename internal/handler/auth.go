@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"clientesFrecuentes/internal/model"
 	"clientesFrecuentes/internal/service"
@@ -90,17 +91,37 @@ func (h *Handler) Refresh(c *gin.Context) {
 }
 
 func (h *Handler) Logout(c *gin.Context) {
-	platform, validPlatform := clientPlatform(c)
-	if !validPlatform {
-		return
-	}
-	a, ok := actor(c)
+	platform, ok := clientPlatform(c)
 	if !ok {
 		return
 	}
-	if err := h.Service.Logout(c.Request.Context(), a.ID, a.SessionID); err != nil {
-		writeErr(c, err)
+	if !h.limit(c, "logout:ip:"+h.clientIP(c), 120, loginWindow) {
 		return
+	}
+	var refresh string
+	if platform == "web" {
+		refresh, _ = c.Cookie(refreshCookieName)
+	} else if c.Request.ContentLength != 0 {
+		var req model.RefreshRequest
+		if decode(c, &req) != nil {
+			writeErr(c, service.ErrInvalidRequest)
+			return
+		}
+		refresh = req.RefreshToken
+	}
+	if refresh != "" {
+		if err := h.Service.LogoutRefresh(c.Request.Context(), refresh); err != nil {
+			writeErr(c, err)
+			return
+		}
+	} else if raw, found := strings.CutPrefix(c.GetHeader("Authorization"), "Bearer "); found && h.Tokens != nil {
+		id, _, sid, _, _, err := h.Tokens.ParseSessionContext(raw)
+		if err == nil {
+			if err = h.Service.Logout(c.Request.Context(), id, sid); err != nil {
+				writeErr(c, err)
+				return
+			}
+		}
 	}
 	if platform == "web" {
 		clearRefreshCookie(c)
@@ -217,6 +238,10 @@ func (h *Handler) DeleteMe(c *gin.Context) {
 		writeErr(c, service.ErrInvalidRequest)
 		return
 	}
+	if a.AuthTime.IsZero() || time.Since(a.AuthTime) > 10*time.Minute || a.AuthTime.After(time.Now().Add(time.Minute)) {
+		writeErr(c, service.ErrRecentAuthRequired)
+		return
+	}
 	data, err := h.Service.AnonymizeCurrentUser(c.Request.Context(), a.ID, version, req)
 	if err != nil {
 		writeErr(c, err)
@@ -224,4 +249,53 @@ func (h *Handler) DeleteMe(c *gin.Context) {
 	}
 	clearRefreshCookie(c)
 	c.JSON(http.StatusAccepted, web.Envelope[model.Anonymization]{Data: data, RequestID: web.RequestID(c)})
+}
+
+func (h *Handler) LinkGoogle(c *gin.Context) {
+	platform, ok := clientPlatform(c)
+	if !ok {
+		return
+	}
+	a, ok := actor(c)
+	if !ok {
+		return
+	}
+	var req model.GoogleLinkRequest
+	if decode(c, &req) != nil {
+		writeErr(c, service.ErrInvalidRequest)
+		return
+	}
+	if !h.limit(c, "google-link:ip:"+h.clientIP(c), loginAttempts, loginWindow) || !h.limit(c, "google-link:user:"+strconv.FormatInt(a.ID, 10), loginAttempts, loginWindow) {
+		return
+	}
+	data, err := h.Service.LinkGoogle(c.Request.Context(), a.ID, a.SessionID, a.AuthVersion, req)
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	writeAuth(c, http.StatusOK, platform, data)
+}
+func (h *Handler) Reauthenticate(c *gin.Context) {
+	platform, ok := clientPlatform(c)
+	if !ok {
+		return
+	}
+	a, ok := actor(c)
+	if !ok {
+		return
+	}
+	var req model.ReauthenticateRequest
+	if decode(c, &req) != nil {
+		writeErr(c, service.ErrInvalidRequest)
+		return
+	}
+	if !h.limit(c, "reauthenticate:ip:"+h.clientIP(c), loginAttempts, loginWindow) || !h.limit(c, "reauthenticate:user:"+strconv.FormatInt(a.ID, 10), loginAttempts, loginWindow) {
+		return
+	}
+	data, err := h.Service.Reauthenticate(c.Request.Context(), a.ID, a.SessionID, a.AuthVersion, req)
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	writeAuth(c, http.StatusOK, platform, data)
 }

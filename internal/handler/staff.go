@@ -127,6 +127,9 @@ func (h *Handler) ResendInvitation(c *gin.Context) {
 	c.JSON(http.StatusOK, web.Envelope[model.BrandInvitation]{Data: item, RequestID: web.RequestID(c)})
 }
 func (h *Handler) PublicInvitation(c *gin.Context) {
+	if !h.limit(c, "invitation-read:ip:"+h.clientIP(c), 60, loginWindow) {
+		return
+	}
 	item, err := h.Service.PublicInvitation(c.Request.Context(), c.Param("token"))
 	if err != nil {
 		writeErr(c, err)
