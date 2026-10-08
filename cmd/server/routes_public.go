@@ -10,6 +10,7 @@ func registerPublicRoutes(r *gin.RouterGroup, h *handler.Handler) {
 	r.GET("/health/live", h.HealthLive)
 	r.GET("/health/ready", h.HealthReady)
 	r.GET("/version", h.Version)
+	r.GET("/suscripciones/precios", h.SubscriptionPrices)
 	r.POST("/auth/register", h.RegisterCustomer)
 	r.POST("/auth/login", h.Login)
 	r.POST("/auth/google", h.LoginGoogle)
