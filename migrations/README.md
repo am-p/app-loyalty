@@ -1,5 +1,11 @@
 # Migraciones
 
+## Web Push 0036
+
+`0036_web_push` agrega claves, suscripciones y notificaciones Web Push después
+de `0035_closed_test_privacy`. Aplicar ambas migraciones en orden antes de
+iniciar una API con `EXPECTED_SCHEMA_VERSION=0036`.
+
 ## Prueba cerrada 0035
 
 `0035_closed_test_privacy` agrega la confirmación 18+, la cola de borrado de fotos

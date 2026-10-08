@@ -230,6 +230,7 @@ func TestCaptchaActivationFailsClosedWithoutRealKeysAndSharedRedis(t *testing.T)
 		t.Fatal("provider bypass test key accepted")
 	}
 }
+
 func TestTrustedProxyCIDRsRejectBroadMalformedTrustInput(t *testing.T) {
 	setRequiredEnv(t)
 	t.Setenv("TRUSTED_PROXY_CIDRS", "not-a-network")
