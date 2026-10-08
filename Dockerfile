@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM golang:1.25.13-alpine AS build
+FROM golang:1.26.8-alpine AS build
 
 WORKDIR /src
 
@@ -9,11 +9,13 @@ RUN go mod download
 COPY cmd ./cmd
 COPY internal ./internal
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /out/puntazo-api ./cmd/server \
-    && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /out/puntazo-migrate ./cmd/migrate
+    && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /out/puntazo-migrate ./cmd/migrate \
+    && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /out/puntazo-deletion-journal ./cmd/deletion-journal
 
-FROM alpine:3.21 AS runtime
+FROM alpine:3.21.8 AS runtime
 
-RUN apk add --no-cache ca-certificates wget \
+RUN apk upgrade --no-cache \
+    && apk add --no-cache ca-certificates \
     && addgroup -S app \
     && adduser -S -G app -h /nonexistent -s /sbin/nologin app
 
@@ -30,6 +32,7 @@ CMD ["up"]
 FROM runtime AS api
 
 COPY --from=build /out/puntazo-api /usr/local/bin/puntazo-api
+COPY --from=build /out/puntazo-deletion-journal /usr/local/bin/puntazo-deletion-journal
 COPY --from=build /out/puntazo-migrate /usr/local/bin/puntazo-migrate
 COPY migrations /migrations
 

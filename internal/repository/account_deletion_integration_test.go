@@ -212,7 +212,7 @@ func TestPostgresAccountDeletion(t *testing.T) {
 			if !errors.Is(err, tc.errorWant) {
 				t.Fatalf("deletion err=%v want=%v", err, tc.errorWant)
 			}
-			if tc.deleted && (!out.AccessRevoked || !out.LedgerPreserved || out.Status != "COMPLETADA") {
+			if tc.deleted && (!out.AccessRevoked || out.LedgerPreserved || out.Status != "COMPLETADA") {
 				t.Fatalf("deletion=%+v", out)
 			}
 			if len(f.provider.keys) != tc.calls {

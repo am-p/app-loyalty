@@ -219,8 +219,8 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if _, err = pool.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES('0018')`); err != nil {
 		t.Fatal(err)
 	}
-	for _, version := range []string{"0019", "0020", "0021", "0022", "0023", "0024", "0025", "0026", "0027", "0028", "0029", "0030", "0031", "0032", "0033"} {
-		migration, readErr := os.ReadFile(filepath.Join("..", "..", "migrations", version+map[string]string{"0019": "_mercado_pago_subscriptions", "0020": "_subscription_checkout_reservation", "0021": "_expo_push", "0022": "_google_reviews", "0023": "_referrals", "0024": "_referral_billing", "0025": "_subscription_prices", "0026": "_subscription_price_change_history", "0027": "_referral_campaign_editing", "0028": "_influencer_welcome_emails", "0029": "_subscription_confirmation_emails", "0030": "_email_change", "0031": "_card_templates", "0032": "_first_login_trial", "0033": "_user_codes"}[version]+".up.sql"))
+	for _, version := range []string{"0019", "0020", "0021", "0022", "0023", "0024", "0025", "0026", "0027", "0028", "0029", "0030", "0031", "0032", "0033", "0034", "0035"} {
+		migration, readErr := os.ReadFile(filepath.Join("..", "..", "migrations", version+map[string]string{"0019": "_mercado_pago_subscriptions", "0020": "_subscription_checkout_reservation", "0021": "_expo_push", "0022": "_google_reviews", "0023": "_referrals", "0024": "_referral_billing", "0025": "_subscription_prices", "0026": "_subscription_price_change_history", "0027": "_referral_campaign_editing", "0028": "_influencer_welcome_emails", "0029": "_subscription_confirmation_emails", "0030": "_email_change", "0031": "_card_templates", "0032": "_first_login_trial", "0033": "_user_codes", "0034": "_branch_proration", "0035": "_closed_test_privacy"}[version]+".up.sql"))
 		if readErr != nil {
 			t.Fatal(readErr)
 		}
@@ -246,7 +246,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 		t.Fatalf("legacy session revoked=%t err=%v", legacySessionRevoked, err)
 	}
 	outboxKey := []byte("01234567890123456789012345678901")
-	cfg := config.Config{JWTSecret: "jwt-secret-0123456789012345678901", JWTIssuer: "puntazo", QRPepper: "qr-pepper-01234567890123456789012", DemoSignupEnabled: true, ExpectedSchemaVersion: "0033", PublicAppURL: "https://app.puntazo.test", OutboxEncryptionKey: outboxKey, MediaURLTTL: 5 * time.Minute, MercadoPagoBranchPrice: 12300, MercadoPagoPointsPrice: 45600}
+	cfg := config.Config{JWTSecret: "jwt-secret-0123456789012345678901", JWTIssuer: "puntazo", QRPepper: "qr-pepper-01234567890123456789012", DemoSignupEnabled: true, ExpectedSchemaVersion: "0035", PublicAppURL: "https://app.puntazo.test", OutboxEncryptionKey: outboxKey, MediaURLTTL: 5 * time.Minute, MercadoPagoBranchPrice: 12300, MercadoPagoPointsPrice: 45600}
 	repo := repository.New(pool, outboxKey)
 	var referralAdminID int64
 	if err = pool.QueryRow(ctx, `INSERT INTO backoffice_users(email,password_hash,totp_secret,role) VALUES('admin-referral@example.com','unused','ABCDEFGHIJKLMNOPQRSTUVWX23456789','ADMIN_SISTEMA') RETURNING id`).Scan(&referralAdminID); err != nil {
@@ -303,14 +303,15 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if _, err = repo.LoginGoogle(ctx, "legacy-google", "legacy-google@example.com", "Legacy Google", "Test", false, make([]byte, 32), func(int64) []byte { return make([]byte, 32) }); err != nil {
 		t.Fatalf("existing Google login blocked while signup disabled: %v", err)
 	}
-	if _, err = repo.LoginGoogle(ctx, "legacy-password-google", "legacy-password@example.com", "Legacy password", "Test", false, make([]byte, 32), func(int64) []byte { return make([]byte, 32) }); err != nil {
-		t.Fatalf("existing email link blocked while signup disabled: %v", err)
+	if _, err = repo.LoginGoogle(ctx, "legacy-password-google", "legacy-password@example.com", "Legacy password", "Test", false, make([]byte, 32), func(int64) []byte { return make([]byte, 32) }); !errors.Is(err, repository.ErrGoogleLinkRequired) {
+		t.Fatalf("email login must require explicit link: %v", err)
 	}
-	var linkedGoogleID string
+	var linkedGoogleID *string
 	var linkedEmailVerified bool
-	if err = pool.QueryRow(ctx, `SELECT google_id,email_verified_at IS NOT NULL FROM usuarios WHERE email='legacy-password@example.com'`).Scan(&linkedGoogleID, &linkedEmailVerified); err != nil || linkedGoogleID != "legacy-password-google" || !linkedEmailVerified {
-		t.Fatalf("existing email link google_id=%q verified=%t err=%v", linkedGoogleID, linkedEmailVerified, err)
+	if err = pool.QueryRow(ctx, `SELECT google_id,email_verified_at IS NOT NULL FROM usuarios WHERE email='legacy-password@example.com'`).Scan(&linkedGoogleID, &linkedEmailVerified); err != nil || linkedGoogleID != nil || linkedEmailVerified {
+		t.Fatalf("login mutated identity: %v %v %v", linkedGoogleID, linkedEmailVerified, err)
 	}
+
 	tokens := auth.NewTokens(cfg.JWTSecret, cfg.JWTIssuer)
 	media := &fakeMediaStore{objects: map[string][]byte{}}
 	svc := service.New(repo, tokens, cfg, media)
@@ -1534,7 +1535,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if err = pool.QueryRow(ctx, `SELECT count(*) FROM historial_movimientos h JOIN tarjetas t ON t.id=h.tarjeta_id WHERE t.usuario_id=$1`, customer.ID).Scan(&ledgerAfter); err != nil {
 		t.Fatal(err)
 	}
-	if tombstone != fmt.Sprintf("deleted-%d@anon.invalid", customer.ID) || anonymizedName != "Cuenta anonimizada" || !inactive || !credentialsCleared || !qrCleared || !profileCleared || ledgerAfter != ledgerBefore {
+	if tombstone != fmt.Sprintf("deleted-%d@anon.invalid", customer.ID) || anonymizedName != "Cuenta anonimizada" || !inactive || !credentialsCleared || !qrCleared || !profileCleared || ledgerAfter != 0 {
 		t.Fatalf("anonymized state email=%s name=%s inactive=%t credentials=%t qr=%t profile=%t ledger=%d/%d", tombstone, anonymizedName, inactive, credentialsCleared, qrCleared, profileCleared, ledgerAfter, ledgerBefore)
 	}
 	var piiLeaks int
@@ -1603,7 +1604,8 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stats.PreviewsDeleted < 1 || stats.IdempotenciesDeleted != 1 || stats.SessionsDeleted != 1 || stats.IdentityTokensDeleted != 1 || stats.OutboxRedacted < 1 || stats.OutboxDeleted != 1 {
+	// Account deletion already removed that customer's previews.
+	if stats.PreviewsDeleted != 0 || stats.IdempotenciesDeleted != 1 || stats.SessionsDeleted != 1 || stats.IdentityTokensDeleted != 1 || stats.OutboxRedacted < 1 || stats.OutboxDeleted != 1 {
 		t.Fatalf("retention stats=%+v", stats)
 	}
 	var recentExists, redacted bool
@@ -1788,7 +1790,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if err = repo.ConfirmEmailChange(ctx, changeHash[:], time.Now()); !errors.Is(err, repository.ErrIdentityTokenInvalid) {
 		t.Fatalf("email change token reused: %v", err)
 	}
-	if err = repo.CheckSchema(ctx, "0033"); err != nil {
+	if err = repo.CheckSchema(ctx, "0035"); err != nil {
 		t.Fatal(err)
 	}
 	if err = repo.CheckSchema(ctx, "9999"); err == nil {

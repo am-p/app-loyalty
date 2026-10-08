@@ -89,7 +89,18 @@ func (s *Service) AnonymizeCurrentUser(ctx context.Context, actorID int64, expec
 	if err != nil {
 		return model.Anonymization{}, err
 	}
-	return model.Anonymization{RequestID: uuid.NewString(), Status: "COMPLETADA", AccessRevoked: true, LedgerPreserved: true, RequestedAt: deletedAt}, nil
+	// Attempt immediately; a durable queue retries storage failures.
+	if s.Media != nil {
+		keys, lookupErr := s.Repo.PendingProfileDeletions(ctx, 500)
+		if lookupErr == nil {
+			for _, key := range keys {
+				if deleteErr := s.Media.Delete(ctx, key); deleteErr == nil {
+					_ = s.Repo.CompleteProfileDeletion(ctx, key)
+				}
+			}
+		}
+	}
+	return model.Anonymization{RequestID: uuid.NewString(), Status: "COMPLETADA", AccessRevoked: true, LedgerPreserved: false, RequestedAt: deletedAt}, nil
 }
 
 func (s *Service) cancelAccountSubscriptions(ctx context.Context, records []repository.SubscriptionRecord) error {

@@ -10,6 +10,7 @@ import (
 
 	"clientesFrecuentes/internal/auth"
 	"clientesFrecuentes/internal/web"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/gin-gonic/gin"
 )
@@ -46,7 +47,7 @@ func TestPreviouslyIssuedTokenStopsAfterSuspension(t *testing.T) {
 		t.Fatalf("active token status=%d body=%s", w.Code, w.Body.String())
 	}
 	store.accountType = ""
-	store.err = errors.New("suspended")
+	store.err = pgx.ErrNoRows
 	w := request()
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("suspended token status=%d body=%s", w.Code, w.Body.String())
@@ -83,7 +84,7 @@ func TestDatabaseAccountTypeSupersedesStaleJWTClaim(t *testing.T) {
 func TestUnauthenticatedResponseIsUniform(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tokens := auth.NewTokens("01234567890123456789012345678901", "puntazo")
-	store := &actorStoreStub{err: errors.New("inactive")}
+	store := &actorStoreStub{err: pgx.ErrNoRows}
 	router := gin.New()
 	router.Use(func(c *gin.Context) { c.Set(web.RequestIDKey, "00000000-0000-0000-0000-000000000001") })
 	router.GET("/protected", RequireAuth(tokens, store), func(c *gin.Context) { c.Status(http.StatusNoContent) })
@@ -107,6 +108,29 @@ func TestUnauthenticatedResponseIsUniform(t *testing.T) {
 	for i := 1; i < len(responses); i++ {
 		if responses[i].Error.Code != responses[0].Error.Code || responses[i].Error.Message != responses[0].Error.Message {
 			t.Fatalf("non-uniform responses: %+v", responses)
+		}
+	}
+}
+
+func TestSessionDependencyFailurePreservesAuthentication(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	tokens := auth.NewTokens("01234567890123456789012345678901", "puntazo")
+	raw := mustToken(t, tokens, 7, "CLIENTE_FINAL")
+	for _, dependencyError := range []error{context.DeadlineExceeded, context.Canceled, errors.New("database unavailable with internal detail")} {
+		store := &actorStoreStub{err: dependencyError}
+		router := gin.New()
+		handled := false
+		router.GET("/protected", RequireAuth(tokens, store), func(c *gin.Context) { handled = true; c.Status(http.StatusNoContent) })
+		req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+		req.Header.Set("Authorization", "Bearer "+raw)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		var envelope web.ErrorEnvelope
+		if err := json.Unmarshal(w.Body.Bytes(), &envelope); err != nil {
+			t.Fatal(err)
+		}
+		if w.Code != http.StatusServiceUnavailable || envelope.Error.Code != "DEPENDENCY_UNAVAILABLE" || envelope.Error.Message != "No se pudo verificar la sesión" || handled {
+			t.Fatalf("dependency error %v: status=%d envelope=%+v handled=%t", dependencyError, w.Code, envelope, handled)
 		}
 	}
 }

@@ -203,3 +203,42 @@ func TestBranchSimulatorIsolationGate(t *testing.T) {
 		})
 	}
 }
+
+func TestCaptchaActivationFailsClosedWithoutRealKeysAndSharedRedis(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("CAPTCHA_ENABLED", "true")
+	t.Setenv("CAPTCHA_SITE_KEY", "")
+	t.Setenv("CAPTCHA_SECRET_KEY", "")
+	if _, e := Load(); e == nil {
+		t.Fatal("captcha enabled without keys")
+	}
+	t.Setenv("CAPTCHA_SITE_KEY", "0x-real-sitekey-placeholder")
+	t.Setenv("CAPTCHA_SECRET_KEY", "0x-real-secret-placeholder")
+	t.Setenv("CAPTCHA_ALLOWED_HOSTNAMES", "testing.puntazo.pro")
+	t.Setenv("RATE_LIMIT_PROVIDER", "memory")
+	if _, e := Load(); e == nil {
+		t.Fatal("captcha using process-local proof store")
+	}
+	t.Setenv("RATE_LIMIT_PROVIDER", "redis")
+	t.Setenv("REDIS_URL", "redis://127.0.0.1:6379/0")
+	t.Setenv("RATE_LIMIT_PREFIX", "puntazo:test")
+	if _, e := Load(); e != nil {
+		t.Fatal(e)
+	}
+	t.Setenv("CAPTCHA_SITE_KEY", "1x00000000000000000000AA")
+	if _, e := Load(); e == nil {
+		t.Fatal("provider bypass test key accepted")
+	}
+}
+func TestTrustedProxyCIDRsRejectBroadMalformedTrustInput(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("TRUSTED_PROXY_CIDRS", "not-a-network")
+	if _, e := Load(); e == nil {
+		t.Fatal("malformed trusted CIDR accepted")
+	}
+	t.Setenv("TRUSTED_PROXY_CIDRS", "10.0.14.0/24,10.0.1.0/24")
+	cfg, e := Load()
+	if e != nil || len(cfg.TrustedProxyCIDRs) != 2 {
+		t.Fatal(e, cfg.TrustedProxyCIDRs)
+	}
+}

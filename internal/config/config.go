@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/base64"
 	"errors"
+	"net"
 	"net/mail"
 	"net/url"
 	"os"
@@ -13,8 +14,14 @@ import (
 )
 
 const MaxJSONBytes int64 = 1 << 20
+const MaxUploadFileBytes int64 = 5 << 20
+const MaxMultipartBytes int64 = MaxUploadFileBytes + (64 << 10)
 
 type Config struct {
+	CaptchaEnabled            bool
+	CaptchaSiteKey            string
+	CaptchaSecret             string
+	CaptchaHostnames          []string
 	BranchProrationEnabled    bool
 	BranchPaymentSimulator    bool
 	GooglePlacesAPIKey        string
@@ -35,6 +42,8 @@ type Config struct {
 	SMTPPassword              string
 	SMTPTLSMode               string
 	MailPollInterval          time.Duration
+	MailGlobalHourlyBudget    int
+	MailRecipientHourlyBudget int
 	MediaProvider             string
 	S3Endpoint                string
 	S3PublicEndpoint          string
@@ -61,6 +70,8 @@ type Config struct {
 	ExpectedSchemaVersion     string
 	Port                      string
 	TrustedProxyCount         int
+	PasswordConcurrency       int
+	TrustedProxyCIDRs         []string
 	ReadTimeout               time.Duration
 	WriteTimeout              time.Duration
 	IdleTimeout               time.Duration
@@ -82,21 +93,52 @@ type Config struct {
 func Load() (Config, error) {
 	s3Endpoint := strings.TrimSpace(os.Getenv("S3_ENDPOINT"))
 	c := Config{
+		CaptchaEnabled: envBool("CAPTCHA_ENABLED", false), CaptchaSiteKey: strings.TrimSpace(os.Getenv("CAPTCHA_SITE_KEY")), CaptchaSecret: strings.TrimSpace(os.Getenv("CAPTCHA_SECRET_KEY")), CaptchaHostnames: strings.Split(strings.TrimSpace(os.Getenv("CAPTCHA_ALLOWED_HOSTNAMES")), ","),
 		BranchProrationEnabled: envBool("BRANCH_PRORATION_ENABLED", false), BranchPaymentSimulator: envBool("BRANCH_PAYMENT_SIMULATOR", false),
 		GooglePlacesAPIKey: strings.TrimSpace(os.Getenv("GOOGLE_PLACES_API_KEY")), DatabaseURL: os.Getenv("DATABASE_URL"), JWTSecret: os.Getenv("JWT_SECRET"), JWTIssuer: envDefault("JWT_ISSUER", "puntazo"),
 		QRPepper:          os.Getenv("QR_PEPPER"),
 		DemoSignupEnabled: envBool("DEMO_SIGNUP_ENABLED", false), AppVersion: envDefault("APP_VERSION", "dev"),
 		EmailVerificationRequired: envBool("EMAIL_VERIFICATION_REQUIRED", false), PublicAppURL: envDefault("PUBLIC_APP_URL", "http://localhost:8081"),
+		MailGlobalHourlyBudget: envInt("MAIL_GLOBAL_HOURLY_BUDGET", 200), MailRecipientHourlyBudget: envInt("MAIL_RECIPIENT_HOURLY_BUDGET", 6),
 		MailProvider: strings.ToLower(envDefault("MAIL_PROVIDER", "disabled")), MailFromAddress: strings.TrimSpace(os.Getenv("MAIL_FROM_ADDRESS")), MailFromName: envDefault("MAIL_FROM_NAME", "Puntazo"),
 		MailCaptureDirectory: strings.TrimSpace(os.Getenv("MAIL_CAPTURE_DIRECTORY")),
 		SMTPHost:             strings.TrimSpace(os.Getenv("SMTP_HOST")), SMTPPort: envInt("SMTP_PORT", 587), SMTPUsername: os.Getenv("SMTP_USERNAME"), SMTPPassword: os.Getenv("SMTP_PASSWORD"), SMTPTLSMode: strings.ToLower(envDefault("SMTP_TLS_MODE", "starttls")), MailPollInterval: time.Duration(envInt("MAIL_POLL_INTERVAL_SECONDS", 5)) * time.Second,
 		MediaProvider: strings.ToLower(envDefault("MEDIA_PROVIDER", "disabled")), S3Endpoint: s3Endpoint, S3PublicEndpoint: strings.TrimSpace(envDefault("S3_PUBLIC_ENDPOINT", s3Endpoint)), S3Region: envDefault("S3_REGION", "us-east-1"), S3Bucket: strings.TrimSpace(os.Getenv("S3_BUCKET")), S3AccessKeyID: os.Getenv("S3_ACCESS_KEY_ID"), S3SecretAccessKey: os.Getenv("S3_SECRET_ACCESS_KEY"), S3ServerSideEncryption: strings.ToUpper(envDefault("S3_SERVER_SIDE_ENCRYPTION", "AES256")), MediaURLTTL: time.Duration(envInt("MEDIA_URL_TTL_SECONDS", 300)) * time.Second, MediaCleanupInterval: time.Duration(envInt("MEDIA_CLEANUP_INTERVAL_SECONDS", 60)) * time.Second, MediaUploadGlobalLimit: envInt("MEDIA_UPLOAD_GLOBAL_CONCURRENCY", 8), MediaUploadActorLimit: envInt("MEDIA_UPLOAD_ACTOR_CONCURRENCY", 2),
 		RetentionInterval: time.Duration(envInt("RETENTION_INTERVAL_SECONDS", 300)) * time.Second, RetentionBatchSize: envInt("RETENTION_BATCH_SIZE", 500), PreviewRetention: time.Duration(envInt("PREVIEW_RETENTION_HOURS", 168)) * time.Hour, IdempotencyRetention: time.Duration(envInt("IDEMPOTENCY_RETENTION_HOURS", 720)) * time.Hour, SessionRetention: time.Duration(envInt("SESSION_RETENTION_HOURS", 720)) * time.Hour, IdentityTokenRetention: time.Duration(envInt("IDENTITY_TOKEN_RETENTION_HOURS", 168)) * time.Hour, OutboxRedactAfter: time.Duration(envInt("OUTBOX_REDACT_AFTER_HOURS", 168)) * time.Hour, OutboxRetention: time.Duration(envInt("OUTBOX_RETENTION_HOURS", 720)) * time.Hour,
-		GitCommit: envDefault("GIT_COMMIT", "0000000"), ExpectedSchemaVersion: envDefault("EXPECTED_SCHEMA_VERSION", "0034"),
-		Port: envDefault("PORT", "8080"), TrustedProxyCount: envInt("TRUSTED_PROXY_COUNT", 0),
+		GitCommit: envDefault("GIT_COMMIT", "0000000"), ExpectedSchemaVersion: envDefault("EXPECTED_SCHEMA_VERSION", "0035"),
+		PasswordConcurrency: envInt("PASSWORD_CONCURRENCY", 4),
+		TrustedProxyCIDRs:   strings.Split(strings.TrimSpace(os.Getenv("TRUSTED_PROXY_CIDRS")), ","),
+		Port:                envDefault("PORT", "8080"), TrustedProxyCount: envInt("TRUSTED_PROXY_COUNT", 0),
 		ReadTimeout: 10 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second,
 		RateLimitProvider: strings.ToLower(envDefault("RATE_LIMIT_PROVIDER", "memory")), RedisURL: strings.TrimSpace(os.Getenv("REDIS_URL")), RateLimitPrefix: strings.TrimSpace(os.Getenv("RATE_LIMIT_PREFIX")), RateLimitTimeout: time.Duration(envInt("RATE_LIMIT_TIMEOUT_MS", 200)) * time.Millisecond, RateLimitDevFallback: envBool("RATE_LIMIT_DEV_FALLBACK", false),
 		MercadoPagoProvider: strings.ToLower(envDefault("MERCADO_PAGO_PROVIDER", "disabled")), MercadoPagoAccessToken: strings.TrimSpace(os.Getenv("MERCADO_PAGO_ACCESS_TOKEN")), MercadoPagoWebhookSecret: strings.TrimSpace(os.Getenv("MERCADO_PAGO_WEBHOOK_SECRET")), MercadoPagoAPIURL: strings.TrimRight(envDefault("MERCADO_PAGO_API_URL", "https://api.mercadopago.com"), "/"), MercadoPagoBranchPrice: int64(envInt("MERCADO_PAGO_BRANCH_PRICE_CENTS", 2500000)), MercadoPagoPointsPrice: int64(envInt("MERCADO_PAGO_POINTS_BRANCH_PRICE_CENTS", 2000000)), MercadoPagoTimeout: time.Duration(envInt("MERCADO_PAGO_TIMEOUT_MS", 10000)) * time.Millisecond,
+	}
+	for _, raw := range c.TrustedProxyCIDRs {
+		if strings.TrimSpace(raw) == "" {
+			continue
+		}
+		if _, _, err := net.ParseCIDR(strings.TrimSpace(raw)); err != nil {
+			return Config{}, errors.New("TRUSTED_PROXY_CIDRS must contain valid CIDRs")
+		}
+	}
+	if c.PasswordConcurrency < 1 || c.PasswordConcurrency > 64 {
+		return Config{}, errors.New("PASSWORD_CONCURRENCY must be between 1 and 64")
+	}
+	if c.CaptchaEnabled {
+		if c.CaptchaSiteKey == "" || c.CaptchaSecret == "" || len(c.CaptchaHostnames) == 0 || c.RateLimitProvider != "redis" {
+			return Config{}, errors.New("CAPTCHA_ENABLED requires real widget keys, allowed hostnames and shared Redis")
+		}
+		for _, host := range c.CaptchaHostnames {
+			if strings.TrimSpace(host) == "" || strings.ContainsAny(host, " /:?\t\r\n") {
+				return Config{}, errors.New("CAPTCHA_ALLOWED_HOSTNAMES must contain bare hostnames")
+			}
+		}
+		if strings.HasPrefix(c.CaptchaSiteKey, "1x000000") || strings.HasPrefix(c.CaptchaSiteKey, "2x000000") || strings.HasPrefix(c.CaptchaSiteKey, "3x000000") || strings.HasPrefix(c.CaptchaSecret, "1x000000") || strings.HasPrefix(c.CaptchaSecret, "2x000000") || strings.HasPrefix(c.CaptchaSecret, "3x000000") {
+			return Config{}, errors.New("CAPTCHA_ENABLED does not accept provider test keys")
+		}
+	}
+	if c.MailGlobalHourlyBudget < 1 || c.MailGlobalHourlyBudget > 100000 || c.MailRecipientHourlyBudget < 1 || c.MailRecipientHourlyBudget > 100 {
+		return Config{}, errors.New("mail hourly budgets are outside safe bounds")
 	}
 	if c.DatabaseURL == "" {
 		return Config{}, errors.New("DATABASE_URL is required")

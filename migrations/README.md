@@ -1,5 +1,15 @@
 # Migraciones
 
+## Prueba cerrada 0035
+
+`0035_closed_test_privacy` agrega la confirmación 18+, la cola de borrado de fotos
+y el registro mínimo de bajas; permite retirar la atribución de operadores dados
+de baja sin alterar los movimientos de otros clientes. Las cuentas activas se
+conservan y requieren confirmación en el próximo acceso. Aplicar antes del nuevo
+frontend y del AAB. Es forward-only: no recuperar datos personales eliminados.
+Una restauración debe quedar aislada hasta reaplicar el diario externo de bajas
+con `puntazo-deletion-journal -mode replay -environment testing -file /ruta/diario.json -apply`.
+
 Se aplican con `go run ./cmd/migrate up`. El proceso API nunca crea ni modifica el esquema.
 `down` sólo revierte la última versión y requiere `ALLOW_MIGRATION_DOWN=true`.
 

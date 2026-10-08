@@ -230,7 +230,13 @@ type UpdateStaffRequest struct {
 	Role      *string  `json:"rol,omitempty"`
 	BranchIDs *[]int64 `json:"sucursal_ids,omitempty"`
 }
+type AuthMethods struct {
+	Password bool `json:"password"`
+	Google   bool `json:"google"`
+}
 type CurrentUser struct {
+	AdultConfirmed     bool         `json:"adult_confirmed"`
+	AuthMethods        AuthMethods  `json:"auth_methods"`
 	User               User         `json:"user"`
 	Memberships        []Membership `json:"memberships"`
 	OnboardingComplete bool         `json:"onboarding_complete"`
@@ -578,4 +584,14 @@ type LegacyUser struct {
 type LegacyAuth struct {
 	Token string     `json:"token"`
 	User  LegacyUser `json:"usuario"`
+}
+
+// GoogleLinkRequest is explicit consent after proving the account password.
+type GoogleLinkRequest struct {
+	IDToken  string `json:"id_token"`
+	Password string `json:"password"`
+}
+type ReauthenticateRequest struct {
+	Password string `json:"password,omitempty"`
+	IDToken  string `json:"id_token,omitempty"`
 }
