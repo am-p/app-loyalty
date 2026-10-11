@@ -32,7 +32,7 @@ func (r *Repository) ListAllCustomerMovements(ctx context.Context, actorID int64
 	return r.listMovements(ctx, `t.usuario_id=$1`, []any{actorID}, page, pageSize, total)
 }
 
-func (r *Repository) ListBrandMovements(ctx context.Context, actorID, brandID int64, page, pageSize int) ([]model.Movement, int64, error) {
+func (r *Repository) ListBrandMovements(ctx context.Context, actorID, brandID int64, page, pageSize int, search, date string) ([]model.Movement, int64, error) {
 	var owns bool
 	if err := r.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM membresias_marca WHERE usuario_id=$1 AND marca_id=$2 AND activo)`, actorID, brandID).Scan(&owns); err != nil {
 		return nil, 0, err
@@ -40,16 +40,30 @@ func (r *Repository) ListBrandMovements(ctx context.Context, actorID, brandID in
 	if !owns {
 		return nil, 0, ErrNotFound
 	}
-	var total int64
 	const visibleMovement = `h.marca_id=$1 AND EXISTS(SELECT 1 FROM membresias_marca mm WHERE mm.usuario_id=$2 AND mm.marca_id=$1 AND mm.activo AND (mm.rol IN ('PROPIETARIO','ADMINISTRADOR') OR EXISTS(SELECT 1 FROM membresias_sucursales ms WHERE ms.membresia_id=mm.id AND ms.marca_id=mm.marca_id AND ms.activo AND ms.sucursal_id=h.sucursal_id)))`
-	if err := r.Pool.QueryRow(ctx, `SELECT count(*) FROM historial_movimientos h WHERE `+visibleMovement, brandID, actorID).Scan(&total); err != nil {
+	where := visibleMovement
+	args := []any{brandID, actorID}
+	if search != "" {
+		args = append(args, search)
+		where += ` AND strpos(lower(btrim(concat_ws(' ',u.nombre,u.apellido))),lower($` + itoa(len(args)) + `))>0`
+	}
+	if date != "" {
+		args = append(args, date)
+		placeholder := `$` + itoa(len(args))
+		where += ` AND h.occurred_at>=(` + placeholder + `::date AT TIME ZONE 'America/Argentina/Buenos_Aires') AND h.occurred_at<((` + placeholder + `::date+interval '1 day') AT TIME ZONE 'America/Argentina/Buenos_Aires')`
+	}
+	var total int64
+	if err := r.Pool.QueryRow(ctx, `SELECT count(*) FROM historial_movimientos h JOIN tarjetas t ON t.id=h.tarjeta_id JOIN usuarios u ON u.id=t.usuario_id WHERE `+where, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
-	return r.listMovements(ctx, visibleMovement, []any{brandID, actorID}, page, pageSize, total)
+	return r.listMovements(ctx, where, args, page, pageSize, total)
 }
 
 func (r *Repository) listMovements(ctx context.Context, where string, args []any, page, pageSize int, total int64) ([]model.Movement, int64, error) {
-	q := `SELECT h.id,h.operation_id,h.tarjeta_id,h.marca_id,h.marca_nombre_snapshot,h.sucursal_id,h.sucursal_nombre_snapshot,h.operacion,h.programa_tipo,h.programa_id_snapshot,h.sentido,h.cantidad,h.saldo_anterior,h.saldo_posterior,h.beneficio_nombre_snapshot,h.beneficio_requisito_snapshot,h.beneficio_requisito_puntos_snapshot,h.occurred_at FROM historial_movimientos h JOIN tarjetas t ON t.id=h.tarjeta_id WHERE ` + where
+	q := `SELECT h.id,h.operation_id,h.tarjeta_id,h.marca_id,h.marca_nombre_snapshot,h.sucursal_id,h.sucursal_nombre_snapshot,h.operacion,h.programa_tipo,h.programa_id_snapshot,h.sentido,h.cantidad,h.saldo_anterior,h.saldo_posterior,h.beneficio_nombre_snapshot,h.beneficio_requisito_snapshot,h.beneficio_requisito_puntos_snapshot,h.occurred_at,
+		u.id,COALESCE(u.codigo_usuario,'#USER-'||lpad(u.id::text,greatest(4,length(u.id::text)),'0')),btrim(concat_ws(' ',u.nombre,u.apellido)),u.email::text,
+		rv.operation_id::text,rv.occurred_at,rv.saldo_anterior,rv.saldo_posterior
+		FROM historial_movimientos h JOIN tarjetas t ON t.id=h.tarjeta_id JOIN usuarios u ON u.id=t.usuario_id LEFT JOIN reversiones_movimiento rv ON rv.movimiento_id=h.id WHERE ` + where
 	args = append(args, pageSize, (page-1)*pageSize)
 	q += ` ORDER BY h.occurred_at DESC,h.id DESC LIMIT $` + itoa(len(args)-1) + ` OFFSET $` + itoa(len(args))
 	rows, err := r.Pool.Query(ctx, q, args...)
@@ -60,7 +74,7 @@ func (r *Repository) listMovements(ctx context.Context, where string, args []any
 	items := make([]model.Movement, 0)
 	for rows.Next() {
 		var m model.Movement
-		if err = rows.Scan(&m.ID, &m.OperationID, &m.CardID, &m.BrandID, &m.BrandName, &m.BranchID, &m.BranchName, &m.Operation, &m.ProgramType, &m.ProgramIDSnapshot, &m.Direction, &m.Amount, &m.BalanceBefore, &m.BalanceAfter, &m.BenefitNameSnapshot, &m.BenefitRequiredStampsSnapshot, &m.BenefitRequiredPointsSnapshot, &m.OccurredAt); err != nil {
+		if err = rows.Scan(&m.ID, &m.OperationID, &m.CardID, &m.BrandID, &m.BrandName, &m.BranchID, &m.BranchName, &m.Operation, &m.ProgramType, &m.ProgramIDSnapshot, &m.Direction, &m.Amount, &m.BalanceBefore, &m.BalanceAfter, &m.BenefitNameSnapshot, &m.BenefitRequiredStampsSnapshot, &m.BenefitRequiredPointsSnapshot, &m.OccurredAt, &m.CustomerID, &m.CustomerCode, &m.CustomerName, &m.CustomerEmail, &m.ReversalOperationID, &m.RevertedAt, &m.ReversalBalanceBefore, &m.ReversalBalanceAfter); err != nil {
 			return nil, 0, err
 		}
 		items = append(items, m)
