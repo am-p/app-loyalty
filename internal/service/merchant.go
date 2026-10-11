@@ -198,9 +198,32 @@ func (s *Service) CreateBenefit(ctx context.Context, actorID, brandID int64, req
 	return s.Repo.CreateBenefit(ctx, actorID, brandID, name, req.Description, req.Requirement)
 }
 
-func (s *Service) BrandMovements(ctx context.Context, actorID, brandID int64, page, size int) ([]model.Movement, web.Pagination, error) {
-	items, total, err := s.Repo.ListBrandMovements(ctx, actorID, brandID, page, size)
+func (s *Service) BrandMovements(ctx context.Context, actorID, brandID int64, page, size int, search, date string) ([]model.Movement, web.Pagination, error) {
+	search = strings.TrimSpace(search)
+	date = strings.TrimSpace(date)
+	if len([]rune(search)) > 120 {
+		return nil, web.Pagination{}, ErrInvalidRequest
+	}
+	if date != "" {
+		if _, err := time.Parse("2006-01-02", date); err != nil {
+			return nil, web.Pagination{}, ErrInvalidRequest
+		}
+	}
+	items, total, err := s.Repo.ListBrandMovements(ctx, actorID, brandID, page, size, search, date)
 	return items, pagination(page, size, total), err
+}
+
+func (s *Service) ReverseBrandMovement(ctx context.Context, actorID, brandID int64, operationID string) (model.MovementReversal, error) {
+	if _, err := uuid.Parse(operationID); err != nil {
+		return model.MovementReversal{}, ErrInvalidRequest
+	}
+	var result model.MovementReversal
+	err := retry(ctx, func() error {
+		var reverseErr error
+		result, reverseErr = s.Repo.ReverseBrandMovement(ctx, actorID, brandID, operationID)
+		return reverseErr
+	})
+	return result, err
 }
 
 func (s *Service) BrandCustomers(ctx context.Context, actorID, brandID int64, page, size int, search string) ([]model.BrandCustomer, web.Pagination, error) {
@@ -210,6 +233,14 @@ func (s *Service) BrandCustomers(ctx context.Context, actorID, brandID int64, pa
 	}
 	items, total, err := s.Repo.ListBrandCustomers(ctx, actorID, brandID, page, size, search)
 	return items, pagination(page, size, total), err
+}
+
+func (s *Service) BrandCustomerLookup(ctx context.Context, actorID, brandID int64, customerCode string) (model.BrandCustomer, error) {
+	customerID, err := s.resolveCustomerCodeID(ctx, customerCode)
+	if err != nil {
+		return model.BrandCustomer{}, err
+	}
+	return s.Repo.LookupBrandCustomer(ctx, actorID, brandID, customerID)
 }
 
 func (s *Service) BrandMetrics(ctx context.Context, actorID, brandID int64) (model.BrandMetricsSummary, error) {

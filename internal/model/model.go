@@ -527,6 +527,7 @@ type PreviewCustomer struct {
 	UserCode string `json:"user_code"`
 	ID       int64  `json:"id"`
 	Name     string `json:"name"`
+	Email    string `json:"email"`
 }
 type Preview struct {
 	ID            string          `json:"id"`
@@ -541,24 +542,40 @@ type Preview struct {
 	Benefit       *Benefit        `json:"benefit,omitempty"`
 }
 type Movement struct {
-	ID                            int64     `json:"id"`
-	OperationID                   string    `json:"operation_id"`
-	CardID                        int64     `json:"card_id"`
-	BrandID                       int64     `json:"brand_id,omitempty"`
-	BrandName                     string    `json:"brand_name,omitempty"`
-	BranchID                      int64     `json:"branch_id"`
-	BranchName                    string    `json:"branch_name,omitempty"`
-	Operation                     string    `json:"operation"`
-	ProgramType                   string    `json:"program_type"`
-	ProgramIDSnapshot             int64     `json:"program_id_snapshot"`
-	Direction                     string    `json:"direction"`
-	Amount                        int64     `json:"amount"`
-	BalanceBefore                 int64     `json:"balance_before"`
-	BalanceAfter                  int64     `json:"balance_after"`
-	BenefitNameSnapshot           *string   `json:"benefit_name_snapshot,omitempty"`
-	BenefitRequiredStampsSnapshot *int64    `json:"benefit_required_stamps_snapshot,omitempty"`
-	BenefitRequiredPointsSnapshot *int64    `json:"benefit_required_points_snapshot,omitempty"`
-	OccurredAt                    time.Time `json:"occurred_at"`
+	ID                            int64      `json:"id"`
+	OperationID                   string     `json:"operation_id"`
+	CardID                        int64      `json:"card_id"`
+	BrandID                       int64      `json:"brand_id,omitempty"`
+	BrandName                     string     `json:"brand_name,omitempty"`
+	BranchID                      int64      `json:"branch_id"`
+	BranchName                    string     `json:"branch_name,omitempty"`
+	Operation                     string     `json:"operation"`
+	ProgramType                   string     `json:"program_type"`
+	ProgramIDSnapshot             int64      `json:"program_id_snapshot"`
+	Direction                     string     `json:"direction"`
+	Amount                        int64      `json:"amount"`
+	BalanceBefore                 int64      `json:"balance_before"`
+	BalanceAfter                  int64      `json:"balance_after"`
+	BenefitNameSnapshot           *string    `json:"benefit_name_snapshot,omitempty"`
+	BenefitRequiredStampsSnapshot *int64     `json:"benefit_required_stamps_snapshot,omitempty"`
+	BenefitRequiredPointsSnapshot *int64     `json:"benefit_required_points_snapshot,omitempty"`
+	OccurredAt                    time.Time  `json:"occurred_at"`
+	CustomerID                    int64      `json:"customer_id,omitempty"`
+	CustomerCode                  string     `json:"customer_code,omitempty"`
+	CustomerName                  string     `json:"customer_name,omitempty"`
+	CustomerEmail                 string     `json:"customer_email,omitempty"`
+	ReversalOperationID           *string    `json:"reversal_operation_id,omitempty"`
+	RevertedAt                    *time.Time `json:"reverted_at,omitempty"`
+	ReversalBalanceBefore         *int64     `json:"reversal_balance_before,omitempty"`
+	ReversalBalanceAfter          *int64     `json:"reversal_balance_after,omitempty"`
+}
+
+type MovementReversal struct {
+	OperationID   string    `json:"operation_id"`
+	MovementID    int64     `json:"movement_id"`
+	BalanceBefore int64     `json:"balance_before"`
+	BalanceAfter  int64     `json:"balance_after"`
+	OccurredAt    time.Time `json:"occurred_at"`
 }
 
 type LegacyRegisterRequest struct {
