@@ -93,7 +93,8 @@ func rawIdentifier(value json.RawMessage) string {
 
 func (h *Handler) MercadoPagoWebhook(c *gin.Context) {
 	if h.Service.Config.MercadoPagoProvider != "api" {
-		c.Status(http.StatusNoContent)
+		// Acknowledge delivery without processing or contacting the provider.
+		c.Status(http.StatusOK)
 		return
 	}
 	var payload mercadoPagoWebhook
@@ -126,7 +127,7 @@ func (h *Handler) MercadoPagoWebhook(c *gin.Context) {
 		return
 	}
 	if payload.Type != "subscription_preapproval" && payload.Type != "subscription_authorized_payment" && payload.Type != "payment" {
-		c.Status(http.StatusNoContent)
+		c.Status(http.StatusOK)
 		return
 	}
 	notificationID := rawIdentifier(payload.ID)
@@ -138,7 +139,8 @@ func (h *Handler) MercadoPagoWebhook(c *gin.Context) {
 		writeErr(c, err)
 		return
 	}
-	c.Status(http.StatusNoContent)
+	// Mercado Pago requires 200/201 to acknowledge a completed notification.
+	c.Status(http.StatusOK)
 }
 
 // BackofficeRecordMerchantCredit records a Finance-verified manual external

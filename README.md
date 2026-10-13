@@ -127,30 +127,31 @@ respuesta satisfactoria significa que Expo lo aceptó, no que el dispositivo lo
 mostró. La app debe actualizar `GET /v1/clientes/me/tarjetas?page=1&page_size=100`
 al recibir `data.action = REFRESH_CARDS`.
 
-## Activación de Mercado Pago
+## Preparación y activación de Mercado Pago
 
-La interfaz y la API pueden desplegarse con `MERCADO_PAGO_PROVIDER=disabled`: la
-sección Plan y facturación permanece visible y explica que el proveedor aún no está
-configurado, pero no permite iniciar ni cancelar cobros. Para habilitarla:
+La interfaz y la API pueden desplegarse con `MERCADO_PAGO_PROVIDER=disabled`:
+Plan y facturación permanece visible, pero checkout y cancelación están apagados.
+La [plantilla productiva de facturación](deploy/mercadopago.production.env.example)
+conserva ese estado y deja los secretos vacíos. Es un overlay, no una configuración
+completa del backend.
 
-1. Aplicar las migraciones hasta `0028` y mantener `EXPECTED_SCHEMA_VERSION=0028`.
-2. Cargar únicamente en el runtime del backend `MERCADO_PAGO_ACCESS_TOKEN` y
-   `MERCADO_PAGO_WEBHOOK_SECRET`; no usar variables `EXPO_PUBLIC_*`.
-3. Cambiar `MERCADO_PAGO_PROVIDER=api` y reiniciar la API.
-4. Registrar en Mercado Pago la URL pública
-   `https://<host>/api/v1/mercado-pago/webhooks` para el evento
-   `subscription_preapproval`, `subscription_authorized_payment` y `payment`.
-5. Ejecutar un alta, retorno, webhook y cancelación completos con credenciales de
-   prueba antes de usar credenciales productivas.
+Seguir la [guía de preparación y activación posterior](docs/mercadopago-production.md)
+para seleccionar fuente vigente, conciliar migraciones, preparar el modo productivo,
+confirmar precios y validar notificaciones antes de activar. El endpoint directo es
+`https://api.puntazo.pro/v1/mercado-pago/webhooks`; los tópicos usados son
+`subscription_preapproval`, `subscription_authorized_payment` y `payment`.
+Con el proveedor habilitado, sólo se devuelve `200` después de procesar la entrega
+(o ignorar un tópico con firma válida). Con `disabled`, el receptor devuelve `200`
+sin consultar al proveedor ni persistir; esa respuesta no acredita una operación.
 
 El propietario ve el total mensual antes de salir de Puntazo. Mercado Pago aloja
 la captura del medio de pago; el frontend nunca recibe el access token ni datos de
 tarjeta. `POST /v1/marcas/{brand_id}/suscripcion/cancelacion` envía el estado
-`canceled` al proveedor y detiene las renovaciones futuras.
+`cancelled` al proveedor y detiene las renovaciones futuras.
 
-El primer checkout de una marca Sellos o Puntos incluye una prueba gratuita de un mes.
-La elegibilidad es de una sola vez: si esa marca cancela y vuelve a contratar,
-el nuevo checkout comienza con la facturación mensual normal.
+La prueba gratuita de Sellos o Puntos termina un mes calendario después del
+primer acceso verificado. El checkout conserva ese fin y no reinicia el período
+al autorizar, cancelar o volver a contratar.
 
 El checkout reserva la marca antes de llamar a Mercado Pago y sólo permite un
 POST al proveedor por reserva. Si la respuesta se pierde, el estado queda en
