@@ -13,6 +13,9 @@ func registerCustomerRoutes(r *gin.RouterGroup, h *handler.Handler) {
 	r.POST("/clientes/me/resenas/:invitation_id/eventos", h.ReviewEvent)
 	r.GET("/clientes/me/tarjetas", h.Cards)
 	r.POST("/clientes/me/push-token", h.SavePushToken)
+	r.GET("/clientes/me/web-push/key", h.WebPushKey)
+	r.PUT("/clientes/me/web-push/subscription", h.SaveWebPushSubscription)
+	r.DELETE("/clientes/me/web-push/subscription", h.DeleteWebPushSubscription)
 	r.GET("/clientes/me/movimientos", h.CustomerMovements)
 	r.GET("/clientes/me/tarjetas/:card_id/movimientos", h.CardMovements)
 }

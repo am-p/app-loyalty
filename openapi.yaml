@@ -1135,6 +1135,77 @@ paths:
         '200': { description: Token registrado, content: { application/json: { schema: { $ref: '#/components/schemas/PushTokenEnvelope' } } } }
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/ValidationError' }
+  /clientes/me/web-push/key:
+    get:
+      tags: [Clientes]
+      operationId: getWebPushPublicKey
+      summary: Obtiene la clave pública VAPID persistente para suscribir una PWA
+      x-puntazo-implementation: IMPLEMENTED
+      responses:
+        '200':
+          description: Clave pública, sin secretos del servidor
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      public_key: { type: string }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '503': { $ref: '#/components/responses/DependencyUnavailable' }
+  /clientes/me/web-push/subscription:
+    put:
+      tags: [Clientes]
+      operationId: saveWebPushSubscription
+      summary: Registra la suscripción del navegador del cliente autenticado
+      description: Requiere consentimiento del navegador. Se guarda cifrada y los avisos se encolan solamente al confirmar movimientos.
+      x-puntazo-implementation: IMPLEMENTED
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [endpoint, keys]
+              properties:
+                endpoint: { type: string, format: uri, maxLength: 4096 }
+                expirationTime: { type: [integer, 'null'] }
+                keys:
+                  type: object
+                  required: [p256dh, auth]
+                  properties:
+                    p256dh: { type: string }
+                    auth: { type: string }
+      responses:
+        '200': { description: Suscripción registrada }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/DependencyUnavailable' }
+    delete:
+      tags: [Clientes]
+      operationId: deleteWebPushSubscription
+      summary: Elimina la suscripción de este navegador del cliente autenticado
+      x-puntazo-implementation: IMPLEMENTED
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [endpoint]
+              properties:
+                endpoint: { type: string, maxLength: 4096 }
+      responses:
+        '204': { description: Suscripción eliminada }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
   /clientes/me/movimientos:
     get:
       tags: [Clientes]
@@ -3292,6 +3363,7 @@ components:
       required: [expo_push_token]
       properties:
         expo_push_token: { type: string, pattern: '^(ExpoPushToken|ExponentPushToken)\[[A-Za-z0-9_-]{1,200}\]$' }
+        platform: { type: string, enum: [ios, android] }
         device_id: { type: string, minLength: 1, maxLength: 128 }
     PushTokenEnvelope:
       type: object

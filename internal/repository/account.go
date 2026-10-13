@@ -246,6 +246,9 @@ func (r *Repository) AnonymizeAccount(ctx context.Context, id int64, expectedVer
 	if _, err = tx.Exec(ctx, `DELETE FROM push_tokens WHERE usuario_id=$1`, id); err != nil {
 		return time.Time{}, err
 	}
+	if _, err = tx.Exec(ctx, `DELETE FROM web_push_subscriptions WHERE usuario_id=$1`, id); err != nil {
+		return time.Time{}, err
+	}
 	// Remove the customer's ledger, but preserve other customers' balances and
 	// movements after removing attribution to a departing staff member.
 	for _, statement := range []string{
