@@ -23,6 +23,16 @@ func TestResolveMovementIdentityAcceptsQRAndMemberCode(t *testing.T) {
 	}
 }
 
+func TestResolveCustomerCodeIDAcceptsPublicCode(t *testing.T) {
+	s := &Service{}
+	for _, code := range []string{"#USER-0009", "USER-0009", "#user-0009"} {
+		got, err := s.resolveCustomerCodeID(context.Background(), code)
+		if err != nil || got != 9 {
+			t.Fatalf("code %q resolved id=%d err=%v", code, got, err)
+		}
+	}
+}
+
 func TestResolveMovementIdentityRejectsAmbiguousOrInvalidValues(t *testing.T) {
 	s := &Service{Config: config.Config{QRPepper: "pepper-01234567890123456789012345"}}
 	token, _ := s.QRForUser(9)

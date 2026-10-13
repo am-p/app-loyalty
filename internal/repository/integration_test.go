@@ -219,8 +219,8 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if _, err = pool.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES('0018')`); err != nil {
 		t.Fatal(err)
 	}
-	for _, version := range []string{"0019", "0020", "0021", "0022", "0023", "0024", "0025", "0026", "0027", "0028", "0029", "0030", "0031", "0032", "0033", "0034", "0035", "0036"} {
-		migration, readErr := os.ReadFile(filepath.Join("..", "..", "migrations", version+map[string]string{"0019": "_mercado_pago_subscriptions", "0020": "_subscription_checkout_reservation", "0021": "_expo_push", "0022": "_google_reviews", "0023": "_referrals", "0024": "_referral_billing", "0025": "_subscription_prices", "0026": "_subscription_price_change_history", "0027": "_referral_campaign_editing", "0028": "_influencer_welcome_emails", "0029": "_subscription_confirmation_emails", "0030": "_email_change", "0031": "_card_templates", "0032": "_first_login_trial", "0033": "_user_codes", "0034": "_branch_proration", "0035": "_closed_test_privacy", "0036": "_web_push"}[version]+".up.sql"))
+	for _, version := range []string{"0019", "0020", "0021", "0022", "0023", "0024", "0025", "0026", "0027", "0028", "0029", "0030", "0031", "0032", "0033", "0034", "0035", "0036", "0037"} {
+		migration, readErr := os.ReadFile(filepath.Join("..", "..", "migrations", version+map[string]string{"0019": "_mercado_pago_subscriptions", "0020": "_subscription_checkout_reservation", "0021": "_expo_push", "0022": "_google_reviews", "0023": "_referrals", "0024": "_referral_billing", "0025": "_subscription_prices", "0026": "_subscription_price_change_history", "0027": "_referral_campaign_editing", "0028": "_influencer_welcome_emails", "0029": "_subscription_confirmation_emails", "0030": "_email_change", "0031": "_card_templates", "0032": "_first_login_trial", "0033": "_user_codes", "0034": "_branch_proration", "0035": "_closed_test_privacy", "0036": "_web_push", "0037": "_movement_reversals"}[version]+".up.sql"))
 		if readErr != nil {
 			t.Fatal(readErr)
 		}
@@ -246,7 +246,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 		t.Fatalf("legacy session revoked=%t err=%v", legacySessionRevoked, err)
 	}
 	outboxKey := []byte("01234567890123456789012345678901")
-	cfg := config.Config{JWTSecret: "jwt-secret-0123456789012345678901", JWTIssuer: "puntazo", QRPepper: "qr-pepper-01234567890123456789012", DemoSignupEnabled: true, ExpectedSchemaVersion: "0036", PublicAppURL: "https://app.puntazo.test", OutboxEncryptionKey: outboxKey, MediaURLTTL: 5 * time.Minute, MercadoPagoBranchPrice: 12300, MercadoPagoPointsPrice: 45600}
+	cfg := config.Config{JWTSecret: "jwt-secret-0123456789012345678901", JWTIssuer: "puntazo", QRPepper: "qr-pepper-01234567890123456789012", DemoSignupEnabled: true, ExpectedSchemaVersion: "0037", PublicAppURL: "https://app.puntazo.test", OutboxEncryptionKey: outboxKey, MediaURLTTL: 5 * time.Minute, MercadoPagoBranchPrice: 12300, MercadoPagoPointsPrice: 45600}
 	repo := repository.New(pool, outboxKey)
 	var referralAdminID int64
 	if err = pool.QueryRow(ctx, `INSERT INTO backoffice_users(email,password_hash,totp_secret,role) VALUES('admin-referral@example.com','unused','ABCDEFGHIJKLMNOPQRSTUVWX23456789','ADMIN_SISTEMA') RETURNING id`).Scan(&referralAdminID); err != nil {
@@ -810,12 +810,20 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	}
 
 	memberCode := fmt.Sprintf("#USER-%04d", customer.ID)
+	lookupCustomer, err := svc.BrandCustomerLookup(ctx, merchant.User.ID, merchant.Merchant.BrandID, memberCode)
+	if err != nil || lookupCustomer.CustomerID != customer.ID || lookupCustomer.CardID != 0 ||
+		lookupCustomer.Name != "Client Test" || lookupCustomer.Email != "client@example.com" ||
+		lookupCustomer.ProgramType != "SELLOS" || lookupCustomer.BalanceStamps != 0 || lookupCustomer.BalancePoints != 0 {
+		t.Fatalf("customer lookup before first card=%+v err=%v", lookupCustomer, err)
+	}
 	previewReq := model.MovementPreviewRequest{Operation: "ACUMULACION", CustomerCode: memberCode, BranchID: merchant.Merchant.Branch.ID}
 	preview, err := svc.Preview(ctx, merchant.User.ID, previewReq)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if preview.CardID != 0 || preview.BalanceBefore != 0 || preview.BalanceAfter != 1 {
+	if preview.CardID != 0 || preview.BalanceBefore != 0 || preview.BalanceAfter != 1 ||
+		preview.Customer.ID != customer.ID || preview.Customer.Name != "Client Test" ||
+		preview.Customer.Email != "client@example.com" || preview.Customer.UserCode == "" {
 		t.Fatalf("unexpected preview %+v", preview)
 	}
 	var cards, movements int
@@ -875,7 +883,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if _, err = pool.Exec(ctx, `UPDATE sucursales SET nombre='Sucursal renombrada' WHERE id=$1`, merchant.Merchant.Branch.ID); err != nil {
 		t.Fatal(err)
 	}
-	historical, _, err := svc.BrandMovements(ctx, merchant.User.ID, merchant.Merchant.BrandID, 1, 20)
+	historical, _, err := svc.BrandMovements(ctx, merchant.User.ID, merchant.Merchant.BrandID, 1, 20, "", "")
 	if err != nil || len(historical) != 1 || historical[0].BrandName != "Brand" || historical[0].BranchName != "Main" || historical[0].ProgramIDSnapshot != merchant.Merchant.Program.ID || historical[0].ProgramType != "SELLOS" {
 		t.Fatalf("movement snapshots=%+v err=%v", historical, err)
 	}
@@ -983,6 +991,42 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if err = pool.QueryRow(ctx, `SELECT saldo_sellos FROM tarjetas WHERE usuario_id=$1`, customer.ID).Scan(&balance); err != nil || balance != 0 {
 		t.Fatalf("balance=%d err=%v", balance, err)
 	}
+	reversal, err := svc.ReverseBrandMovement(ctx, merchant.User.ID, merchant.Merchant.BrandID, redeemedEnvelope.Data.OperationID)
+	if err != nil || reversal.BalanceBefore != 0 || reversal.BalanceAfter != 5 || reversal.OperationID == "" {
+		t.Fatalf("movement reversal=%+v err=%v", reversal, err)
+	}
+	replayedReversal, err := svc.ReverseBrandMovement(ctx, merchant.User.ID, merchant.Merchant.BrandID, redeemedEnvelope.Data.OperationID)
+	if err != nil || replayedReversal.OperationID != reversal.OperationID {
+		t.Fatalf("movement reversal replay=%+v err=%v", replayedReversal, err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT saldo_sellos FROM tarjetas WHERE usuario_id=$1`, customer.ID).Scan(&balance); err != nil || balance != 5 {
+		t.Fatalf("reversed balance=%d err=%v", balance, err)
+	}
+	argentina, err := time.LoadLocation("America/Argentina/Buenos_Aires")
+	if err != nil {
+		t.Fatal(err)
+	}
+	filteredMovements, filteredPage, err := svc.BrandMovements(ctx, merchant.User.ID, merchant.Merchant.BrandID, 1, 100, "client test", reversal.OccurredAt.In(argentina).Format("2006-01-02"))
+	if err != nil || filteredPage.TotalItems != 12 || len(filteredMovements) != 12 {
+		t.Fatalf("filtered movements page=%+v items=%d err=%v", filteredPage, len(filteredMovements), err)
+	}
+	var reversedMovement *model.Movement
+	for i := range filteredMovements {
+		if filteredMovements[i].OperationID == redeemedEnvelope.Data.OperationID {
+			reversedMovement = &filteredMovements[i]
+			break
+		}
+	}
+	if reversedMovement == nil || reversedMovement.RevertedAt == nil || reversedMovement.CustomerName != "Client Test" || reversedMovement.CustomerEmail != "client@example.com" {
+		t.Fatalf("reversed movement details=%+v", reversedMovement)
+	}
+	restorePreview, err := svc.Preview(ctx, merchant.User.ID, redemptionReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = svc.ConfirmRedemption(ctx, merchant.User.ID, uuid.NewString(), uuid.NewString(), model.ConfirmRedemptionRequest{PreviewID: restorePreview.ID, QRToken: customer.QRToken, BranchID: merchant.Merchant.Branch.ID, BenefitID: merchant.Merchant.Benefit.ID}); err != nil {
+		t.Fatal(err)
+	}
 
 	brandCustomers, customerPagination, err := svc.BrandCustomers(ctx, merchant.User.ID, merchant.Merchant.BrandID, 1, 20, " CLIENT@ ")
 	if err != nil {
@@ -992,8 +1036,8 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 		t.Fatalf("brand customer page=%+v items=%+v", customerPagination, brandCustomers)
 	}
 	brandCustomer := brandCustomers[0]
-	if brandCustomer.CustomerID != customer.ID || brandCustomer.Email != "client@example.com" || brandCustomer.Name != "Client" ||
-		brandCustomer.BalanceStamps != 0 || brandCustomer.MovementsCount != 12 || brandCustomer.LastMovementAt == nil || brandCustomer.JoinedAt.IsZero() {
+	if brandCustomer.CustomerID != customer.ID || brandCustomer.Email != "client@example.com" || brandCustomer.Name != "Client Test" ||
+		brandCustomer.BalanceStamps != 0 || brandCustomer.MovementsCount != 13 || brandCustomer.LastMovementAt == nil || brandCustomer.JoinedAt.IsZero() {
 		t.Fatalf("unexpected brand customer %+v", brandCustomer)
 	}
 	customersByID, idPagination, err := svc.BrandCustomers(ctx, merchant.User.ID, merchant.Merchant.BrandID, 1, 1, fmt.Sprint(customer.ID))
@@ -1008,8 +1052,8 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if metrics.ActiveCustomers != 1 || metrics.CurrentStampBalance != 0 || metrics.Accumulations != 10 || metrics.Redemptions != 2 ||
-		metrics.StampsIssued != 10 || metrics.StampsRedeemed != 10 || metrics.LastMovementAt == nil {
+	if metrics.ActiveCustomers != 1 || metrics.CurrentStampBalance != 0 || metrics.Accumulations != 10 || metrics.Redemptions != 3 ||
+		metrics.StampsIssued != 10 || metrics.StampsRedeemed != 15 || metrics.LastMovementAt == nil {
 		t.Fatalf("unexpected brand metrics %+v", metrics)
 	}
 
@@ -1321,11 +1365,11 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if err != nil || len(operatorBranches) != 1 || operatorBranches[0].ID != newBranch.ID {
 		t.Fatalf("operator branch scope=%+v err=%v", operatorBranches, err)
 	}
-	ownerMovements, ownerPage, err := svc.BrandMovements(ctx, merchant.User.ID, merchant.Merchant.BrandID, 1, 20)
+	ownerMovements, ownerPage, err := svc.BrandMovements(ctx, merchant.User.ID, merchant.Merchant.BrandID, 1, 20, "", "")
 	if err != nil || ownerPage.TotalItems == 0 || len(ownerMovements) == 0 {
 		t.Fatalf("owner movement scope=%+v page=%+v err=%v", ownerMovements, ownerPage, err)
 	}
-	operatorMovements, operatorPage, err := svc.BrandMovements(ctx, operatorID, merchant.Merchant.BrandID, 1, 20)
+	operatorMovements, operatorPage, err := svc.BrandMovements(ctx, operatorID, merchant.Merchant.BrandID, 1, 20, "", "")
 	if err != nil || operatorPage.TotalItems != 0 || len(operatorMovements) != 0 {
 		t.Fatalf("operator saw movements outside assigned branch: %+v page=%+v err=%v", operatorMovements, operatorPage, err)
 	}
@@ -1367,7 +1411,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if err != nil || len(promotedStaff.BranchIDs) != 0 {
 		t.Fatalf("promote staff=%+v err=%v", promotedStaff, err)
 	}
-	adminMovements, adminPage, err := svc.BrandMovements(ctx, operatorID, merchant.Merchant.BrandID, 1, 20)
+	adminMovements, adminPage, err := svc.BrandMovements(ctx, operatorID, merchant.Merchant.BrandID, 1, 20, "", "")
 	if err != nil || adminPage.TotalItems != ownerPage.TotalItems || len(adminMovements) == 0 {
 		t.Fatalf("admin movement scope=%+v page=%+v err=%v", adminMovements, adminPage, err)
 	}
@@ -1462,15 +1506,15 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 		t.Fatalf("profile photo=%+v err=%v", profilePhoto, err)
 	}
 	accountExport, err := svc.ExportCurrentUser(ctx, customer.ID)
-	if err != nil || len(accountExport.Cards) != 2 || len(accountExport.Movements) != 13 || accountExport.User.Version != 5 {
+	if err != nil || len(accountExport.Cards) != 2 || len(accountExport.Movements) != 14 || accountExport.User.Version != 5 {
 		t.Fatalf("account export=%+v err=%v", accountExport, err)
 	}
 	firstActivityPage, firstActivityMeta, err := svc.CustomerMovements(ctx, customer.ID, 1, 5)
-	if err != nil || len(firstActivityPage) != 5 || firstActivityMeta.TotalItems != 13 || firstActivityMeta.TotalPages != 3 {
+	if err != nil || len(firstActivityPage) != 5 || firstActivityMeta.TotalItems != 14 || firstActivityMeta.TotalPages != 3 {
 		t.Fatalf("customer activity page=%+v meta=%+v err=%v", firstActivityPage, firstActivityMeta, err)
 	}
 	lastActivityPage, lastActivityMeta, err := svc.CustomerMovements(ctx, customer.ID, 3, 5)
-	if err != nil || len(lastActivityPage) != 3 || lastActivityMeta.TotalItems != 13 || lastActivityPage[0].ID == firstActivityPage[0].ID {
+	if err != nil || len(lastActivityPage) != 4 || lastActivityMeta.TotalItems != 14 || lastActivityPage[0].ID == firstActivityPage[0].ID {
 		t.Fatalf("customer last activity page=%+v meta=%+v err=%v", lastActivityPage, lastActivityMeta, err)
 	}
 	for _, benefitID := range []int64{benefit.ID, secondBenefit.ID} {
@@ -1790,7 +1834,7 @@ func TestPostgresDemoSellosLifecycle(t *testing.T) {
 	if err = repo.ConfirmEmailChange(ctx, changeHash[:], time.Now()); !errors.Is(err, repository.ErrIdentityTokenInvalid) {
 		t.Fatalf("email change token reused: %v", err)
 	}
-	if err = repo.CheckSchema(ctx, "0036"); err != nil {
+	if err = repo.CheckSchema(ctx, "0037"); err != nil {
 		t.Fatal(err)
 	}
 	if err = repo.CheckSchema(ctx, "9999"); err == nil {

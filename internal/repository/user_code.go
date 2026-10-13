@@ -33,3 +33,13 @@ func (r *Repository) CustomerIDByCode(ctx context.Context, code string) (int64, 
 	}
 	return id, err
 }
+
+func (r *Repository) CustomerQRHashByID(ctx context.Context, customerID int64) ([]byte, error) {
+	var qrHash []byte
+	err := r.Pool.QueryRow(ctx, `SELECT qr_hash FROM usuarios WHERE id=$1
+		AND tipo_cuenta='CLIENTE_FINAL' AND activo AND deleted_at IS NULL`, customerID).Scan(&qrHash)
+	if err == pgx.ErrNoRows {
+		return nil, ErrNotFound
+	}
+	return qrHash, err
+}
