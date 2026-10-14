@@ -220,14 +220,20 @@ func (r *Repository) BrandMetricsSummary(ctx context.Context, actorID, brandID i
 			COALESCE(sum(h.cantidad) FILTER(WHERE h.programa_tipo='PUNTOS' AND h.operacion='CANJE' AND h.sentido='DEBITO'),0)::bigint AS points_redeemed,
 			max(h.occurred_at) AS last_movement_at
 		FROM historial_movimientos h WHERE h.marca_id=$2 AND EXISTS(SELECT 1 FROM authorized)
+	), reputation AS (
+		SELECT count(*) AS favorites_received,count(DISTINCT sf.usuario_id) AS favorite_customers
+		FROM sucursales_favoritas sf JOIN sucursales s ON s.id=sf.sucursal_id
+		WHERE s.marca_id=$2 AND EXISTS(SELECT 1 FROM authorized)
 	)
 	SELECT EXISTS(SELECT 1 FROM authorized),COALESCE((SELECT tipo FROM program),''),active_cards.active_customers,active_cards.current_stamp_balance,active_cards.current_point_balance,
-		ledger.accumulations,ledger.redemptions,ledger.stamps_issued,ledger.stamps_redeemed,ledger.points_issued,ledger.points_redeemed,ledger.last_movement_at
-	FROM active_cards CROSS JOIN ledger`
+		ledger.accumulations,ledger.redemptions,ledger.stamps_issued,ledger.stamps_redeemed,ledger.points_issued,ledger.points_redeemed,ledger.last_movement_at,
+		reputation.favorites_received,reputation.favorite_customers
+	FROM active_cards CROSS JOIN ledger CROSS JOIN reputation`
 	var authorized bool
 	var result model.BrandMetricsSummary
 	err := r.Pool.QueryRow(ctx, query, actorID, brandID).Scan(&authorized, &result.ProgramType, &result.ActiveCustomers, &result.CurrentStampBalance, &result.CurrentPointBalance,
-		&result.Accumulations, &result.Redemptions, &result.StampsIssued, &result.StampsRedeemed, &result.PointsIssued, &result.PointsRedeemed, &result.LastMovementAt)
+		&result.Accumulations, &result.Redemptions, &result.StampsIssued, &result.StampsRedeemed, &result.PointsIssued, &result.PointsRedeemed, &result.LastMovementAt,
+		&result.FavoritesReceived, &result.FavoriteCustomers)
 	if err != nil {
 		return model.BrandMetricsSummary{}, err
 	}

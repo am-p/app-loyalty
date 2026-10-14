@@ -4,6 +4,7 @@ import (
 	"context"
 	"regexp"
 	"strings"
+	"time"
 
 	"clientesFrecuentes/internal/model"
 )
@@ -91,13 +92,31 @@ func validateBenefit(name, description string, requirement int64) error {
 	}
 	return nil
 }
+func parseOptionalBenefitDate(value *string) (*time.Time, error) {
+	if value == nil {
+		return nil, nil
+	}
+	trimmed := strings.TrimSpace(*value)
+	if trimmed == "" {
+		return nil, nil
+	}
+	parsed, err := time.Parse("2006-01-02", trimmed)
+	if err != nil {
+		return nil, ErrInvalidRequest
+	}
+	return &parsed, nil
+}
 func (s *Service) ReplaceBenefit(c context.Context, a, b, id int64, v int, r model.ReplaceBenefitRequest) (model.Benefit, error) {
 	r.Name = strings.TrimSpace(r.Name)
 	r.Description = strings.TrimSpace(r.Description)
 	if err := validateBenefit(r.Name, r.Description, r.Requirement); err != nil {
 		return model.Benefit{}, err
 	}
-	return s.Repo.ReplaceBenefit(c, a, b, id, v, r)
+	expiresOn, err := parseOptionalBenefitDate(r.ExpiresOn)
+	if err != nil {
+		return model.Benefit{}, err
+	}
+	return s.Repo.ReplaceBenefit(c, a, b, id, v, r, expiresOn)
 }
 func (s *Service) UpdateBenefit(c context.Context, a, b, id int64, v int, r model.UpdateBenefitRequest) (model.Benefit, error) {
 	cur, err := s.Repo.GetBenefit(c, a, b, id)
@@ -105,6 +124,10 @@ func (s *Service) UpdateBenefit(c context.Context, a, b, id int64, v int, r mode
 		return cur, err
 	}
 	rep := model.ReplaceBenefitRequest{Name: cur.Name, Description: cur.Description, Active: cur.Active}
+	if cur.ExpiresOn != nil {
+		value := cur.ExpiresOn.Format("2006-01-02")
+		rep.ExpiresOn = &value
+	}
 	if cur.RequiredPoints != nil {
 		rep.Requirement = *cur.RequiredPoints
 	} else if cur.RequiredStamps != nil {
@@ -121,6 +144,9 @@ func (s *Service) UpdateBenefit(c context.Context, a, b, id int64, v int, r mode
 	}
 	if r.Active != nil {
 		rep.Active = *r.Active
+	}
+	if r.ExpiresOn.Present {
+		rep.ExpiresOn = r.ExpiresOn.Value
 	}
 	return s.ReplaceBenefit(c, a, b, id, v, rep)
 }

@@ -23,7 +23,7 @@ func (r *Repository) CreatePreview(ctx context.Context, actorID int64, req model
 	defer tx.Rollback(ctx)
 	var brandID, programID int64
 	var branchName, programType string
-	err = tx.QueryRow(ctx, `SELECT s.marca_id,s.nombre,p.id,p.tipo FROM membresias_marca mm JOIN sucursales s ON s.marca_id=mm.marca_id AND s.activo LEFT JOIN membresias_sucursales ms ON ms.membresia_id=mm.id AND ms.marca_id=mm.marca_id AND ms.sucursal_id=s.id AND ms.activo JOIN marcas m ON m.id=s.marca_id AND m.activo JOIN programas_fidelidad p ON p.marca_id=m.id AND p.activo JOIN accesos_demo a ON a.marca_id=m.id AND a.activo WHERE mm.usuario_id=$1 AND mm.activo AND s.id=$2 AND (mm.rol IN ('PROPIETARIO','ADMINISTRADOR') OR ms.sucursal_id IS NOT NULL) AND EXISTS(SELECT 1 FROM beneficios configured WHERE configured.programa_id=p.id AND configured.activo)`, actorID, req.BranchID).Scan(&brandID, &branchName, &programID, &programType)
+	err = tx.QueryRow(ctx, `SELECT s.marca_id,s.nombre,p.id,p.tipo FROM membresias_marca mm JOIN sucursales s ON s.marca_id=mm.marca_id AND s.activo LEFT JOIN membresias_sucursales ms ON ms.membresia_id=mm.id AND ms.marca_id=mm.marca_id AND ms.sucursal_id=s.id AND ms.activo JOIN marcas m ON m.id=s.marca_id AND m.activo JOIN programas_fidelidad p ON p.marca_id=m.id AND p.activo JOIN accesos_demo a ON a.marca_id=m.id AND a.activo WHERE mm.usuario_id=$1 AND mm.activo AND s.id=$2 AND (mm.rol IN ('PROPIETARIO','ADMINISTRADOR') OR ms.sucursal_id IS NOT NULL) AND EXISTS(SELECT 1 FROM beneficios configured WHERE configured.programa_id=p.id AND configured.activo AND configured.deleted_at IS NULL AND (configured.expires_on IS NULL OR configured.expires_on >= (now() AT TIME ZONE m.zona_horaria)::date))`, actorID, req.BranchID).Scan(&brandID, &branchName, &programID, &programType)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.Preview{}, ErrNotFound
 	}
@@ -65,7 +65,7 @@ func (r *Repository) CreatePreview(ctx context.Context, actorID int64, req model
 			return model.Preview{}, ErrPreviewChanged
 		}
 		var b model.Benefit
-		err = tx.QueryRow(ctx, `SELECT id,programa_id,nombre,requisito_sellos,requisito_puntos,activo,version FROM beneficios WHERE id=$1 AND programa_id=$2 AND activo FOR SHARE`, *req.BenefitID, programID).Scan(&b.ID, &b.ProgramID, &b.Name, &b.RequiredStamps, &b.RequiredPoints, &b.Active, &b.Version)
+		err = tx.QueryRow(ctx, `SELECT b.id,b.programa_id,b.nombre,b.requisito_sellos,b.requisito_puntos,b.activo,b.version,b.expires_on FROM beneficios b JOIN programas_fidelidad p ON p.id=b.programa_id JOIN marcas m ON m.id=p.marca_id WHERE b.id=$1 AND b.programa_id=$2 AND b.activo AND b.deleted_at IS NULL AND (b.expires_on IS NULL OR b.expires_on >= (now() AT TIME ZONE m.zona_horaria)::date) FOR SHARE OF b`, *req.BenefitID, programID).Scan(&b.ID, &b.ProgramID, &b.Name, &b.RequiredStamps, &b.RequiredPoints, &b.Active, &b.Version, &b.ExpiresOn)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return model.Preview{}, ErrNotFound
 		}
@@ -197,7 +197,7 @@ func (r *Repository) ConfirmMovement(ctx context.Context, in ConfirmInput, build
 	if in.Operation == "CANJE" {
 		var n string
 		var required int64
-		err = tx.QueryRow(ctx, `SELECT nombre,CASE WHEN $3='PUNTOS' THEN requisito_puntos ELSE requisito_sellos END FROM beneficios WHERE id=$1 AND programa_id=$2 AND activo FOR SHARE`, *in.BenefitID, programID, programType).Scan(&n, &required)
+		err = tx.QueryRow(ctx, `SELECT b.nombre,CASE WHEN $3='PUNTOS' THEN b.requisito_puntos ELSE b.requisito_sellos END FROM beneficios b JOIN programas_fidelidad pf ON pf.id=b.programa_id JOIN marcas m ON m.id=pf.marca_id WHERE b.id=$1 AND b.programa_id=$2 AND b.activo AND b.deleted_at IS NULL AND (b.expires_on IS NULL OR b.expires_on >= (now() AT TIME ZONE m.zona_horaria)::date) FOR SHARE OF b`, *in.BenefitID, programID, programType).Scan(&n, &required)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return IdempotentResult{}, ErrNotFound
 		}

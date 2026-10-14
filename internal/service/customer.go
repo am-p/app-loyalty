@@ -137,6 +137,25 @@ func (s *Service) Customer(ctx context.Context, actorID int64) (model.Customer, 
 	return model.Customer{ID: u.ID, Email: u.Email, Name: u.Name, UserCode: u.UserCode, QRToken: token}, nil
 }
 
+func (s *Service) CustomerStoreLocations(ctx context.Context, actorID int64, search string) ([]model.StoreLocation, error) {
+	search = strings.TrimSpace(search)
+	if len(search) > 120 {
+		return nil, ErrInvalidRequest
+	}
+	items, err := s.Repo.ListCustomerStoreLocations(ctx, actorID, search)
+	if err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+func (s *Service) SetCustomerStoreFavorite(ctx context.Context, actorID, branchID int64, favorite bool) (model.StoreFavorite, error) {
+	if actorID < 1 || branchID < 1 {
+		return model.StoreFavorite{}, ErrInvalidRequest
+	}
+	return s.Repo.SetCustomerStoreFavorite(ctx, actorID, branchID, favorite)
+}
+
 func (s *Service) Cards(ctx context.Context, actorID int64, page, size int) ([]model.Card, web.Pagination, error) {
 	items, total, err := s.Repo.ListCards(ctx, actorID, page, size)
 	if err == nil && s.Media != nil {
