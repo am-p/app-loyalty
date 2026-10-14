@@ -1339,6 +1339,12 @@ paths:
     post:
       tags: [Facturación]
       summary: Recibe y verifica cambios de una suscripción
+      description: >-
+        Con el proveedor api, valida la firma y confirma con HTTP 200 sólo después
+        de procesar la notificación o ignorar un tópico no soportado. Los errores
+        de validación o procesamiento no se confirman como éxito. Con el proveedor
+        disabled, devuelve HTTP 200 sin consultar Mercado Pago ni modificar datos;
+        esta respuesta no demuestra que una suscripción o un cobro fue procesado.
       operationId: receiveMercadoPagoWebhook
       security: []
       x-puntazo-implementation: IMPLEMENTED
@@ -1352,7 +1358,8 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/MercadoPagoWebhook' }
       responses:
-        '204': { description: Notificación válida procesada o ignorada por no corresponder a suscripciones }
+        '200': { description: 'Entrega confirmada; procesada, tópico ignorado o proveedor deshabilitado, sin cuerpo' }
+        '422': { $ref: '#/components/responses/ValidationError' }
         '401': { description: Firma inválida }
         '503': { $ref: '#/components/responses/DependencyUnavailable' }
   /referidos/validacion:
