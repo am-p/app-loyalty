@@ -368,6 +368,7 @@ type Benefit struct {
 	Active         bool       `json:"active"`
 	Version        int        `json:"version"`
 	Description    string     `json:"descripcion"`
+	ExpiresOn      *time.Time `json:"fecha_vencimiento,omitempty"`
 	ImageURL       string     `json:"image_url,omitempty"`
 	DeletedAt      *time.Time `json:"deleted_at,omitempty"`
 	CreatedAt      time.Time  `json:"created_at"`
@@ -393,23 +394,46 @@ type BrandImage struct {
 	ObjectKey    string     `json:"-"`
 }
 type CreateBenefitRequest struct {
-	Name                 string `json:"name"`
-	Requirement          int64  `json:"requirement"`
-	CanonicalName        string `json:"nombre"`
-	Description          string `json:"descripcion"`
-	CanonicalRequirement int64  `json:"requisito_cantidad"`
+	Name                 string  `json:"name"`
+	Requirement          int64   `json:"requirement"`
+	CanonicalName        string  `json:"nombre"`
+	Description          string  `json:"descripcion"`
+	CanonicalRequirement int64   `json:"requisito_cantidad"`
+	ExpiresOn            *string `json:"expires_on,omitempty"`
+	CanonicalExpiresOn   *string `json:"fecha_vencimiento,omitempty"`
 }
 type ReplaceBenefitRequest struct {
-	Name        string `json:"nombre"`
-	Description string `json:"descripcion"`
-	Requirement int64  `json:"requisito_cantidad"`
-	Active      bool   `json:"activo"`
+	Name        string  `json:"nombre"`
+	Description string  `json:"descripcion"`
+	Requirement int64   `json:"requisito_cantidad"`
+	Active      bool    `json:"activo"`
+	ExpiresOn   *string `json:"fecha_vencimiento"`
 }
+type NullableStringPatch struct {
+	Present bool
+	Value   *string
+}
+
+func (p *NullableStringPatch) UnmarshalJSON(data []byte) error {
+	p.Present = true
+	if bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
+		p.Value = nil
+		return nil
+	}
+	var value string
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	p.Value = &value
+	return nil
+}
+
 type UpdateBenefitRequest struct {
-	Name        *string `json:"nombre,omitempty"`
-	Description *string `json:"descripcion,omitempty"`
-	Requirement *int64  `json:"requisito_cantidad,omitempty"`
-	Active      *bool   `json:"activo,omitempty"`
+	Name        *string             `json:"nombre,omitempty"`
+	Description *string             `json:"descripcion,omitempty"`
+	Requirement *int64              `json:"requisito_cantidad,omitempty"`
+	Active      *bool               `json:"activo,omitempty"`
+	ExpiresOn   NullableStringPatch `json:"fecha_vencimiento,omitempty"`
 }
 type MerchantContext struct {
 	BrandID          int64      `json:"brand_id"`

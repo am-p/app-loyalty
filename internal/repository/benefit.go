@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"time"
 
 	"clientesFrecuentes/internal/model"
 
@@ -17,7 +18,7 @@ func (r *Repository) ListBenefits(ctx context.Context, actorID, brandID int64) (
 	if !authorized {
 		return nil, ErrNotFound
 	}
-	rows, err := r.Pool.Query(ctx, `SELECT b.id,b.programa_id,b.nombre,b.requisito_sellos,b.requisito_puntos,b.activo,b.version,b.descripcion,b.deleted_at,b.created_at,b.updated_at
+	rows, err := r.Pool.Query(ctx, `SELECT b.id,b.programa_id,b.nombre,b.requisito_sellos,b.requisito_puntos,b.activo,b.version,b.descripcion,b.expires_on,b.deleted_at,b.created_at,b.updated_at
 		FROM beneficios b JOIN programas_fidelidad p ON p.id=b.programa_id AND p.marca_id=$1
 		ORDER BY b.id`, brandID)
 	if err != nil {
@@ -40,16 +41,17 @@ func (r *Repository) listBenefitsByProgramIDs(ctx context.Context, programIDs []
 	if len(programIDs) == 0 {
 		return result, nil
 	}
-	rows, err := r.Pool.Query(ctx, `SELECT b.id,b.programa_id,b.nombre,b.requisito_sellos,b.requisito_puntos,b.activo,b.version,b.descripcion,b.deleted_at,b.created_at,b.updated_at,
+	rows, err := r.Pool.Query(ctx, `SELECT b.id,b.programa_id,b.nombre,b.requisito_sellos,b.requisito_puntos,b.activo,b.version,b.descripcion,b.expires_on,b.deleted_at,b.created_at,b.updated_at,
 		COALESCE((SELECT a.object_key FROM archivos_marca a WHERE a.tipo='BENEFICIO' AND a.beneficio_id=b.id AND a.estado='ACTIVA' ORDER BY a.created_at DESC LIMIT 1),'')
-		FROM beneficios b WHERE b.programa_id=ANY($1) AND b.activo AND b.deleted_at IS NULL ORDER BY b.id`, programIDs)
+		FROM beneficios b JOIN programas_fidelidad p ON p.id=b.programa_id JOIN marcas m ON m.id=p.marca_id
+		WHERE b.programa_id=ANY($1) AND b.activo AND b.deleted_at IS NULL AND (b.expires_on IS NULL OR b.expires_on >= (now() AT TIME ZONE m.zona_horaria)::date) ORDER BY b.id`, programIDs)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var item model.Benefit
-		if err = rows.Scan(&item.ID, &item.ProgramID, &item.Name, &item.RequiredStamps, &item.RequiredPoints, &item.Active, &item.Version, &item.Description, &item.DeletedAt, &item.CreatedAt, &item.UpdatedAt, &item.ImageObjectKey); err != nil {
+		if err = rows.Scan(&item.ID, &item.ProgramID, &item.Name, &item.RequiredStamps, &item.RequiredPoints, &item.Active, &item.Version, &item.Description, &item.ExpiresOn, &item.DeletedAt, &item.CreatedAt, &item.UpdatedAt, &item.ImageObjectKey); err != nil {
 			return nil, err
 		}
 		result[item.ProgramID] = append(result[item.ProgramID], item)
@@ -57,7 +59,7 @@ func (r *Repository) listBenefitsByProgramIDs(ctx context.Context, programIDs []
 	return result, rows.Err()
 }
 
-func (r *Repository) CreateBenefit(ctx context.Context, actorID, brandID int64, name, description string, requirement int64) (model.Benefit, error) {
+func (r *Repository) CreateBenefit(ctx context.Context, actorID, brandID int64, name, description string, requirement int64, expiresOn *time.Time) (model.Benefit, error) {
 	tx, err := r.Pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return model.Benefit{}, err
@@ -85,8 +87,8 @@ func (r *Repository) CreateBenefit(ctx context.Context, actorID, brandID int64, 
 		requiredStamps = &requirement
 	}
 	var item model.Benefit
-	row := tx.QueryRow(ctx, `INSERT INTO beneficios(programa_id,nombre,descripcion,requisito_sellos,requisito_puntos)
-		VALUES($1,$2,$3,$4,$5) RETURNING id,programa_id,nombre,requisito_sellos,requisito_puntos,activo,version,descripcion,deleted_at,created_at,updated_at`, programID, name, description, requiredStamps, requiredPoints)
+	row := tx.QueryRow(ctx, `INSERT INTO beneficios(programa_id,nombre,descripcion,requisito_sellos,requisito_puntos,expires_on)
+		VALUES($1,$2,$3,$4,$5,$6) RETURNING id,programa_id,nombre,requisito_sellos,requisito_puntos,activo,version,descripcion,expires_on,deleted_at,created_at,updated_at`, programID, name, description, requiredStamps, requiredPoints, expiresOn)
 	err = scanBenefit(row, &item)
 	if err != nil {
 		return model.Benefit{}, normalize(err)
