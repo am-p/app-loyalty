@@ -11,7 +11,8 @@ import (
 	"github.com/google/uuid"
 )
 
-func (h *Handler) BackofficePrices(c *gin.Context) {
+func (h *Handler) SubscriptionPrices(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
 	out, err := h.Service.SubscriptionPrices(c.Request.Context())
 	if err != nil {
 		writeErr(c, err)

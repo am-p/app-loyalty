@@ -1,9 +1,16 @@
 package repository_test
 
 import (
+	"clientesFrecuentes/internal/config"
+	"clientesFrecuentes/internal/handler"
+	"clientesFrecuentes/internal/service"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/gin-gonic/gin"
+	"net/http"
+	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
@@ -284,4 +291,40 @@ func TestPostgresExistingSubscriptionPriceChanges(t *testing.T) {
 			t.Fatalf("obsolete item=%+v", item)
 		}
 	}
+}
+
+// Registration reads the same catalog as Backoffice, including downward changes.
+func TestPostgresPublicSubscriptionPricesReflectDecrease(t *testing.T) {
+	pool := referralBillingPool(t)
+	ctx := t.Context()
+	repo := repository.New(pool)
+	var admin int64
+	if err := pool.QueryRow(ctx, `INSERT INTO backoffice_users(email,password_hash,totp_secret,role) VALUES('catalog-admin@example.test','hash','secret','ADMIN_SISTEMA') RETURNING id`).Scan(&admin); err != nil {
+		t.Fatal(err)
+	}
+	h := &handler.Handler{Service: &service.Service{Repo: repo, Config: config.Config{MercadoPagoBranchPrice: 2500000, MercadoPagoPointsPrice: 2000000}}}
+	router := gin.New()
+	router.GET("/v1/suscripciones/precios", h.SubscriptionPrices)
+	read := func(want int64) {
+		t.Helper()
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/suscripciones/precios", nil))
+		if w.Code != http.StatusOK || w.Header().Get("Cache-Control") != "no-store" {
+			t.Fatalf("catalog response: %d %s", w.Code, w.Body.String())
+		}
+		var result struct {
+			Data []repository.SubscriptionPrice `json:"data"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Data) != 2 || result.Data[0].ProgramType != "SELLOS" || result.Data[0].UnitPriceMinor != want || result.Data[1].UnitPriceMinor != 2000000 {
+			t.Fatalf("catalog=%+v", result.Data)
+		}
+	}
+	read(2500000)
+	if _, err := repo.ChangeSubscriptionPrice(ctx, admin, uuid.New(), "SELLOS", 1500000, 0, 2500000, false); err != nil {
+		t.Fatal(err)
+	}
+	read(1500000)
 }

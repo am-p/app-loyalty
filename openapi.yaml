@@ -1711,6 +1711,23 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/MerchantCreditAllocationEnvelope' }
         '409': { description: 'Saldo insuficiente, factura agotada o referencia duplicada' }
+  /suscripciones/precios:
+    get:
+      tags: [Subscriptions]
+      operationId: getPublicSubscriptionPrices
+      summary: Consulta pública de precios base mensuales por sucursal para el registro comercial
+      description: Usa el catálogo configurado en Backoffice. No incluye descuentos personales ni cambia suscripciones existentes. Respuesta sin caché.
+      security: []
+      x-puntazo-implementation: IMPLEMENTED
+      responses:
+        '200':
+          description: Precios base de Sellos y Puntos en centavos de ARS
+          headers:
+            Cache-Control: { schema: { type: string }, description: no-store }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SubscriptionPricesEnvelope' }
+        '500': { description: No se pudo consultar el catálogo; no se devuelve un precio supuesto }
   /backoffice/prices:
     get:
       tags: [Backoffice]
