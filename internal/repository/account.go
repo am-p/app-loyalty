@@ -242,6 +242,9 @@ func (r *Repository) AnonymizeAccount(ctx context.Context, id int64, expectedVer
 	if _, err = tx.Exec(ctx, `DELETE FROM progreso_resenas WHERE usuario_id=$1`, id); err != nil {
 		return time.Time{}, err
 	}
+	if _, err = tx.Exec(ctx, `DELETE FROM sucursales_favoritas WHERE usuario_id=$1`, id); err != nil {
+		return time.Time{}, err
+	}
 	// Account deletion revokes device destinations and cascades queued pushes.
 	if _, err = tx.Exec(ctx, `DELETE FROM push_tokens WHERE usuario_id=$1`, id); err != nil {
 		return time.Time{}, err

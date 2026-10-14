@@ -324,6 +324,35 @@ type Branch struct {
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
 }
+type StoreLocation struct {
+	BrandID      int64                  `json:"brand_id"`
+	BrandName    string                 `json:"brand_name"`
+	BranchID     int64                  `json:"branch_id"`
+	BranchName   string                 `json:"branch_name"`
+	Address      *string                `json:"address,omitempty"`
+	Locality     *string                `json:"localidad,omitempty"`
+	Province     *string                `json:"provincia,omitempty"`
+	Latitude     *float64               `json:"latitud,omitempty"`
+	Longitude    *float64               `json:"longitud,omitempty"`
+	ImageURL     string                 `json:"image_url,omitempty"`
+	Description  string                 `json:"descripcion,omitempty"`
+	Category     string                 `json:"categoria,omitempty"`
+	Phone        string                 `json:"telefono,omitempty"`
+	OpeningHours string                 `json:"horarios,omitempty"`
+	Benefits     []StoreLocationBenefit `json:"beneficios"`
+	Favorite     bool                   `json:"favorita"`
+	Favorites    int64                  `json:"favoritos"`
+}
+type StoreFavorite struct {
+	BranchID  int64 `json:"branch_id"`
+	Favorite  bool  `json:"favorita"`
+	Favorites int64 `json:"favoritos"`
+}
+type StoreLocationBenefit struct {
+	ID          int64  `json:"id"`
+	Name        string `json:"nombre"`
+	Description string `json:"descripcion,omitempty"`
+}
 type CreateBranchRequest struct {
 	Name       string   `json:"nombre"`
 	Address    *string  `json:"direccion,omitempty"`
@@ -500,6 +529,8 @@ type BrandCustomer struct {
 }
 type BrandMetricsSummary struct {
 	ActiveCustomers     int64      `json:"active_customers"`
+	FavoritesReceived   int64      `json:"favorites_received"`
+	FavoriteCustomers   int64      `json:"favorite_customers"`
 	ProgramType         string     `json:"program_type"`
 	CurrentStampBalance int64      `json:"current_stamp_balance"`
 	CurrentPointBalance int64      `json:"current_point_balance"`
