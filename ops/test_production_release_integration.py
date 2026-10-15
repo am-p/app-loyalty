@@ -50,7 +50,7 @@ def main():
                 '--tmpfs', '/var/lib/postgresql/data:rw,size=1g', '--env-file', db_env, 'postgres:16-alpine')
             ready = False
             for _ in range(45):
-                if subprocess.run(['docker', 'exec', database, 'pg_isready', '-U', 'fixture'],
+                if subprocess.run(['docker', 'exec', database, 'pg_isready', '-h', '127.0.0.1', '-U', 'fixture', '-d', 'fixture'],
                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
                     ready = True
                     break
@@ -92,6 +92,13 @@ def main():
             print(json.dumps({'isolated': True, 'restored_and_upgraded': next_version, 'idempotent': True,
                 'candidate_ready': True, 'existing_data_preserved': True, 'failed_migration_blocked': failure_version,
                 'production_touched': False}))
+        except Exception:
+            # This fixture starts empty, uses no production credentials or data,
+            # and redirects every DB command to the disposable container above.
+            worker.log.flush()
+            diagnostic = (worker.directory / 'private.log').read_text()[-4000:]
+            print('Isolated fixture diagnostics:\n' + diagnostic.replace(password, '<fixture-password>'))
+            raise
         finally:
             subprocess.run(['docker', 'rm', '-f', database], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             worker.log.close()

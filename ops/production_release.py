@@ -334,7 +334,7 @@ class Release:
             self.docker('run', '-d', '--name', name, '--network', 'none', '--memory', '768m', '--cpus', '1',
                 '--tmpfs', '/var/lib/postgresql/data:rw,size=1g', '--env-file', env, 'postgres:16-alpine')
             for attempt in range(45):
-                ready = subprocess.run(['docker', 'exec', name, 'pg_isready', '-U', 'rehearsal'],
+                ready = subprocess.run(['docker', 'exec', name, 'pg_isready', '-h', '127.0.0.1', '-U', 'rehearsal', '-d', 'rehearsal'],
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
                 if ready:
                     break
