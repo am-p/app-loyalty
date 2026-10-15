@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import re
 import secrets
+import shutil
 import subprocess
 import sys
 import time
@@ -96,6 +97,30 @@ def status(root, sha):
                 state.update(status='failed', error='Release worker stopped; inspect the VPS before retrying')
                 atomic_json(path, state)
     return state
+
+
+def prune(root, now, apply=False):
+    """Expire only recognized, terminal attempts; keep journal and hash ledger."""
+    expired = []
+    directory = root / 'releases'
+    if not directory.exists():
+        return expired
+    require(not directory.is_symlink(), 'Release directory cannot be a symlink')
+    for path in directory.iterdir():
+        if path.is_symlink() or not path.is_dir() or not re.fullmatch(r'[0-9a-f]{40}-[0-9a-f]{12}', path.name):
+            continue
+        result = path / 'result.json'
+        if not result.is_file() or result.is_symlink():
+            continue
+        value = json.loads(result.read_text())
+        if value.get('status') not in {'success', 'failed', 'rehearsal_success'}:
+            continue
+        updated = datetime.datetime.fromisoformat(value['updated_at'])
+        if updated < now - datetime.timedelta(days=60):
+            expired.append(path.name)
+            if apply:
+                shutil.rmtree(path)
+    return expired
 
 
 def validate_history(applied, incoming, known):
@@ -445,6 +470,10 @@ def main():
         files = migration_files(Path(sys.argv[2]))
         migration_plan(files, list(files)[:35])
         print(json.dumps({'migration_policy': 'valid', 'latest_schema': list(files)[-1]}))
+        return
+    if len(sys.argv) == 2 and sys.argv[1] in {'--prune', '--prune-apply'} and not os.environ.get('SSH_ORIGINAL_COMMAND'):
+        apply = sys.argv[1] == '--prune-apply'
+        print(json.dumps({'apply': apply, 'expired_attempts': prune(ROOT, datetime.datetime.now(datetime.timezone.utc), apply)}))
         return
     os.umask(0o077)
     ROOT.mkdir(mode=0o700, exist_ok=True)

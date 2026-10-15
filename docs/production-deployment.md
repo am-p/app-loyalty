@@ -73,6 +73,7 @@ no se actualiza automáticamente desde ramas de PR ni acepta código enviado por
 ```sh
 install -D -m 0755 ops/production_release.py /usr/local/lib/puntazo/production_release.py
 install -d -m 0700 /var/lib/puntazo-production-release
+install -m 0644 ops/puntazo-production-release-retention.cron /etc/cron.d/puntazo-production-release-retention
 ```
 
 Crear una clave Ed25519 exclusiva para Actions. Agregar sólo su clave pública a
@@ -133,8 +134,11 @@ Los resultados públicos del protocolo contienen sólo SHA, fase, estado, esquem
 y UUID de despliegue. Logs, snapshots, envs y backups quedan privados bajo
 `/var/lib/puntazo-production-release/releases/<SHA>-<intento>/` (directorios0700,
 archivos0600). El ledger de hashes y el diario acumulativo de bajas están fuera de
-los directorios de backup. La retención de esas copias debe respetar las reglas
-operativas de privacidad; no borrar el diario al rotar un respaldo.
+los directorios de backup. El cron instalado elimina intentos terminales de más
+de60 días, incluyendo sus copias, claves y envs; no sigue symlinks ni elimina
+intentos aún activos, el ledger o el diario de bajas. `--prune` permite revisar el
+plan sin borrar. Los intentos interrumpidos que carezcan de resultado terminal
+requieren conciliación operativa antes de su limpieza.
 
 Si falla un backup, restauración, ensayo o CI, no se inicia la migración productiva.
 Si falla una migración parcialmente aplicada, no se ejecuta down ni restore

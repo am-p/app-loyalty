@@ -1,4 +1,5 @@
 import contextlib
+import datetime
 import io
 import json
 import os
@@ -246,6 +247,30 @@ class SafetyTests(unittest.TestCase):
         expected = {'sha': SHA, 'status': 'success', 'phase': 'done'}
         release.atomic_json(self.root / (SHA + '.json'), expected)
         self.assertEqual(release.status(self.root, SHA), expected)
+
+    def test_retention_removes_only_expired_terminal_attempts(self):
+        now = datetime.datetime.now(datetime.timezone.utc)
+        expired = self.root / 'releases' / (SHA + '-' + '1' * 12)
+        active = self.root / 'releases' / (SHA + '-' + '2' * 12)
+        for path, status in [(expired, 'success'), (active, 'running')]:
+            path.mkdir(parents=True)
+            release.atomic_json(path / 'result.json', {'status': status, 'updated_at': (now - datetime.timedelta(days=61)).isoformat()})
+        (self.root / 'deletions').mkdir()
+        (self.root / 'deletions' / 'production.json').write_text('preserve journal')
+        self.assertEqual(release.prune(self.root, now), [expired.name])
+        self.assertTrue(expired.exists())
+        release.prune(self.root, now, apply=True)
+        self.assertFalse(expired.exists())
+        self.assertTrue(active.exists())
+        self.assertTrue((self.root / 'deletions' / 'production.json').exists())
+
+    def test_retention_never_follows_an_attempt_symlink(self):
+        (self.root / 'releases').mkdir()
+        outside = self.root / 'preserve'
+        outside.mkdir()
+        (self.root / 'releases' / (SHA + '-' + '3' * 12)).symlink_to(outside, target_is_directory=True)
+        self.assertEqual(release.prune(self.root, datetime.datetime.now(datetime.timezone.utc), apply=True), [])
+        self.assertTrue(outside.exists())
 
     def test_ssh_dispatch_launches_detached_worker_and_deduplicates(self):
         with patch.object(release, 'ROOT', self.root), patch.dict(os.environ, {'SSH_ORIGINAL_COMMAND': 'deploy ' + SHA}), \
