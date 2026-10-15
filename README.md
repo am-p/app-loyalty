@@ -107,6 +107,11 @@ El despliegue debe proporcionar el SHA real de la revisión construida en
 La API informa esa etiqueta; no verifica por sí misma el contenido del binario.
 Configurar la versión de esquema no aplica migraciones.
 
+El [flujo productivo con migraciones](docs/production-deployment.md) coordina
+respaldo, restore/upgrade aislado, migración e identificación del release desde
+la VPS. Su activación requiere instalar el controlador restringido y configurar
+el secreto SSH de Actions antes de integrar el cambio de workflow.
+
 ## Notificaciones de tarjetas
 
 La app Expo registra su destino con `POST /v1/clientes/me/push-token` usando el
