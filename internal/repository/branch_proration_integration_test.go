@@ -51,6 +51,10 @@ func TestPostgresBranchProrationDurableSimulator(t *testing.T) {
 		if e != nil {
 			t.Fatal(e)
 		}
+		// Match the database fixture to the service clock; created_at defaults to real time.
+		if _, e = pool.Exec(ctx, `UPDATE branch_quotes SET created_at=$2 WHERE id=$1`, q.QuoteID, now); e != nil {
+			t.Fatal(e)
+		}
 		return q
 	}
 	assertCount := func(want int64) {
@@ -244,6 +248,10 @@ func testBranchProviderCompensation(t *testing.T, free, complete bool) {
 	svc := service.Service{Repo: repo, Billing: fake, Now: func() time.Time { return now }, Config: config.Config{BranchProrationEnabled: true, PublicAppURL: "http://localhost:4175"}}
 	q, e := svc.QuoteBranch(ctx, user, brand, model.CreateBranchRequest{Name: "Pendingbranch"})
 	if e != nil {
+		t.Fatal(e)
+	}
+	// Match the database fixture to the service clock before approving a payment.
+	if _, e = pool.Exec(ctx, `UPDATE branch_quotes SET created_at=$2 WHERE id=$1`, q.QuoteID, now); e != nil {
 		t.Fatal(e)
 	}
 	op, e := svc.ConfirmBranch(ctx, user, brand, q.QuoteID, uuid.NewString())
