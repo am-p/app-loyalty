@@ -34,7 +34,7 @@ func TestPostgresCustomerStores(t *testing.T) {
 	}{
 		{&customer, "customer@map.test", "CLIENTE_FINAL"}, {&other, "other@map.test", "CLIENTE_FINAL"}, {&staff, "staff@map.test", "PERSONAL_MARCA"},
 	} {
-		if err := p.QueryRow(ctx, `INSERT INTO usuarios(email,nombre,tipo_cuenta,qr_hash) VALUES($1,'Map',$2,CASE WHEN $2='CLIENTE_FINAL' THEN convert_to($1,'UTF8') ELSE NULL END) RETURNING id`, u.email, u.kind).Scan(u.id); err != nil {
+		if err := p.QueryRow(ctx, `INSERT INTO usuarios(email,nombre,tipo_cuenta,qr_hash) VALUES($1::text,'Map',$2,CASE WHEN $2='CLIENTE_FINAL' THEN convert_to($1::text,'UTF8') ELSE NULL END) RETURNING id`, u.email, u.kind).Scan(u.id); err != nil {
 			t.Fatal(err)
 		}
 	}
