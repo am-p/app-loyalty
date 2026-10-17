@@ -44,6 +44,73 @@ tags:
   - name: Backoffice
     description: Acceso exclusivo del equipo interno con MFA y cookie de sesión propia
 paths:
+  /clientes/me/tiendas:
+    get:
+      tags: [Clientes]
+      operationId: listPuntazoStoreLocations
+      summary: Descubre todas las sucursales activas de marcas activas
+      description: |
+        IMPLEMENTED. Requiere una sesión CLIENTE_FINAL vigente y confirmación de edad.
+        No requiere tarjeta previa, coordenadas, programa ni suscripción paga.
+        Devuelve un array completo sin paginación ni truncamiento; ordena por nombre
+        de marca, sucursal e identificadores. GET no modifica preferencias.
+        Las coordenadas incompletas o inválidas se omiten juntas. No incluye datos
+        personales ni saldos. Beneficios activos, no borrados ni vencidos; imagen
+        de marca mediante URL temporal firmada cuando el storage está disponible.
+      x-puntazo-implementation: IMPLEMENTED
+      parameters:
+        - in: query
+          name: search
+          required: false
+          description: Subcadena literal, sin comodines, sobre marca, sucursal, localidad o dirección; se recortan espacios extremos.
+          schema: { type: string, maxLength: 200 }
+      responses:
+        '200':
+          description: Colección completa; data es un array vacío cuando no hay coincidencias
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StoreLocationListEnvelope' }
+        '400': { $ref: '#/components/responses/StoreInvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /clientes/me/tiendas/{branch_id}/favorito:
+    parameters:
+      - in: path
+        name: branch_id
+        required: true
+        schema: { type: integer, format: int64, minimum: 1 }
+    put:
+      tags: [Clientes]
+      operationId: favoritePuntazoStore
+      summary: Guarda una sucursal favorita del cliente autenticado
+      description: Idempotente incluso bajo concurrencia. No requiere body ni tarjeta; sólo admite sucursales y marcas activas no borradas. El servidor determina el usuario.
+      x-puntazo-implementation: IMPLEMENTED
+      responses:
+        '200':
+          description: Favorito persistido y cantidad total de clientes activos que eligieron la sucursal
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StoreFavoriteEnvelope' }
+        '400': { $ref: '#/components/responses/StoreInvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Clientes]
+      operationId: unfavoritePuntazoStore
+      summary: Quita una sucursal de los favoritos del cliente autenticado
+      description: Idempotente incluso cuando ya no existe el favorito. No requiere body. Una sucursal o marca inactiva o borrada responde 404.
+      x-puntazo-implementation: IMPLEMENTED
+      responses:
+        '200':
+          description: Favorito eliminado y cantidad total restante
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StoreFavoriteEnvelope' }
+        '400': { $ref: '#/components/responses/StoreInvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /health/live:
     get:
       tags: [Health]
@@ -2151,6 +2218,11 @@ components:
       description: Búsqueda parcial por nombre o email; coincidencia exacta por código público normalizado (GG-1, #gg-1 o #USER-0001) o ID numérico anterior del cliente
       schema: { type: string, maxLength: 120 }
   responses:
+    StoreInvalidRequest:
+      description: Parámetro inválido, búsqueda mayor a 200 caracteres o identificador fuera de rango
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
     Unauthenticated:
       description: Sesión ausente o inválida
       content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } }
@@ -2189,6 +2261,53 @@ components:
       description: Altas cerradas o código de demo inválido
       content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } }
   schemas:
+    StoreLocationBenefit:
+      type: object
+      required: [id, nombre]
+      properties:
+        id: { type: integer, format: int64 }
+        nombre: { type: string }
+        descripcion: { type: string }
+    StoreLocation:
+      type: object
+      required: [brand_id, brand_name, branch_id, branch_name, beneficios, favorita, favoritos]
+      properties:
+        brand_id: { type: integer, format: int64 }
+        brand_name: { type: string }
+        branch_id: { type: integer, format: int64 }
+        branch_name: { type: string }
+        address: { type: [string, 'null'] }
+        localidad: { type: [string, 'null'] }
+        provincia: { type: [string, 'null'] }
+        latitud: { type: [number, 'null'], minimum: -90, maximum: 90 }
+        longitud: { type: [number, 'null'], minimum: -180, maximum: 180 }
+        descripcion: { type: [string, 'null'] }
+        image_url: { type: string, description: URL temporal del logo real; puede omitirse }
+        beneficios:
+          type: array
+          items: { $ref: '#/components/schemas/StoreLocationBenefit' }
+        favorita: { type: boolean }
+        favoritos: { type: integer, format: int64, minimum: 0 }
+    StoreLocationListEnvelope:
+      type: object
+      required: [data, request_id]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/StoreLocation' }
+        request_id: { type: string }
+    StoreFavoriteEnvelope:
+      type: object
+      required: [data, request_id]
+      properties:
+        data:
+          type: object
+          required: [branch_id, favorita, favoritos]
+          properties:
+            branch_id: { type: integer, format: int64 }
+            favorita: { type: boolean }
+            favoritos: { type: integer, format: int64, minimum: 0 }
+        request_id: { type: string }
     SubscriptionPricesEnvelope:
       type: object
       required: [data, request_id]

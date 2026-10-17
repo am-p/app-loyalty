@@ -123,6 +123,24 @@ func (r *Repository) ExportAccount(ctx context.Context, id int64) (model.Account
 		return model.AccountExport{}, err
 	}
 	rows.Close()
+	rows, err = tx.Query(ctx, `SELECT sucursal_id FROM sucursales_favoritas WHERE usuario_id=$1 ORDER BY sucursal_id`, id)
+	if err != nil {
+		return model.AccountExport{}, err
+	}
+	out.FavoriteBranchIDs = []int64{}
+	for rows.Next() {
+		var branchID int64
+		if err = rows.Scan(&branchID); err != nil {
+			rows.Close()
+			return model.AccountExport{}, err
+		}
+		out.FavoriteBranchIDs = append(out.FavoriteBranchIDs, branchID)
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return model.AccountExport{}, err
+	}
+	rows.Close()
 	if err = tx.Commit(ctx); err != nil {
 		return model.AccountExport{}, err
 	}
@@ -240,6 +258,10 @@ func (r *Repository) AnonymizeAccount(ctx context.Context, id int64, expectedVer
 		return time.Time{}, err
 	}
 	if _, err = tx.Exec(ctx, `DELETE FROM progreso_resenas WHERE usuario_id=$1`, id); err != nil {
+		return time.Time{}, err
+	}
+	// Favorites are personal preferences and must not survive account deletion.
+	if _, err = tx.Exec(ctx, `DELETE FROM sucursales_favoritas WHERE usuario_id=$1`, id); err != nil {
 		return time.Time{}, err
 	}
 	// Account deletion revokes device destinations and cascades queued pushes.

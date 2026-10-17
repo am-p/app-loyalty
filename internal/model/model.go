@@ -252,6 +252,7 @@ type AccountExportCard struct {
 	CreatedAt     time.Time `json:"created_at"`
 }
 type AccountExport struct {
+	FavoriteBranchIDs []int64                  `json:"sucursales_favoritas"`
 	ReviewProgress    []ReviewProgressExport   `json:"progreso_resenas"`
 	ReviewInvitations []ReviewInvitationExport `json:"invitaciones_resenas"`
 	ExportedAt        time.Time                `json:"exported_at"`

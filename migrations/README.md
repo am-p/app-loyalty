@@ -1,3 +1,11 @@
+# Mapa de sucursales y favoritos — esquema 0040
+
+Para la entrega del mapa se promueven sin modificación los archivos SQL 0036–0040 de la PR oficial am-p/app-loyalty#34, rama `gonzalo/codex/unified-backend-pr`. El código de web push, reversos y nuevas plantillas de esa PR no se incorpora en esta entrega: 0036/0037 crean estructuras todavía inertes, 0038 agrega vencimiento nullable, 0039 amplía el catálogo sin quitar valores y 0040 crea favoritos. No se reutilizan versiones ni se cambian migraciones aplicadas. `EXPECTED_SCHEMA_VERSION=0040` exige las cuarenta migraciones contiguas.
+
+0040 conserva la clave única `(usuario_id,sucursal_id)` y el índice por sucursal. PUT/DELETE son idempotentes y serializan las escrituras por sucursal; GET no escribe ni requiere tarjeta, programa o suscripción paga. Los favoritos se incluyen en la exportación de cuenta y se eliminan con su baja. Los beneficios descubiertos están activos, no borrados y no vencidos.
+
+Upgrade: ejecutar `cmd/migrate up` desde 0035 o desde una base vacía; un segundo pase omite versiones aplicadas. 0036–0040 son expansión compatible con el binario anterior. Si se revierte la aplicación, conservar el esquema expandido y `EXPECTED_SCHEMA_VERSION=0040`; no ejecutar DOWN sobre favoritos en uso. El DOWN de 0039 vuelve a un catálogo más estrecho y sólo es seguro cuando no existen valores nuevos. Las futuras promociones de PR34 deben conservar estos mismos archivos y versiones, sin duplicar 0040. Ramas locales históricas que reservan 0036–0038 para turnos requieren renumeración antes de su futura integración.
+
 # Migraciones
 
 ## Prueba cerrada 0035
