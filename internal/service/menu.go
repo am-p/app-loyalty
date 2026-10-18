@@ -22,7 +22,7 @@ const MaxMenuPDFBytes int64 = config.MaxMenuPDFBytes
 const menuURLMaxTTL = 300 * time.Second
 
 var (
-	ErrMenuPDFTooLarge = errors.New("menu PDF exceeds 10 MiB")
+	ErrMenuPDFTooLarge = errors.New("menu PDF exceeds 30 MiB")
 	ErrMenuPDFType     = errors.New("menu PDF type unsupported")
 	ErrMenuPDFInvalid  = errors.New("menu PDF invalid")
 	ErrMenuPDFPassword = errors.New("menu PDF encrypted")

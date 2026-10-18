@@ -26,6 +26,7 @@ import (
 	"clientesFrecuentes/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -434,6 +435,16 @@ func TestPostgresBranchPDFMenuHTTPContract(t *testing.T) {
 func TestPostgresBranchPDFMenuMigrationUpgrade(t *testing.T) {
 	p := referralBillingPool(t)
 	ctx := t.Context()
+	newerDown, err := os.ReadFile("../../migrations/0042_branch_pdf_30mib.down.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = p.Exec(ctx, string(newerDown)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = p.Exec(ctx, `DELETE FROM schema_migrations WHERE version='0042'`); err != nil {
+		t.Fatal(err)
+	}
 	down, err := os.ReadFile("../../migrations/0041_branch_pdf_menus.down.sql")
 	if err != nil {
 		t.Fatal(err)
@@ -634,5 +645,88 @@ func TestPostgresMenuAbandonedUploadLeaseAndRetry(t *testing.T) {
 	}
 	if err = repo.CompleteMenuMediaDeletion(ctx, document.ID, "lease-c", false); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestPostgresMenuPDFThirtyMiBUpgradePreservesPublication(t *testing.T) {
+	p, repo, svc, _, f := menuFixture(t)
+	ctx := t.Context()
+	// Arrange the applied 0041 schema, including an actual existing publication.
+	down, err := os.ReadFile("../../migrations/0042_branch_pdf_30mib.down.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = p.Exec(ctx, string(down)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = p.Exec(ctx, `DELETE FROM schema_migrations WHERE version='0042'`); err != nil {
+		t.Fatal(err)
+	}
+	draft := uploadMenu(t, svc, f, 1)
+	before, err := svc.ChangeMenuPublication(ctx, f.owner, f.brand, f.branch, 2, "publish", draft.Draft.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = repo.CheckSchema(ctx, "0041"); err != nil {
+		t.Fatal(err)
+	}
+	up, err := os.ReadFile("../../migrations/0042_branch_pdf_30mib.up.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Same version-based idempotency as the migrator: do not execute applied SQL twice.
+	for pass := 0; pass < 2; pass++ {
+		var applied bool
+		if err = p.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version='0042')`).Scan(&applied); err != nil {
+			t.Fatal(err)
+		}
+		if applied {
+			continue
+		}
+		tx, err := p.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = tx.Exec(ctx, string(up)); err != nil {
+			tx.Rollback(ctx)
+			t.Fatal(err)
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES('0042')`); err != nil {
+			tx.Rollback(ctx)
+			t.Fatal(err)
+		}
+		if err = tx.Commit(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err = repo.CheckSchema(ctx, "0042"); err != nil {
+		t.Fatal(err)
+	}
+	after, err := svc.BranchMenu(ctx, f.owner, f.brand, f.branch)
+	if err != nil || after.Version != before.Version || after.Draft != nil || after.Published == nil ||
+		after.Published.ID != before.Published.ID || after.Published.ByteSize != before.Published.ByteSize {
+		t.Fatalf("publication changed during expansion: before=%+v after=%+v err=%v", before, after, err)
+	}
+	const maximum int64 = 30 * 1024 * 1024
+	for _, size := range []int64{0, 1, maximum, maximum + 1} {
+		id := uuid.NewString()
+		document := model.MenuDocument{ID: id, FileName: "scan.pdf", MIMEType: "application/pdf", ByteSize: size, PageCount: 1, ObjectKey: "menus/" + id + ".pdf"}
+		err := repo.ReserveMenuDocument(ctx, f.owner, f.brand, f.branch, after.Version, document, make([]byte, 32))
+		if size == 0 || size > maximum {
+			var pgErr *pgconn.PgError
+			if !errors.As(err, &pgErr) || pgErr.Code != "23514" || pgErr.ConstraintName != "branch_menu_documents_byte_size_check" {
+				t.Fatalf("size=%d must fail DB size CHECK: %v", size, err)
+			}
+		} else if err != nil {
+			t.Fatalf("size=%d must fit DB bound: %v", size, err)
+		}
+	}
+	// Narrowing must preserve larger metadata instead of truncating/removing it.
+	if _, err = p.Exec(ctx, string(down)); err == nil {
+		t.Fatal("unsafe down accepted a >10 MiB document")
+	}
+	var large int
+	if err = p.QueryRow(ctx, `SELECT count(*) FROM branch_menu_documents WHERE byte_size=$1`, maximum).Scan(&large); err != nil || large != 1 {
+		t.Fatalf("large metadata lost after rejected down: count=%d err=%v", large, err)
 	}
 }

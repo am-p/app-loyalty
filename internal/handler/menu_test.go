@@ -31,6 +31,9 @@ func TestMenuPDFErrorsUseStableCodes(t *testing.T) {
 			if w.Code != tt.status || !strings.Contains(w.Body.String(), tt.code) {
 				t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 			}
+			if tt.err == service.ErrMenuPDFTooLarge && !strings.Contains(w.Body.String(), "30 MiB") {
+				t.Fatalf("outdated size guidance: %s", w.Body.String())
+			}
 		})
 	}
 }

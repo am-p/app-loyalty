@@ -237,7 +237,7 @@ func TestPostgresCustomerStores(t *testing.T) {
 func TestPostgresStoreMigrationUpgrade(t *testing.T) {
 	p := referralBillingPool(t)
 	ctx := t.Context()
-	for _, name := range []string{"0041_branch_pdf_menus", "0040_store_favorites", "0039_card_templates", "0038_benefit_expiration", "0037_movement_reversals", "0036_web_push"} {
+	for _, name := range []string{"0042_branch_pdf_30mib", "0041_branch_pdf_menus", "0040_store_favorites", "0039_card_templates", "0038_benefit_expiration", "0037_movement_reversals", "0036_web_push"} {
 		body, err := os.ReadFile("../../migrations/" + name + ".down.sql")
 		if err != nil {
 			t.Fatal(err)

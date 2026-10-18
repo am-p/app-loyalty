@@ -56,7 +56,7 @@ func (h *Handler) privateMenuActor(c *gin.Context) (int64, int64, int64, bool) {
 func (h *Handler) writeMenuError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, service.ErrMenuPDFTooLarge):
-		web.Error(c, 413, "MENU_PDF_TOO_LARGE", "El PDF supera los 10 MiB", nil)
+		web.Error(c, 413, "MENU_PDF_TOO_LARGE", "El PDF supera los 30 MiB", nil)
 	case errors.Is(err, service.ErrMenuPDFType):
 		web.Error(c, 415, "MENU_PDF_TYPE_UNSUPPORTED", "Elegí un archivo PDF", nil)
 	case errors.Is(err, service.ErrMenuPDFInvalid):

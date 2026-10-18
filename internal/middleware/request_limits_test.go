@@ -75,18 +75,21 @@ func TestRequestLimitsPermitMenuPDFOnlyOnRegisteredUploadRoute(t *testing.T) {
 		r.Handle(method, route, read)
 	}
 	r.POST(route+"/extra", read)
+	r.PUT("/v1/marcas/:brand_id/sucursales/:resource_id/menu/publicacion", read)
 	r.POST("/v1/auth/register", read)
-	const menuMultipartLimit int64 = (10 << 20) + (64 << 10)
+	const menuMultipartLimit int64 = (30 << 20) + (64 << 10)
 	for _, tc := range []struct {
 		name, method, path string
 		n                  int64
 		status             int
 	}{
 		{"three-megabyte-PDF-body", http.MethodPost, path, 3 << 20, 204},
-		{"ten-megabyte-file", http.MethodPost, path, 10 << 20, 204},
+		{"above-former-ten-MiB-limit", http.MethodPost, path, 12 << 20, 204},
+		{"thirty-megabyte-file", http.MethodPost, path, 30 << 20, 204},
 		{"multipart-boundary", http.MethodPost, path, menuMultipartLimit, 204},
 		{"multipart-overflow", http.MethodPost, path, menuMultipartLimit + 1, 413},
 		{"neighbor-route", http.MethodPost, path + "/extra", config.MaxJSONBytes + 1, 413},
+		{"publish-stays-JSON", http.MethodPut, "/v1/marcas/1/sucursales/2/menu/publicacion", config.MaxJSONBytes + 1, 413},
 		{"ordinary-JSON", http.MethodPost, "/v1/auth/register", config.MaxJSONBytes + 1, 413},
 		{"PUT-stays-JSON", http.MethodPut, path, config.MaxJSONBytes + 1, 413},
 		{"DELETE-stays-JSON", http.MethodDelete, path, config.MaxJSONBytes + 1, 413},

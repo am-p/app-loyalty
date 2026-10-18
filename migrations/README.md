@@ -1,3 +1,9 @@
+# Menús PDF de hasta 30 MiB — esquema 0042
+
+`0042_branch_pdf_30mib` amplía únicamente el CHECK `branch_menu_documents_byte_size_check` de 10 a 30 MiB. Conserva byte_size, documentos, checksums y punteros existentes; 0041 permanece intacta. Go valida hasta 30 MiB, multipart hasta 30 MiB + 64 KiB y el proxy requiere 31 MiB para esa ruta; imágenes y JSON conservan sus límites. Páginas, roles, ETags, TTL y limpieza no cambian.
+
+Probar base vacía→0042 y upgrade0041→0042 con documentos existentes; un segundo `cmd/migrate up` no modifica datos ni reaplica versiones. Readiness y `EXPECTED_SCHEMA_VERSION` requieren0042. Para rollback de aplicación conservar0042 y configurar el valor esperado, sin DOWN; volver a un binario de10 MiB sólo limita nuevas cargas. El DOWN de0042 aborta si existe cualquier metadato de documento mayor de10 MiB, incluso retirado, y no elimina ni trunca datos.
+
 # Menús PDF por sucursal — esquema 0041
 
 `0041_branch_pdf_menus` es una expansión desde 0040. Crea documentos privados inmutables y un estado versionado por sucursal. No cambia migraciones anteriores ni amplía la carga de imágenes. La rama de testing depende de la promoción de 0036–0040 documentada debajo; no asumir que el main oficial ya contiene ese esquema.
