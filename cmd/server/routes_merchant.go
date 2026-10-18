@@ -7,6 +7,11 @@ import (
 )
 
 func registerMerchantRoutes(r *gin.RouterGroup, h *handler.Handler) {
+	r.GET("/marcas/:brand_id/sucursales/:resource_id/menu", h.BranchMenu)
+	r.POST("/marcas/:brand_id/sucursales/:resource_id/menu/documentos", h.UploadMenuDocument)
+	r.PUT("/marcas/:brand_id/sucursales/:resource_id/menu/publicacion", h.PublishBranchMenu)
+	r.DELETE("/marcas/:brand_id/sucursales/:resource_id/menu/publicacion", h.UnpublishBranchMenu)
+	r.DELETE("/marcas/:brand_id/sucursales/:resource_id/menu/borrador", h.DiscardMenuDraft)
 	r.GET("/marcas", h.ListBrands)
 	r.GET("/marcas/:brand_id/sucursales/:resource_id/resenas", h.ReviewSettings)
 	r.PUT("/marcas/:brand_id/sucursales/:resource_id/resenas", h.PutReviewSettings)

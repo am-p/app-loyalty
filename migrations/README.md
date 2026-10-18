@@ -1,3 +1,13 @@
+# Menús PDF por sucursal — esquema 0041
+
+`0041_branch_pdf_menus` es una expansión desde 0040. Crea documentos privados inmutables y un estado versionado por sucursal. No cambia migraciones anteriores ni amplía la carga de imágenes. La rama de testing depende de la promoción de 0036–0040 documentada debajo; no asumir que el main oficial ya contiene ese esquema.
+
+El archivo se valida como PDF no cifrado, 1–30 páginas y hasta 10 MiB. Su reserva se persiste antes del PUT al storage; sólo una carga confirmada y una versión vigente cambian el borrador. Publicar, retirar y descartar son transacciones con If-Match. Las URL firmadas duran hasta 300 segundos; retirar impide nuevas consultas de esa publicación, pero una URL emitida puede seguir funcionando hasta vencer. Una respuesta perdida tras COMMIT requiere refrescar el estado; no se promete rollback del transporte.
+
+La eliminación física usa cola persistida con lease, reintentos y gracia de seis minutos (TTL máximo cinco minutos más margen). Triggers de baja real de marca/sucursal retiran sus punteros y documentos; la anonimización que cierra marcas recorre el mismo camino. Transferir propiedad de una marca que continúa activa conserva sus menús. No se registra al usuario cargador como dueño del PDF comercial. GET no inserta filas y representa el estado inicial con versión 1.
+
+Probar upgrade 0040→0041, base vacía→0041 y segunda ejecución de `cmd/migrate up`. Para volver al binario anterior se conserva el esquema expandido y se configura su EXPECTED_SCHEMA_VERSION=0041. El DOWN es sólo para bases sin documentos que deban conservarse; retira los triggers/tablas y no borra objetos de storage. Producción requiere su propia promoción y configuración; esta entrega selecciona testing.
+
 # Mapa de sucursales y favoritos — esquema 0040
 
 Para la entrega del mapa se promueven sin modificación los archivos SQL 0036–0040 de la PR oficial am-p/app-loyalty#34, rama `gonzalo/codex/unified-backend-pr`. El código de web push, reversos y nuevas plantillas de esa PR no se incorpora en esta entrega: 0036/0037 crean estructuras todavía inertes, 0038 agrega vencimiento nullable, 0039 amplía el catálogo sin quitar valores y 0040 crea favoritos. No se reutilizan versiones ni se cambian migraciones aplicadas. `EXPECTED_SCHEMA_VERSION=0040` exige las cuarenta migraciones contiguas.

@@ -7,6 +7,8 @@ import (
 )
 
 func registerPublicRoutes(r *gin.RouterGroup, h *handler.Handler) {
+	r.GET("/public/sucursales/:branch_id/menu", h.PublicBranchMenu)
+	r.GET("/public/marcas/:brand_id/menus", h.PublicBrandMenus)
 	r.GET("/health/live", h.HealthLive)
 	r.GET("/health/ready", h.HealthReady)
 	r.GET("/version", h.Version)
