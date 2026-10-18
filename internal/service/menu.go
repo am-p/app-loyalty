@@ -10,6 +10,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"clientesFrecuentes/internal/config"
 	"clientesFrecuentes/internal/model"
 	"github.com/google/uuid"
 	"github.com/pdfcpu/pdfcpu/pkg/api"
@@ -17,7 +18,7 @@ import (
 	pdfmodel "github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
 )
 
-const MaxMenuPDFBytes int64 = 10 << 20
+const MaxMenuPDFBytes int64 = config.MaxMenuPDFBytes
 const menuURLMaxTTL = 300 * time.Second
 
 var (

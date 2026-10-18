@@ -16,6 +16,8 @@ import (
 const MaxJSONBytes int64 = 1 << 20
 const MaxUploadFileBytes int64 = 5 << 20
 const MaxMultipartBytes int64 = MaxUploadFileBytes + (64 << 10)
+const MaxMenuPDFBytes int64 = 10 << 20
+const MaxMenuMultipartBytes int64 = MaxMenuPDFBytes + (64 << 10)
 
 type Config struct {
 	CaptchaEnabled            bool
