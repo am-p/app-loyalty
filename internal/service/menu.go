@@ -48,7 +48,11 @@ func validateMenuPDF(ctx context.Context, body []byte) (int, []byte, error) {
 	conf.Cmd = pdfmodel.VALIDATE
 	conf.Limits = pdfmodel.ResourceLimits{MaxInputBytes: MaxMenuPDFBytes, MaxObjectBytes: 2 << 20, MaxStreamBytes: MaxMenuPDFBytes, MaxDecodeBytes: 32 << 20, MaxImagePixels: 25_000_000, MaxImageBytes: 64 << 20, MaxObjectCount: 100000, MaxObjectStreamCount: 100000, MaxObjectStreamFirst: 2 << 20, MaxXRefEntries: 100000, MaxRecursionDepth: 50}
 	pdf, err := api.ReadContext(parseCtx, bytes.NewReader(body), conf)
-	if errors.Is(err, pdfcpu.ErrEncrypted) || errors.Is(err, pdfcpu.ErrWrongPassword) {
+	// Encryption metadata can fail before password authentication, for example
+	// PyPDF's unsigned permission flags. These structured errors still identify
+	// protection; keep rejecting the file and explain that encryption must go.
+	if errors.Is(err, pdfcpu.ErrEncrypted) || errors.Is(err, pdfcpu.ErrWrongPassword) ||
+		errors.Is(err, pdfcpu.ErrMalformedEncryption) || errors.Is(err, pdfcpu.ErrUnsupportedEncryptionFeature) {
 		return 0, nil, ErrMenuPDFPassword
 	}
 	if err != nil {

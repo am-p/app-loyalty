@@ -16,7 +16,7 @@ func TestMenuPDFValidation(t *testing.T) {
 		name  string
 		pages int
 		err   error
-	}{{"menu.pdf", 1, nil}, {"menu-30.pdf", 30, nil}, {"menu-31.pdf", 0, ErrMenuPDFPages}, {"menu-scanned.pdf", 1, nil}} {
+	}{{"menu.pdf", 1, nil}, {"menu-30.pdf", 30, nil}, {"menu-31.pdf", 0, ErrMenuPDFPages}, {"menu-scanned.pdf", 1, nil}, {"menu-protected-pypdf.pdf", 0, ErrMenuPDFPassword}} {
 		t.Run(tt.name, func(t *testing.T) {
 			body, err := os.ReadFile("testdata/" + tt.name)
 			if err != nil {
@@ -42,6 +42,17 @@ func TestMenuPDFValidation(t *testing.T) {
 	body, err := os.ReadFile("testdata/menu.pdf")
 	if err != nil {
 		t.Fatal(err)
+	}
+	// The literal is page content, not an encryption trailer entry. Preserve
+	// stream length and xref offsets so this remains a valid unencrypted PDF.
+	original := []byte("Puntazo QA menu PDF")
+	literal := []byte("Menu /Encrypt text!")
+	if len(original) != len(literal) || !bytes.Contains(body, original) {
+		t.Fatal("literal-content fixture must preserve PDF byte offsets")
+	}
+	plainWithLiteral := bytes.Replace(body, original, literal, 1)
+	if pages, _, err := validateMenuPDF(t.Context(), plainWithLiteral); err != nil || pages != 1 {
+		t.Fatalf("literal /Encrypt falsely treated as encryption: pages=%d err=%v", pages, err)
 	}
 	for _, userPassword := range []string{"secret", ""} {
 		conf, err := api.LoadConfiguration(api.ConfigurationOptions{Mode: api.ConfigurationModeStateless})
