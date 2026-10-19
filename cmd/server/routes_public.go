@@ -19,6 +19,8 @@ func registerPublicRoutes(r *gin.RouterGroup, h *handler.Handler) {
 	r.GET("/auth/challenge", h.Challenge)
 	r.POST("/auth/challenge/verify", h.VerifyChallenge)
 	r.POST("/auth/email-verification/request", h.RequestEmailVerification)
+	r.POST("/auth/email-verification/code/request", h.RequestEmailVerificationCode)
+	r.POST("/auth/email-verification/code/confirm", h.ConfirmEmailVerificationCode)
 	r.POST("/auth/email-verification/confirm", h.ConfirmEmailVerification)
 	r.POST("/auth/email-change/confirm", h.ConfirmEmailChange)
 	r.POST("/auth/password-reset/request", h.RequestPasswordReset)

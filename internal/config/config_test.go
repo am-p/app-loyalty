@@ -242,3 +242,19 @@ func TestTrustedProxyCIDRsRejectBroadMalformedTrustInput(t *testing.T) {
 		t.Fatal(e, cfg.TrustedProxyCIDRs)
 	}
 }
+
+func TestVerificationEnabledAllowsCaptureOnlyInDevelopment(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("EMAIL_VERIFICATION_REQUIRED", "true")
+	t.Setenv("MAIL_PROVIDER", "capture")
+	t.Setenv("MAIL_CAPTURE_DIRECTORY", t.TempDir())
+	t.Setenv("MAIL_FROM_ADDRESS", "no-reply@puntazo.test")
+	t.Setenv("OUTBOX_ENCRYPTION_KEY", base64.StdEncoding.EncodeToString([]byte("01234567890123456789012345678901")))
+	if _, err := Load(); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("APP_ENV", "testing")
+	if _, err := Load(); err == nil {
+		t.Fatal("testing accepted capture for verification")
+	}
+}

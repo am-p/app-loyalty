@@ -54,18 +54,11 @@ func (s *Service) RegisterCustomer(ctx context.Context, req model.RegisterCustom
 		return model.RegisterCustomerData{}, err
 	}
 	var verifiedAt *time.Time
-	var verificationHash []byte
-	var verificationExpires time.Time
-	var message *model.EmailMessage
-	if s.Config.EmailVerificationRequired {
-		token, tokenHash, tokenErr := identityToken()
-		if tokenErr != nil {
-			return model.RegisterCustomerData{}, tokenErr
-		}
-		verificationHash, verificationExpires = tokenHash, s.Now().Add(24*time.Hour)
-		m := mailer.VerificationMessage(s.Config.PublicAppURL, email, token)
-		message = &m
-	} else {
+	registrationToken, verificationHash, verificationExpires, message, err := s.registrationVerification(email, req.VerificationMethod, "")
+	if err != nil {
+		return model.RegisterCustomerData{}, err
+	}
+	if !s.Config.EmailVerificationRequired {
 		now := s.Now()
 		verifiedAt = &now
 	}
@@ -76,6 +69,10 @@ func (s *Service) RegisterCustomer(ctx context.Context, req model.RegisterCustom
 	}
 	result := model.RegisterCustomerData{User: u, VerificationRequired: s.Config.EmailVerificationRequired}
 	if s.Config.EmailVerificationRequired {
+		if req.VerificationMethod == "code" {
+			result.VerificationMethod = "code"
+			result.RegistrationToken = registrationToken
+		}
 		return result, nil
 	}
 	session, err := s.issueSession(ctx, u)

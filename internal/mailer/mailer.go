@@ -193,3 +193,10 @@ func transactional(kind, to, subject, text, title, action, link, note string) mo
 	h := fmt.Sprintf(`<!doctype html><html lang="es"><body><h1>%s</h1><p>%s</p><p><a href="%s">%s</a></p><p>%s</p></body></html>`, html.EscapeString(title), html.EscapeString(note), html.EscapeString(link), html.EscapeString(action), html.EscapeString(note))
 	return model.EmailMessage{Kind: kind, To: to, Subject: subject, Text: text, HTML: h}
 }
+
+// VerificationCodeMessage contains no activation URL or secret in the subject.
+func VerificationCodeMessage(to, code string) model.EmailMessage {
+	text := "Tu código de verificación de Puntazo es: " + code + "\n\nVence en 10 minutos y puede usarse una sola vez. Si no solicitaste esta cuenta, ignorá este correo."
+	body := emailShell("Verificá tu correo en Puntazo", "Seguridad de cuenta", "Tu código vence en 10 minutos.", "<div style=\"padding:32px;text-align:center\"><h1>Verificá tu correo</h1><p>Ingresá este código en Puntazo para activar tu cuenta:</p><p style=\"font-size:36px;font-weight:bold;letter-spacing:8px\">"+html.EscapeString(code)+"</p><p>Vence en 10 minutos. No lo compartas con nadie.</p><p>Si no solicitaste esta cuenta, ignorá este correo.</p></div>", "Este es un mensaje de seguridad; no es una comunicación promocional.")
+	return model.EmailMessage{Kind: "VERIFY_EMAIL", To: to, Subject: "Tu código de verificación de Puntazo", Text: text, HTML: body, Token: "code:" + code, VerificationCode: true}
+}

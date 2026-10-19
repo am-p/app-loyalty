@@ -83,7 +83,7 @@ ALLOW_MIGRATION_DOWN=true go run ./cmd/migrate down
 | `DEMO_SIGNUP_ENABLED` | Habilita o cierra nuevas altas gratuitas sin bloquear cuentas existentes. |
 | `CORS_ORIGINS` | Orígenes web exactos permitidos, separados por comas; habilita credenciales para la cookie HttpOnly de refresh. |
 | `GOOGLE_CLIENT_ID` | Audiencia web de Google; opcional para el alias legado. |
-| `EXPECTED_SCHEMA_VERSION` | Versión de esquema requerida por readiness; por defecto `0028`. |
+| `EXPECTED_SCHEMA_VERSION` | Versión de esquema requerida por readiness; por defecto `0043`. |
 | `MERCADO_PAGO_PROVIDER` | `api` habilita checkout y webhooks de suscripciones; `disabled` los mantiene apagados. |
 | `MERCADO_PAGO_ACCESS_TOKEN`, `MERCADO_PAGO_WEBHOOK_SECRET` | Secretos del backend para crear suscripciones y validar notificaciones. Nunca se exponen al frontend. |
 | `MERCADO_PAGO_BRANCH_PRICE_CENTS` | Precio mensual de Sellos por sucursal activa; por defecto `2500000` (ARS 25.000) para el piloto; configurable por entorno. |
@@ -312,3 +312,30 @@ original `ts`; no se normaliza el texto firmado.
 `GOOGLE_ANDROID_WEB_CLIENT_ID` permite explícitamente el cliente OAuth web usado
 por Android, además de `GOOGLE_CLIENT_ID`. Si está vacío se conserva una única
 audiencia web; los tokens de otras audiencias y emails no verificados se rechazan.
+
+### Registro con código de correo
+
+`EMAIL_VERIFICATION_REQUIRED=true` exige verificar clientes y comercios antes de
+emitir sesión. En testing se habilita inicialmente para probar SMTP y luego puede
+cambiarse a `false` reiniciando el backend; sólo afecta altas nuevas. Producción
+rechaza `false`. Google conserva su propia validación.
+
+La app actual solicita `verification_method: code`. El código dura 10 minutos,
+permite cinco intentos y se puede reenviar después de 60 segundos. El correo se
+encola en la misma transacción que la cuenta y el secreto sólo vive cifrado en la
+outbox hasta el envío. La huella se protege con HMAC y separación de dominio usando
+`OUTBOX_ENCRYPTION_KEY`. El secreto temporal `registration_token` permite sesión
+automática durante 30 minutos y sobrevive al reenvío; su huella es lo único guardado.
+En comercios se deriva mediante HMAC de email y clave de idempotencia para poder
+repetir la respuesta sin persistir el secreto. Confirmar sin este contexto verifica
+el correo y exige login. Si emitir sesión falla tras verificar, la respuesta sigue
+siendo `verified: true` sin sesión y permite login manual.
+
+Los clientes anteriores que omiten `verification_method` reciben enlaces de 24h.
+Solicitar un código rota la verificación pendiente e invalida enlaces anteriores;
+la API de enlaces sigue disponible. Verificación, reset e invitaciones conservan
+propósitos separados. Capture se permite sólo en desarrollo para pruebas locales.
+
+Esquema requerido: `0043`. Los números 0036–0042 están reservados por historial de
+testing; readiness valida el manifiesto de migraciones incluido en el binario,
+permitiendo esos huecos sin aceptar migraciones faltantes o inesperadas.
