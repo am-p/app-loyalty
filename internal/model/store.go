@@ -30,3 +30,10 @@ type StoreFavorite struct {
 	Favorite  bool  `json:"favorita"`
 	Favorites int64 `json:"favoritos"`
 }
+
+// StoreGoogleReview exposes only the configured public destination, not its
+// private invitation settings or the customer's purchase history.
+type StoreGoogleReview struct {
+	BranchID  int64   `json:"branch_id"`
+	ReviewURL *string `json:"review_url"`
+}

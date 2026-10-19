@@ -126,6 +126,7 @@ func TestRouteInventoryAndAuthentication(t *testing.T) {
 		{"POST", "/v1/marcas/:brand_id/suscripcion/cancelacion", "/v1/marcas/1/suscripcion/cancelacion"},
 		{"GET", "/v1/clientes/me", "/v1/clientes/me"},
 		{"GET", "/v1/clientes/me/tiendas", "/v1/clientes/me/tiendas"},
+		{"GET", "/v1/clientes/me/tiendas/:branch_id/resena-google", "/v1/clientes/me/tiendas/1/resena-google"},
 		{"PUT", "/v1/clientes/me/tiendas/:branch_id/favorito", "/v1/clientes/me/tiendas/1/favorito"},
 		{"DELETE", "/v1/clientes/me/tiendas/:branch_id/favorito", "/v1/clientes/me/tiendas/1/favorito"},
 		{"GET", "/v1/clientes/me/tarjetas", "/v1/clientes/me/tarjetas"},

@@ -9,6 +9,7 @@ import (
 func registerCustomerRoutes(r *gin.RouterGroup, h *handler.Handler) {
 	r.GET("/clientes/me", h.Customer)
 	r.GET("/clientes/me/tiendas", h.CustomerStoreLocations)
+	r.GET("/clientes/me/tiendas/:branch_id/resena-google", h.CustomerStoreGoogleReview)
 	r.PUT("/clientes/me/tiendas/:branch_id/favorito", h.SetCustomerStoreFavorite)
 	r.DELETE("/clientes/me/tiendas/:branch_id/favorito", h.DeleteCustomerStoreFavorite)
 	r.GET("/clientes/me/resenas/pendientes", h.PendingReviews)

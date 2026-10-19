@@ -282,6 +282,39 @@ paths:
         '400': { $ref: '#/components/responses/StoreInvalidRequest' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
+  /clientes/me/tiendas/{branch_id}/resena-google:
+    get:
+      tags: [Clientes]
+      operationId: getPuntazoStoreGoogleReview
+      summary: Consulta el destino público de reseñas de una sucursal del mapa
+      description: |
+        IMPLEMENTED. Requiere sesión CLIENTE_FINAL y confirmación de edad, con
+        sucursal y marca activas no borradas. No exige tarjeta, compra ni
+        suscripción. Usa el destino MANUAL_LINK o GOOGLE_PLACE ya configurado;
+        enabled sólo controla las invitaciones automáticas. No crea, reserva,
+        consume ni registra eventos de invitaciones. Sin destino devuelve null.
+        Resuelve Places transitoriamente con un presupuesto máximo de cinco
+        segundos y valida la misma allowlist HTTPS Google que la configuración
+        comercial. La consulta de una sucursal se realiza al abrir su resumen;
+        no agrega resoluciones al listado completo del mapa.
+      x-puntazo-implementation: IMPLEMENTED
+      parameters:
+        - in: path
+          name: branch_id
+          required: true
+          schema: { type: integer, format: int64, minimum: 1 }
+      responses:
+        '200':
+          description: Destino Google validado o null; Cache-Control no-store
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StoreGoogleReviewEnvelope' }
+        '400': { $ref: '#/components/responses/StoreInvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { description: 'RATE_LIMITED; cuota compartida de resolución Places, con Retry-After' }
+        '503': { description: DEPENDENCY_UNAVAILABLE; destino configurado no disponible o control de tráfico no disponible }
   /clientes/me/tiendas/{branch_id}/favorito:
     parameters:
       - in: path
@@ -2587,6 +2620,18 @@ components:
           type: array
           items: { $ref: '#/components/schemas/StoreLocation' }
         request_id: { type: string }
+    StoreGoogleReviewEnvelope:
+      type: object
+      required: [data, request_id]
+      properties:
+        request_id: { type: string }
+        data:
+          type: object
+          additionalProperties: false
+          required: [branch_id, review_url]
+          properties:
+            branch_id: { type: integer, format: int64, minimum: 1 }
+            review_url: { type: [string, 'null'], format: uri }
     StoreFavoriteEnvelope:
       type: object
       required: [data, request_id]
