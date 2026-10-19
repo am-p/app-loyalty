@@ -44,3 +44,9 @@ func MerchantRegistrationToken(key []byte, email, idempotencyKey string) string 
 	return base64.RawURLEncoding.EncodeToString(fingerprint(key, "registration", email+"\x00"+idempotencyKey))
 }
 func RegistrationHash(token string) []byte { h := sha256.Sum256([]byte(token)); return h[:] }
+
+// ActivationToken binds the high-entropy link to this delivery, independently
+// of the six-digit code. Outbox IDs prevent reuse if digits recur later.
+func ActivationToken(key []byte, email, code, deliveryID string) string {
+	return base64.RawURLEncoding.EncodeToString(fingerprint(key, "activation", strings.ToLower(strings.TrimSpace(email))+"\x00"+code+"\x00"+deliveryID))
+}

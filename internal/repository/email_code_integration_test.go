@@ -132,8 +132,16 @@ func TestPostgresCodeAttemptsRotationAndLegacyCompatibility(t *testing.T) {
 	if err != nil || result.Session == nil {
 		t.Fatalf("rotated context err=%v", err)
 	}
-	// Old API can issue links; requesting a code then rotates that pending link.
+	// Old API can issue links; requesting a code rotates that link and emits a new paired link.
 	legacy, err := svc.RegisterCustomer(ctx, model.RegisterCustomerRequest{Name: "Legacy", LastName: "Prueba", Email: "code-legacy@example.test", Password: "a-test-password-123"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var oldItem model.OutboxEmail
+	if err = pool.QueryRow(ctx, `SELECT id::text,token_ciphertext,token_nonce FROM email_outbox WHERE usuario_id=$1 AND estado='PENDING'`, legacy.User.ID).Scan(&oldItem.ID, &oldItem.Ciphertext, &oldItem.Nonce); err != nil {
+		t.Fatal(err)
+	}
+	oldToken, err := repository.DecryptOutboxToken(oldItem, otpTestKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,8 +149,11 @@ func TestPostgresCodeAttemptsRotationAndLegacyCompatibility(t *testing.T) {
 		t.Fatal(err)
 	}
 	var liveLinks int
-	if err = pool.QueryRow(ctx, `SELECT count(*) FROM tokens_identidad_email WHERE usuario_id=$1 AND consumed_at IS NULL`, legacy.User.ID).Scan(&liveLinks); err != nil || liveLinks != 0 {
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM tokens_identidad_email WHERE usuario_id=$1 AND consumed_at IS NULL`, legacy.User.ID).Scan(&liveLinks); err != nil || liveLinks != 1 {
 		t.Fatalf("live links=%d err=%v", liveLinks, err)
+	}
+	if err = svc.ConfirmEmailVerification(ctx, model.TokenRequest{Token: oldToken}); !errors.Is(err, service.ErrIdentityToken) {
+		t.Fatal("superseded legacy link accepted", err)
 	}
 	// Switching back to a link prevents a code confirmation.
 	otherCode := queuedCode(t, pool, other.User.ID)
@@ -338,5 +349,81 @@ func TestPostgresLegacyMerchantIdempotencyFingerprintUnchanged(t *testing.T) {
 	replay, err := svc.RegisterDemoMerchant(ctx, key, uuid.NewString(), req)
 	if err != nil || !replay.Replayed {
 		t.Fatalf("historical replay err=%v", err)
+	}
+}
+
+func codeLink(t *testing.T, pool *pgxpool.Pool, email string, id int64, code string) string {
+	t.Helper()
+	var deliveryID string
+	if err := pool.QueryRow(t.Context(), `SELECT id::text FROM email_outbox WHERE usuario_id=$1 AND estado='PENDING' ORDER BY created_at DESC LIMIT 1`, id).Scan(&deliveryID); err != nil {
+		t.Fatal(err)
+	}
+	return emailcode.ActivationToken(otpTestKey, email, code, deliveryID)
+}
+func TestPostgresCodeAndLinkShareConsumption(t *testing.T) {
+	pool, _, svc := codeFixture(t)
+	ctx := t.Context()
+	for _, first := range []string{"code", "link", "concurrent", "resend", "attempts", "expired"} {
+		p := pendingCode(t, svc, "dual-"+first+"@example.test")
+		code := queuedCode(t, pool, p.User.ID)
+		token := codeLink(t, pool, p.User.Email, p.User.ID, code)
+		confirmCode := func() error {
+			_, err := svc.ConfirmEmailVerificationCode(ctx, model.VerificationCodeConfirmRequest{Email: p.User.Email, Code: code})
+			return err
+		}
+		confirmLink := func() error { return svc.ConfirmEmailVerification(ctx, model.TokenRequest{Token: token}) }
+		switch first {
+		case "code":
+			if err := confirmCode(); err != nil {
+				t.Fatal(err)
+			}
+		case "link":
+			if err := confirmLink(); err != nil {
+				t.Fatal(err)
+			}
+		case "concurrent":
+			results := make(chan error, 2)
+			go func() { results <- confirmCode() }()
+			go func() { results <- confirmLink() }()
+			success := 0
+			for range 2 {
+				err := <-results
+				if err == nil {
+					success++
+				} else if !errors.Is(err, service.ErrIdentityToken) {
+					t.Fatal(err)
+				}
+			}
+			if success != 1 {
+				t.Fatalf("concurrent successes=%d", success)
+			}
+		case "resend":
+			if _, err := pool.Exec(ctx, `UPDATE email_verification_codes SET sent_at=now()-interval '61 seconds' WHERE usuario_id=$1`, p.User.ID); err != nil {
+				t.Fatal(err)
+			}
+			if err := svc.RequestEmailVerificationCode(ctx, model.EmailRequest{Email: p.User.Email}); err != nil {
+				t.Fatal(err)
+			}
+		case "attempts":
+			wrong := "999999"
+			if wrong == code {
+				wrong = "000000"
+			}
+			for range 5 {
+				_, err := svc.ConfirmEmailVerificationCode(ctx, model.VerificationCodeConfirmRequest{Email: p.User.Email, Code: wrong})
+				if !errors.Is(err, service.ErrIdentityToken) {
+					t.Fatal(err)
+				}
+			}
+		case "expired":
+			svc.Now = func() time.Time { return time.Now().Add(11 * time.Minute) }
+		}
+		if err := confirmCode(); !errors.Is(err, service.ErrIdentityToken) {
+			t.Fatalf("%s code reuse=%v", first, err)
+		}
+		if err := confirmLink(); !errors.Is(err, service.ErrIdentityToken) {
+			t.Fatalf("%s link reuse=%v", first, err)
+		}
+		svc.Now = time.Now
 	}
 }

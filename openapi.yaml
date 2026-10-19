@@ -44,6 +44,26 @@ tags:
   - name: Backoffice
     description: Acceso exclusivo del equipo interno con MFA y cookie de sesión propia
 paths:
+  /email-assets/v1/{name}:
+    get:
+      tags: [Auth]
+      operationId: getPublicEmailBrandAsset
+      summary: Imagen pública de identidad visual para correos
+      security: []
+      x-puntazo-implementation: IMPLEMENTED
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema: { type: string, enum: [puntazo-logo.png, mr-puntazo.png] }
+      responses:
+        '200':
+          description: PNG público sin información de destinatarios
+          content:
+            image/png:
+              schema: { type: string, format: binary }
+        '404':
+          description: Imagen fuera de la lista permitida
   /health/live:
     get:
       tags: [Health]
@@ -164,6 +184,7 @@ paths:
       tags: [Auth]
       operationId: confirmEmailVerification
       summary: Consume una vez el token de verificación
+      description: Los correos con código también incluyen un enlace alternativo de diez minutos. Confirmar el enlace consume el código; confirmar el código, reenviar o agotar cinco intentos invalida el enlace. Los enlaces anteriores conservan su vigencia original.
       security: []
       x-puntazo-implementation: IMPLEMENTED
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/TokenRequest' } } } }

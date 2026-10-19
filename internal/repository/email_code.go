@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/hmac"
 	"errors"
+	"strings"
 	"time"
 
 	"clientesFrecuentes/internal/emailcode"
@@ -31,6 +32,11 @@ func enqueueVerificationCode(ctx context.Context, tx pgx.Tx, key []byte, userID 
 		return err
 	}
 	id := uuid.NewString()
+	code := strings.TrimPrefix(message.Token, "code:")
+	linkHash := emailcode.RegistrationHash(emailcode.ActivationToken(key, message.To, code, id))
+	if _, err = tx.Exec(ctx, `INSERT INTO tokens_identidad_email(id,usuario_id,proposito,token_hash,expires_at) VALUES($1,$2,'VERIFY_EMAIL',$3,$4)`, uuid.NewString(), userID, linkHash, expires); err != nil {
+		return err
+	}
 	ciphertext, nonce, err := encryptOutboxToken(message.Token, id, key)
 	if err != nil {
 		return err
@@ -118,6 +124,11 @@ func (r *Repository) ConfirmVerificationCode(ctx context.Context, email string, 
 		if _, err = tx.Exec(ctx, `UPDATE email_verification_codes SET attempts=attempts+1 WHERE usuario_id=$1`, userID); err != nil {
 			return VerifiedCodeIdentity{}, false, err
 		}
+		if attempts == 4 {
+			if _, err = tx.Exec(ctx, `UPDATE tokens_identidad_email SET consumed_at=$2 WHERE usuario_id=$1 AND proposito='VERIFY_EMAIL' AND consumed_at IS NULL`, userID, now); err != nil {
+				return VerifiedCodeIdentity{}, false, err
+			}
+		}
 		if err = tx.Commit(ctx); err != nil {
 			return VerifiedCodeIdentity{}, false, err
 		}
@@ -152,4 +163,16 @@ func (r *Repository) validateClaimedCode(ctx context.Context, item model.OutboxE
 		return ErrIdentityTokenInvalid
 	}
 	return nil
+}
+
+// VerificationActivationToken omits links for deliveries queued by older
+// versions, which never persisted a corresponding activation fingerprint.
+func (r *Repository) VerificationActivationToken(ctx context.Context, item model.OutboxEmail, code string) (string, error) {
+	token := emailcode.ActivationToken(r.OutboxCipherKey, item.To, code, item.ID)
+	var exists bool
+	err := r.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM tokens_identidad_email WHERE token_hash=$1 AND proposito='VERIFY_EMAIL' AND consumed_at IS NULL AND expires_at>now())`, emailcode.RegistrationHash(token)).Scan(&exists)
+	if err != nil || !exists {
+		return "", err
+	}
+	return token, nil
 }
