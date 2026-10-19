@@ -137,7 +137,7 @@ func TestVerificationCodeDeliveryHasActionAndNoAttachments(t *testing.T) {
 	if len(m.InlineImages) != 0 {
 		t.Fatal("verification still attaches images")
 	}
-	for _, want := range []string{"https://app.puntazo.test/api/v1/email-assets/v1/puntazo-logo.png", "https://app.puntazo.test/api/v1/email-assets/v1/mr-puntazo.png", "Activar mi cuenta", "token=secret%26token", "001234", "10 minutos"} {
+	for _, want := range []string{"https://app.puntazo.test/api/v1/email-assets/v1/puntazo-logo", "https://app.puntazo.test/api/v1/email-assets/v1/mr-puntazo", "Activar mi cuenta", "token=secret%26token", "001234", "10 minutos"} {
 		if !strings.Contains(m.HTML, want) {
 			t.Fatalf("missing %q", want)
 		}

@@ -12,7 +12,7 @@ func TestEmailBrandAssetAllowlist(t *testing.T) {
 	r := gin.New()
 	h := &Handler{}
 	r.GET("/assets/:name", h.EmailBrandAsset)
-	for _, name := range []string{"puntazo-logo.png", "mr-puntazo.png", "unknown.png"} {
+	for _, name := range []string{"puntazo-logo", "mr-puntazo", "unknown.png"} {
 		w := httptest.NewRecorder()
 		r.ServeHTTP(w, httptest.NewRequest("GET", "/assets/"+name, nil))
 		if name == "unknown.png" {

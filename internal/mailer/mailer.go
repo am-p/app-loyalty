@@ -229,8 +229,8 @@ func VerificationCodeMessage(to, code string) model.EmailMessage {
 func VerificationCodeDelivery(appURL, to, code, token string) model.EmailMessage {
 	message := VerificationCodeMessage(to, code)
 	base := strings.TrimRight(appURL, "/")
-	message.HTML = strings.ReplaceAll(message.HTML, "cid:"+puntazoLogoContentID, html.EscapeString(base+"/api/v1/email-assets/v1/puntazo-logo.png"))
-	message.HTML = strings.ReplaceAll(message.HTML, "cid:"+mascotContentID, html.EscapeString(base+"/api/v1/email-assets/v1/mr-puntazo.png"))
+	message.HTML = strings.ReplaceAll(message.HTML, "cid:"+puntazoLogoContentID, html.EscapeString(base+"/api/v1/email-assets/v1/puntazo-logo"))
+	message.HTML = strings.ReplaceAll(message.HTML, "cid:"+mascotContentID, html.EscapeString(base+"/api/v1/email-assets/v1/mr-puntazo"))
 	message.InlineImages = nil
 	if token != "" {
 		link := actionURL(appURL, "/verify-email", token)
@@ -244,9 +244,9 @@ func VerificationCodeDelivery(appURL, to, code, token string) model.EmailMessage
 // PublicEmailImage exposes only the two bundled, non-user branding assets.
 func PublicEmailImage(name string) []byte {
 	switch name {
-	case "puntazo-logo.png":
+	case "puntazo-logo":
 		return puntazoLogoPNG
-	case "mr-puntazo.png":
+	case "mr-puntazo":
 		return mascotPNG
 	default:
 		return nil
