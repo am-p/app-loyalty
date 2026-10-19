@@ -131,3 +131,23 @@ func TestVerificationCodeBrandingSurvivesMIMEEncoding(t *testing.T) {
 		t.Fatal("plaintext or subject regression")
 	}
 }
+
+func TestVerificationCodeDeliveryHasActionAndNoAttachments(t *testing.T) {
+	m := VerificationCodeDelivery("https://app.puntazo.test/", "user@example.test", "001234", "secret&token")
+	if len(m.InlineImages) != 0 {
+		t.Fatal("verification still attaches images")
+	}
+	for _, want := range []string{"https://app.puntazo.test/api/v1/email-assets/v1/puntazo-logo.png", "https://app.puntazo.test/api/v1/email-assets/v1/mr-puntazo.png", "Activar mi cuenta", "token=secret%26token", "001234", "10 minutos"} {
+		if !strings.Contains(m.HTML, want) {
+			t.Fatalf("missing %q", want)
+		}
+	}
+	raw := string(encodeMessage("Puntazo", "hola@puntazo.pro", m))
+	if strings.Contains(raw, "Content-Disposition:") || strings.Contains(m.HTML, "cid:") || strings.Contains(m.Subject, "secret") || !strings.Contains(m.Text, "token=secret%26token") {
+		t.Fatal("delivery encoding or plaintext")
+	}
+	old := VerificationCodeDelivery("https://app.puntazo.test", "user@example.test", "001234", "")
+	if strings.Contains(old.HTML, "Activar mi cuenta") {
+		t.Fatal("old queued email has unissued link")
+	}
+}

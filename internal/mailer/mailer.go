@@ -202,7 +202,7 @@ func transactional(kind, to, subject, text, title, action, link, note string) mo
 	return model.EmailMessage{Kind: kind, To: to, Subject: subject, Text: text, HTML: h}
 }
 
-// VerificationCodeMessage contains no activation URL or secret in the subject.
+// VerificationCodeMessage contains no secret in the subject.
 func VerificationCodeMessage(to, code string) model.EmailMessage {
 	text := "Tu código de verificación de Puntazo es: " + code + "\n\nVence en 10 minutos y puede usarse una sola vez. Si no solicitaste esta cuenta, ignorá este correo."
 	brandMark := `<img src="cid:` + puntazoLogoContentID + `" width="42" height="42" alt="Logo de Puntazo" style="display:inline-block;width:42px;height:42px;margin-right:8px;vertical-align:middle;border:0;">`
@@ -222,4 +222,33 @@ func VerificationCodeMessage(to, code string) model.EmailMessage {
 			{ContentID: puntazoLogoContentID, Filename: "puntazo-logo.png", ContentType: "image/png", Data: puntazoLogoPNG},
 			{ContentID: mascotContentID, Filename: "mr-puntazo.png", ContentType: "image/png", Data: mascotPNG},
 		}}
+}
+
+// VerificationCodeDelivery adds the alternative activation link and references
+// public branding assets, so recipients receive no image attachments.
+func VerificationCodeDelivery(appURL, to, code, token string) model.EmailMessage {
+	message := VerificationCodeMessage(to, code)
+	base := strings.TrimRight(appURL, "/")
+	message.HTML = strings.ReplaceAll(message.HTML, "cid:"+puntazoLogoContentID, html.EscapeString(base+"/api/v1/email-assets/v1/puntazo-logo.png"))
+	message.HTML = strings.ReplaceAll(message.HTML, "cid:"+mascotContentID, html.EscapeString(base+"/api/v1/email-assets/v1/mr-puntazo.png"))
+	message.InlineImages = nil
+	if token != "" {
+		link := actionURL(appURL, "/verify-email", token)
+		button := `<p style="margin:24px 0;text-align:center;"><a href="` + html.EscapeString(link) + `" style="display:inline-block;padding:16px 26px;background:#1687ff;color:#fff;text-decoration:none;font-weight:700;border-radius:12px;">Activar mi cuenta</a></p><p style="color:#50647e;font-size:14px;">También podés activar tu cuenta con este enlace. El enlace y el código vencen en 10 minutos; al usar uno, el otro deja de funcionar.</p>`
+		message.HTML = strings.Replace(message.HTML, `<p style="margin:18px 0 0;color:#75869a;`, button+`<p style="margin:18px 0 0;color:#75869a;`, 1)
+		message.Text += "\n\nTambién podés activar tu cuenta con este enlace: " + link + "\nEl enlace vence en 10 minutos. Usar el enlace o el código invalida ambos."
+	}
+	return message
+}
+
+// PublicEmailImage exposes only the two bundled, non-user branding assets.
+func PublicEmailImage(name string) []byte {
+	switch name {
+	case "puntazo-logo.png":
+		return puntazoLogoPNG
+	case "mr-puntazo.png":
+		return mascotPNG
+	default:
+		return nil
+	}
 }

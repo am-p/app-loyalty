@@ -206,6 +206,12 @@ func (r *Repository) VerifyEmail(ctx context.Context, tokenHash []byte, now time
 	if _, err = tx.Exec(ctx, `UPDATE tokens_identidad_email SET consumed_at=$2 WHERE id=$1`, tokenID, now); err != nil {
 		return err
 	}
+	if _, err = tx.Exec(ctx, `UPDATE email_verification_codes SET consumed_at=$2,registration_hash=NULL,registration_expires_at=NULL WHERE usuario_id=$1 AND consumed_at IS NULL`, userID, now); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE email_outbox SET estado='FAILED',ultimo_error='verification completed',token_ciphertext=NULL,token_nonce=NULL,token_expires_at=NULL,lease_until=NULL,lease_owner=NULL WHERE usuario_id=$1 AND tipo='VERIFY_EMAIL' AND estado IN ('PENDING','SENDING')`, userID); err != nil {
+		return err
+	}
 	return tx.Commit(ctx)
 }
 

@@ -12,6 +12,7 @@ func registerPublicRoutes(r *gin.RouterGroup, h *handler.Handler) {
 	r.GET("/health/live", h.HealthLive)
 	r.GET("/health/ready", h.HealthReady)
 	r.GET("/version", h.Version)
+	r.GET("/email-assets/v1/:name", h.EmailBrandAsset)
 	r.GET("/suscripciones/precios", h.SubscriptionPrices)
 	r.POST("/auth/register", h.RegisterCustomer)
 	r.POST("/auth/login", h.Login)
