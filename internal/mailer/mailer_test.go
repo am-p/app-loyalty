@@ -63,3 +63,10 @@ func TestSMTPRejectsHeaderInjectionBeforeDial(t *testing.T) {
 		t.Fatalf("error=%v", err)
 	}
 }
+
+func TestVerificationCodeMessage(t *testing.T) {
+	message := VerificationCodeMessage("user@example.test", "000001")
+	if !strings.Contains(message.Text, "000001") || !strings.Contains(message.HTML, "000001") || strings.Contains(message.Subject, "000001") || strings.Contains(message.Text, "token=") || message.Token != "code:000001" {
+		t.Fatal("verification code template")
+	}
+}

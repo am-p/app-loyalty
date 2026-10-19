@@ -165,3 +165,14 @@ reversión funcional debe ser una migración hacia adelante.
 
 Activación: integrar PR24, migración/API de códigos y luego publicar frontend.
 Este checkout no implica migración ni despliegue de ningún ambiente.
+
+## Código de verificación (`0043`)
+
+`0043_email_verification_codes` agrega intentos, vencimiento y prueba de registro
+separados de los enlaces históricos. Conserva las migraciones aplicadas y reserva
+0036–0042 para la historia existente de testing. El manifiesto incluido en el
+binario valida las versiones exactas presentes en cada árbol; main requiere
+0001–0035 y0043, mientras el candidato integrado también conserva0036–0042.
+Configurar `EXPECTED_SCHEMA_VERSION=0043` al entregar el API actualizado.
+La reversión elimina desafíos y cancela correos pendientes de sus cuentas; no
+revierte la verificación ya completada ni elimina cuentas.
