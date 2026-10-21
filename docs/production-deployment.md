@@ -44,18 +44,18 @@ el mecanismo que introduce nuevas migraciones.
 
 ## Política para próximas migraciones
 
-El bootstrap automatizado parte del esquema0035. Cada migración pendiente debe
+El bootstrap automatizado parte del esquema0035. Cada migración nueva debe
 declarar en sus primeras diez líneas una línea exacta:
 
 ```sql
 -- deploy: expand
 ```
 
-CI comprueba esta declaración en todas las versiones posteriores a0035 antes de
-integrar el código. Al momento de preparar este flujo, el PR34 propone0036–0040
-sin esa declaración: hay que revisar su compatibilidad, añadirla a esos SQL aún
-no aplicados y conservar los pasos nuevos de `backend.yml` al resolver la
-integración. Este cambio no aprueba ni publica las funcionalidades del PR34.
+CI comprueba esta declaración antes de integrar código nuevo. Los SQL0036–0043
+preexistentes se reconocen mediante nombre y SHA-256 exactos, según la revisión
+registrada abajo. No se añade el marcador a archivos ya aplicados. El workflow
+conserva tanto los controles de producción como los disparadores de testing.
+Esta revisión operativa no aprueba ni publica funcionalidades.
 
 La revisión del PR debe comprobar que la ampliación conserva compatibilidad con
 la versión anterior. El comentario registra esa decisión; no sustituye la revisión
@@ -169,3 +169,19 @@ python3 ops/test_production_release_integration.py --image puntazo-api:ci
 La prueba de integración usa una base vacía aislada, genera la próxima versión
 ficticia sin publicarla, comprueba backup/restore, idempotencia, readiness,
 conservación de datos y rechazo de una migración fallida sin tocar producción.
+
+## Reconciliación de migraciones existentes (20/10/2026)
+
+Los SQL0036–0040 ya integrados a main y los0041–0043 propuestos para menús
+y verificación ya existen en testing sin marcador de despliegue. Se revisaron
+como ampliaciones: tablas e índices nuevos, columna nullable, catálogo de
+plantillas ampliado y límite PDF ampliado. Se preservan byte a byte; el
+controlador reconoce únicamente sus nombres y SHA-256 exactos mediante
+`REVIEWED_EXPAND_MIGRATIONS`. Cualquier cambio de esos bytes aborta, aun si se
+añade un marcador. Las migraciones nuevas siguen requiriendo
+`-- deploy: expand`, ensayo y validación de historial. Esta clasificación no
+aplica migraciones, no aprueba funcionalidades ni habilita producción.
+
+Al instalar el controlador, copiar la versión revisada de este PR; una copia
+anterior no conoce estos hashes. Los archivos aplicados siguen sujetos al
+ledger de hashes y al ensayo con respaldo antes de cada migración real.

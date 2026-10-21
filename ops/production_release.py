@@ -29,6 +29,19 @@ PUBLIC = 'https://api.puntazo.pro'
 SHA = re.compile(r'[0-9a-f]{40}')
 TERMINAL = {'finished', 'failed', 'cancelled'}
 
+# Existing main/testing SQL must remain byte-identical. These exact expansions
+# were reviewed during PR reconciliation; unknown migrations still need a marker.
+REVIEWED_EXPAND_MIGRATIONS = {
+    '0036_web_push.up.sql': '65731e140c9543e45ef2973d23361ff1ce9fdd5cb45df709090db426a45703f7',
+    '0037_movement_reversals.up.sql': '8ed94b8d20aa7a360ba381ae1fd9f3621c2a496d45767322d951564f527b2507',
+    '0038_benefit_expiration.up.sql': '709026f7e5ae609c639d57ca62a5ab0b116fa825b01951ec5cc6c19add3552e8',
+    '0039_card_templates.up.sql': '8cf8ba6c28d8f8dd41e73d217007d681ed0613971390730f28856af1b364ec6a',
+    '0040_store_favorites.up.sql': 'e65f3e2988e6c0b582eb3df3828b0f5f027714187b6df6f561b75dd31e53bd42',
+    '0041_branch_pdf_menus.up.sql': 'c4b15a70312b10e4b9856e78f05a42ffdd969274cd2f91bd5878236608de0663',
+    '0042_branch_pdf_30mib.up.sql': 'a4da4fd212f2a23c3020f6daebc7e7d18a0bdec0e00a8420ce0c31c240ee2db9',
+    '0043_email_verification_codes.up.sql': 'e313e80e80c0b5f5b8395b8ef4d08b24ee2b7b3fa21ef74b51d87b0a840f8ec2',
+}
+
 
 class ReleaseError(Exception):
     """Only these fixed diagnostic messages may be returned to SSH clients."""
@@ -72,7 +85,11 @@ def migration_plan(files, applied):
     require(len(applied) <= len(files), 'Database is ahead of the selected release; downgrade refused')
     pending = [p for version, p in files.items() if version not in applied]
     for path in pending:
-        require('-- deploy: expand' in path.read_text().splitlines()[:10],
+        reviewed_digest = REVIEWED_EXPAND_MIGRATIONS.get(path.name)
+        if reviewed_digest is not None:
+            require(hashlib.sha256(path.read_bytes()).hexdigest() == reviewed_digest,
+                    'Reviewed migration content changed; preserve existing SQL and add a forward migration')
+        require(reviewed_digest is not None or '-- deploy: expand' in path.read_text().splitlines()[:10],
                 'Pending migrations must explicitly declare -- deploy: expand; use maintenance for contract changes')
     return pending
 

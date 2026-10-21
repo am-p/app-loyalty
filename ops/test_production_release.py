@@ -53,6 +53,35 @@ class SafetyTests(unittest.TestCase):
         with self.assertRaisesRegex(release.ReleaseError, 'explicitly declare'):
             release.migration_plan(files, list(files)[:35])
 
+    def reviewed_files(self):
+        files = self.files()
+        directory = Path(__file__).resolve().parents[1] / 'migrations'
+        for name in release.REVIEWED_EXPAND_MIGRATIONS:
+            source = directory / name
+            if source.exists():
+                destination = self.root / name
+                destination.write_bytes(source.read_bytes())
+                files[name[:4]] = destination
+        return files
+
+    def test_existing_reviewed_expansions_preserve_sql_bytes(self):
+        files = self.reviewed_files()
+        self.assertEqual(release.migration_plan(files, list(files)[:35]), list(files.values())[35:])
+
+    def test_changed_reviewed_expansion_is_rejected_even_with_marker(self):
+        files = self.reviewed_files()
+        files['0036'].write_text('-- deploy: expand\nDROP TABLE usuarios;\n')
+        with self.assertRaisesRegex(release.ReleaseError, 'Reviewed migration content changed'):
+            release.migration_plan(files, list(files)[:35])
+
+    def test_renamed_reviewed_expansion_is_not_implicitly_accepted(self):
+        files = self.reviewed_files()
+        renamed = self.root / '0036_other.up.sql'
+        files['0036'].rename(renamed)
+        files['0036'] = renamed
+        with self.assertRaisesRegex(release.ReleaseError, 'explicitly declare'):
+            release.migration_plan(files, list(files)[:35])
+
     def test_history_gaps_ahead_and_old_bootstrap_are_rejected(self):
         files = self.files()
         for applied in [list(files)[:-1], list(files) + ['0036'], list(files)[:20] + list(files)[21:]]:
