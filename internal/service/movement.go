@@ -24,13 +24,13 @@ func (s *Service) Preview(ctx context.Context, actorID int64, req model.Movement
 	if req.Operation == "CANJE" && req.PointsAmount != nil {
 		return model.Preview{}, ErrInvalidRequest
 	}
-	token, err := s.resolveMovementIdentity(ctx, req.QRToken, req.CustomerCode)
+	token, qrHash, err := s.resolveMovementIdentityHash(ctx, req.QRToken, req.CustomerCode)
 	if err != nil {
 		return model.Preview{}, err
 	}
 	req.QRToken = token
 	req.CustomerCode = ""
-	return s.Repo.CreatePreview(ctx, actorID, req, s.QRHash(req.QRToken), Fingerprint(req))
+	return s.Repo.CreatePreview(ctx, actorID, req, qrHash, Fingerprint(req))
 }
 
 func (s *Service) ConfirmAccumulation(ctx context.Context, actorID int64, key, requestID string, req model.ConfirmAccumulationRequest) (repository.IdempotentResult, error) {
@@ -40,13 +40,13 @@ func (s *Service) ConfirmAccumulation(ctx context.Context, actorID int64, key, r
 	if _, err := uuid.Parse(req.PreviewID); err != nil {
 		return repository.IdempotentResult{}, ErrInvalidRequest
 	}
-	token, err := s.resolveMovementIdentity(ctx, req.QRToken, req.CustomerCode)
+	token, qrHash, err := s.resolveMovementIdentityHash(ctx, req.QRToken, req.CustomerCode)
 	if err != nil {
 		return repository.IdempotentResult{}, err
 	}
 	req.QRToken = token
 	req.CustomerCode = ""
-	return s.confirm(ctx, repository.ConfirmInput{ActorID: actorID, Key: key, Fingerprint: Fingerprint(req), PreviewID: req.PreviewID, QRHash: s.QRHash(req.QRToken), BranchID: req.BranchID, Operation: "ACUMULACION"}, requestID)
+	return s.confirm(ctx, repository.ConfirmInput{ActorID: actorID, Key: key, Fingerprint: Fingerprint(req), PreviewID: req.PreviewID, QRHash: qrHash, BranchID: req.BranchID, Operation: "ACUMULACION"}, requestID)
 }
 
 func (s *Service) ConfirmRedemption(ctx context.Context, actorID int64, key, requestID string, req model.ConfirmRedemptionRequest) (repository.IdempotentResult, error) {
@@ -56,13 +56,13 @@ func (s *Service) ConfirmRedemption(ctx context.Context, actorID int64, key, req
 	if _, err := uuid.Parse(req.PreviewID); err != nil {
 		return repository.IdempotentResult{}, ErrInvalidRequest
 	}
-	token, err := s.resolveMovementIdentity(ctx, req.QRToken, req.CustomerCode)
+	token, qrHash, err := s.resolveMovementIdentityHash(ctx, req.QRToken, req.CustomerCode)
 	if err != nil {
 		return repository.IdempotentResult{}, err
 	}
 	req.QRToken = token
 	req.CustomerCode = ""
-	return s.confirm(ctx, repository.ConfirmInput{ActorID: actorID, Key: key, Fingerprint: Fingerprint(req), PreviewID: req.PreviewID, QRHash: s.QRHash(req.QRToken), BranchID: req.BranchID, BenefitID: &req.BenefitID, Operation: "CANJE"}, requestID)
+	return s.confirm(ctx, repository.ConfirmInput{ActorID: actorID, Key: key, Fingerprint: Fingerprint(req), PreviewID: req.PreviewID, QRHash: qrHash, BranchID: req.BranchID, BenefitID: &req.BenefitID, Operation: "CANJE"}, requestID)
 }
 
 func (s *Service) confirm(ctx context.Context, in repository.ConfirmInput, requestID string) (repository.IdempotentResult, error) {

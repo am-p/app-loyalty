@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"time"
 
 	"clientesFrecuentes/internal/model"
 	"github.com/jackc/pgx/v5"
@@ -11,7 +12,7 @@ import (
 type rowScanner interface{ Scan(...any) error }
 
 func scanBenefit(row rowScanner, b *model.Benefit) error {
-	return row.Scan(&b.ID, &b.ProgramID, &b.Name, &b.RequiredStamps, &b.RequiredPoints, &b.Active, &b.Version, &b.Description, &b.DeletedAt, &b.CreatedAt, &b.UpdatedAt)
+	return row.Scan(&b.ID, &b.ProgramID, &b.Name, &b.RequiredStamps, &b.RequiredPoints, &b.Active, &b.Version, &b.Description, &b.ExpiresOn, &b.DeletedAt, &b.CreatedAt, &b.UpdatedAt)
 }
 func mutableRole(role string) bool { return role == "PROPIETARIO" || role == "ADMINISTRADOR" }
 
@@ -98,6 +99,78 @@ func (r *Repository) ListBranches(ctx context.Context, actorID, brandID int64) (
 		out = append(out, b)
 	}
 	return out, rows.Err()
+}
+
+func (r *Repository) ListCustomerStoreLocations(ctx context.Context, actorID int64, search string) ([]model.StoreLocation, error) {
+	var customerExists bool
+	if err := r.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM usuarios WHERE id=$1 AND tipo_cuenta='CLIENTE_FINAL' AND activo AND deleted_at IS NULL)`, actorID).Scan(&customerExists); err != nil {
+		return nil, err
+	}
+	if !customerExists {
+		return nil, ErrNotFound
+	}
+	rows, err := r.Pool.Query(ctx, `SELECT m.id,m.nombre,s.id,s.nombre,s.direccion,s.localidad,s.provincia,s.latitud,s.longitud,
+		EXISTS(SELECT 1 FROM sucursales_favoritas sf WHERE sf.usuario_id=$1 AND sf.sucursal_id=s.id),
+		(SELECT COUNT(*) FROM sucursales_favoritas sf WHERE sf.sucursal_id=s.id)
+		FROM marcas m
+		JOIN sucursales s ON s.marca_id=m.id AND s.activo AND s.deleted_at IS NULL
+		JOIN programas_fidelidad p ON p.marca_id=m.id AND p.activo
+		WHERE m.activo AND m.deleted_at IS NULL
+		  AND s.latitud IS NOT NULL AND s.longitud IS NOT NULL
+		  AND ($2='' OR m.nombre ILIKE '%' || $2 || '%' OR s.nombre ILIKE '%' || $2 || '%')
+		ORDER BY m.nombre,s.principal DESC,s.nombre
+		LIMIT 200`, actorID, search)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []model.StoreLocation{}
+	for rows.Next() {
+		item := model.StoreLocation{Benefits: []model.StoreLocationBenefit{}}
+		if err = rows.Scan(&item.BrandID, &item.BrandName, &item.BranchID, &item.BranchName, &item.Address, &item.Locality, &item.Province, &item.Latitude, &item.Longitude, &item.Favorite, &item.Favorites); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+func (r *Repository) SetCustomerStoreFavorite(ctx context.Context, actorID, branchID int64, favorite bool) (model.StoreFavorite, error) {
+	tx, err := r.Pool.Begin(ctx)
+	if err != nil {
+		return model.StoreFavorite{}, err
+	}
+	defer tx.Rollback(ctx)
+	var available bool
+	err = tx.QueryRow(ctx, `SELECT EXISTS(
+		SELECT 1 FROM usuarios u
+		JOIN sucursales s ON s.id=$2 AND s.activo AND s.deleted_at IS NULL AND s.latitud IS NOT NULL AND s.longitud IS NOT NULL
+		JOIN marcas m ON m.id=s.marca_id AND m.activo AND m.deleted_at IS NULL
+		JOIN programas_fidelidad p ON p.marca_id=m.id AND p.activo
+		WHERE u.id=$1 AND u.tipo_cuenta='CLIENTE_FINAL' AND u.activo AND u.deleted_at IS NULL
+	)`, actorID, branchID).Scan(&available)
+	if err != nil {
+		return model.StoreFavorite{}, err
+	}
+	if !available {
+		return model.StoreFavorite{}, ErrNotFound
+	}
+	if favorite {
+		_, err = tx.Exec(ctx, `INSERT INTO sucursales_favoritas(usuario_id,sucursal_id) VALUES($1,$2) ON CONFLICT DO NOTHING`, actorID, branchID)
+	} else {
+		_, err = tx.Exec(ctx, `DELETE FROM sucursales_favoritas WHERE usuario_id=$1 AND sucursal_id=$2`, actorID, branchID)
+	}
+	if err != nil {
+		return model.StoreFavorite{}, err
+	}
+	result := model.StoreFavorite{BranchID: branchID, Favorite: favorite}
+	if err = tx.QueryRow(ctx, `SELECT COUNT(*) FROM sucursales_favoritas WHERE sucursal_id=$1`, branchID).Scan(&result.Favorites); err != nil {
+		return model.StoreFavorite{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return model.StoreFavorite{}, err
+	}
+	return result, nil
 }
 func scanBranch(row rowScanner, b *model.Branch) error {
 	return row.Scan(&b.ID, &b.BrandID, &b.Name, &b.Address, &b.Active, &b.Locality, &b.Province, &b.PostalCode, &b.Latitude, &b.Longitude, &b.Primary, &b.Version, &b.CreatedAt, &b.UpdatedAt)
@@ -286,13 +359,13 @@ func (r *Repository) UpdateProgram(ctx context.Context, actorID, brandID int64, 
 
 func (r *Repository) GetBenefit(ctx context.Context, actorID, brandID, benefitID int64) (model.Benefit, error) {
 	var b model.Benefit
-	err := scanBenefit(r.Pool.QueryRow(ctx, `SELECT b.id,b.programa_id,b.nombre,b.requisito_sellos,b.requisito_puntos,b.activo,b.version,b.descripcion,b.deleted_at,b.created_at,b.updated_at FROM beneficios b JOIN programas_fidelidad p ON p.id=b.programa_id WHERE b.id=$3 AND p.marca_id=$2 AND EXISTS(SELECT 1 FROM membresias_marca WHERE usuario_id=$1 AND marca_id=$2 AND activo)`, actorID, brandID, benefitID), &b)
+	err := scanBenefit(r.Pool.QueryRow(ctx, `SELECT b.id,b.programa_id,b.nombre,b.requisito_sellos,b.requisito_puntos,b.activo,b.version,b.descripcion,b.expires_on,b.deleted_at,b.created_at,b.updated_at FROM beneficios b JOIN programas_fidelidad p ON p.id=b.programa_id WHERE b.id=$3 AND p.marca_id=$2 AND EXISTS(SELECT 1 FROM membresias_marca WHERE usuario_id=$1 AND marca_id=$2 AND activo)`, actorID, brandID, benefitID), &b)
 	if errors.Is(err, pgx.ErrNoRows) {
 		err = ErrNotFound
 	}
 	return b, err
 }
-func (r *Repository) ReplaceBenefit(ctx context.Context, actorID, brandID, benefitID int64, version int, req model.ReplaceBenefitRequest) (model.Benefit, error) {
+func (r *Repository) ReplaceBenefit(ctx context.Context, actorID, brandID, benefitID int64, version int, req model.ReplaceBenefitRequest, expiresOn *time.Time) (model.Benefit, error) {
 	var role, typ string
 	err := r.Pool.QueryRow(ctx, `SELECT mm.rol,p.tipo FROM membresias_marca mm JOIN programas_fidelidad p ON p.marca_id=mm.marca_id WHERE mm.usuario_id=$1 AND mm.marca_id=$2 AND mm.activo`, actorID, brandID).Scan(&role, &typ)
 	if err != nil {
@@ -317,7 +390,7 @@ func (r *Repository) ReplaceBenefit(ctx context.Context, actorID, brandID, benef
 		stamps = &req.Requirement
 	}
 	var b model.Benefit
-	err = scanBenefit(r.Pool.QueryRow(ctx, `UPDATE beneficios b SET nombre=$1,descripcion=$2,requisito_sellos=$3,requisito_puntos=$4,activo=$5,deleted_at=CASE WHEN $5 THEN NULL ELSE COALESCE(b.deleted_at,now()) END,version=b.version+1,updated_at=now() FROM programas_fidelidad p WHERE b.id=$6 AND b.programa_id=p.id AND p.marca_id=$7 AND b.version=$8 RETURNING b.id,b.programa_id,b.nombre,b.requisito_sellos,b.requisito_puntos,b.activo,b.version,b.descripcion,b.deleted_at,b.created_at,b.updated_at`, req.Name, req.Description, stamps, points, req.Active, benefitID, brandID, version), &b)
+	err = scanBenefit(r.Pool.QueryRow(ctx, `UPDATE beneficios b SET nombre=$1,descripcion=$2,requisito_sellos=$3,requisito_puntos=$4,activo=$5,expires_on=$6,deleted_at=CASE WHEN $5 THEN NULL ELSE COALESCE(b.deleted_at,now()) END,version=b.version+1,updated_at=now() FROM programas_fidelidad p WHERE b.id=$7 AND b.programa_id=p.id AND p.marca_id=$8 AND b.version=$9 RETURNING b.id,b.programa_id,b.nombre,b.requisito_sellos,b.requisito_puntos,b.activo,b.version,b.descripcion,b.expires_on,b.deleted_at,b.created_at,b.updated_at`, req.Name, req.Description, stamps, points, req.Active, expiresOn, benefitID, brandID, version), &b)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return b, ErrPreconditionFailed
 	}
