@@ -21,8 +21,13 @@ func (h *Handler) SavePushToken(c *gin.Context) {
 	var req struct {
 		ExpoPushToken string `json:"expo_push_token"`
 		DeviceID      string `json:"device_id"`
+		Platform      string `json:"platform"`
 	}
 	if decode(c, &req) != nil {
+		writeErr(c, service.ErrInvalidRequest)
+		return
+	}
+	if req.Platform != "" && req.Platform != "ios" && req.Platform != "android" {
 		writeErr(c, service.ErrInvalidRequest)
 		return
 	}
