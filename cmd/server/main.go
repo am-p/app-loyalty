@@ -103,6 +103,7 @@ func main() {
 		go (mailer.Worker{GlobalHourlyBudget: cfg.MailGlobalHourlyBudget, RecipientHourlyBudget: cfg.MailRecipientHourlyBudget, Budget: limiter, Repo: repo, Sender: sender, Logger: logger, Interval: cfg.MailPollInterval, PublicAppURL: cfg.PublicAppURL, CipherKey: cfg.OutboxEncryptionKey, LogoStore: mediaStore}).Run(workerCtx)
 	}
 	go (push.Worker{Repo: repo, Sender: push.NewClient(&http.Client{Timeout: 10 * time.Second}), Logger: logger, Interval: time.Second}).Run(workerCtx)
+	go (push.WebWorker{Repo: repo, Logger: logger, Subject: cfg.PublicAppURL}).Run(workerCtx)
 	go (maintenance.Worker{Repo: repo, Store: mediaStore, Logger: logger, Config: cfg}).Run(workerCtx)
 	svc := service.New(repo, tokens, cfg, mediaStore)
 	svc.Challenge = &challenge.Manager{Enabled: cfg.CaptchaEnabled, SiteKey: cfg.CaptchaSiteKey, Secret: cfg.CaptchaSecret, Hostnames: cfg.CaptchaHostnames, Store: limiter}

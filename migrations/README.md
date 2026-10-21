@@ -8,6 +8,18 @@ Upgrade: ejecutar `cmd/migrate up` desde 0035 o desde una base vacía; un segund
 
 # Migraciones
 
+## Reversiones de movimientos 0037
+
+`0037_movement_reversals` registra cada reversión de forma idempotente y mantiene
+la referencia al movimiento original. Se aplica después de `0036_web_push`; iniciar
+la API con `EXPECTED_SCHEMA_VERSION=0037` una vez aplicadas ambas migraciones.
+
+## Web Push 0036
+
+`0036_web_push` agrega claves, suscripciones y notificaciones Web Push después
+de `0035_closed_test_privacy`. Luego se aplica `0037_movement_reversals`; la
+versión esperada del esquema unificado es `0037`.
+
 ## Prueba cerrada 0035
 
 `0035_closed_test_privacy` agrega la confirmación 18+, la cola de borrado de fotos
@@ -149,3 +161,13 @@ reversión funcional debe ser una migración hacia adelante.
 
 Activación: integrar PR24, migración/API de códigos y luego publicar frontend.
 Este checkout no implica migración ni despliegue de ningún ambiente.
+
+## Reconciliación con main oficial (20/10/2026)
+
+Main ya integró web push, reversiones, vencimiento de beneficios y favoritos
+(PR34), además de los fixtures de reloj (PR37). Se conserva todo ese código y
+los SQL0001–0040 byteidénticos. Esta propuesta mejora el mapa completo, firma
+los logos y agrega cobertura de permisos, búsqueda y concurrencia; las
+implementaciones anteriores del mapa se consolidan en los archivos `store.go`.
+Las referencias anteriores a tablas inertes o dependencias aún abiertas
+describen el estado histórico de la propuesta.

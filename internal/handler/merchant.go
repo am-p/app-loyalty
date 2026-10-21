@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"clientesFrecuentes/internal/model"
@@ -149,12 +150,37 @@ func (h *Handler) BrandMovements(c *gin.Context) {
 		writeErr(c, err)
 		return
 	}
-	data, p, err := h.Service.BrandMovements(c.Request.Context(), a.ID, brandID, page, size)
+	data, p, err := h.Service.BrandMovements(c.Request.Context(), a.ID, brandID, page, size, c.Query("search"), c.Query("date"))
 	if err != nil {
 		writeErr(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, web.PageEnvelope[model.Movement]{Data: data, Pagination: p, RequestID: web.RequestID(c)})
+}
+
+func (h *Handler) ReverseBrandMovement(c *gin.Context) {
+	a, ok := actor(c)
+	if !ok {
+		return
+	}
+	if a.AccountType != "PERSONAL_MARCA" {
+		writeErr(c, service.ErrForbidden)
+		return
+	}
+	if !h.limit(c, "movement:actor:"+strconv.FormatInt(a.ID, 10), movementAttempts, movementWindow) {
+		return
+	}
+	brandID, err := positiveID(c.Param("brand_id"))
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	data, err := h.Service.ReverseBrandMovement(c.Request.Context(), a.ID, brandID, c.Param("operation_id"))
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	c.JSON(http.StatusCreated, web.Envelope[model.MovementReversal]{Data: data, RequestID: web.RequestID(c)})
 }
 
 func (h *Handler) BrandCustomers(c *gin.Context) {
@@ -182,6 +208,28 @@ func (h *Handler) BrandCustomers(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, web.PageEnvelope[model.BrandCustomer]{Data: data, Pagination: p, RequestID: web.RequestID(c)})
+}
+
+func (h *Handler) BrandCustomerLookup(c *gin.Context) {
+	a, ok := actor(c)
+	if !ok {
+		return
+	}
+	if a.AccountType != "PERSONAL_MARCA" {
+		writeErr(c, service.ErrForbidden)
+		return
+	}
+	brandID, err := positiveID(c.Param("brand_id"))
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	data, err := h.Service.BrandCustomerLookup(c.Request.Context(), a.ID, brandID, c.Param("customer_code"))
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, web.Envelope[model.BrandCustomer]{Data: data, RequestID: web.RequestID(c)})
 }
 
 func (h *Handler) BrandMetrics(c *gin.Context) {

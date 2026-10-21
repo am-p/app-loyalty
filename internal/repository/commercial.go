@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"time"
 
 	"clientesFrecuentes/internal/model"
 	"github.com/jackc/pgx/v5"
@@ -11,7 +12,7 @@ import (
 type rowScanner interface{ Scan(...any) error }
 
 func scanBenefit(row rowScanner, b *model.Benefit) error {
-	return row.Scan(&b.ID, &b.ProgramID, &b.Name, &b.RequiredStamps, &b.RequiredPoints, &b.Active, &b.Version, &b.Description, &b.DeletedAt, &b.CreatedAt, &b.UpdatedAt)
+	return row.Scan(&b.ID, &b.ProgramID, &b.Name, &b.RequiredStamps, &b.RequiredPoints, &b.Active, &b.Version, &b.Description, &b.ExpiresOn, &b.DeletedAt, &b.CreatedAt, &b.UpdatedAt)
 }
 func mutableRole(role string) bool { return role == "PROPIETARIO" || role == "ADMINISTRADOR" }
 
@@ -99,6 +100,7 @@ func (r *Repository) ListBranches(ctx context.Context, actorID, brandID int64) (
 	}
 	return out, rows.Err()
 }
+
 func scanBranch(row rowScanner, b *model.Branch) error {
 	return row.Scan(&b.ID, &b.BrandID, &b.Name, &b.Address, &b.Active, &b.Locality, &b.Province, &b.PostalCode, &b.Latitude, &b.Longitude, &b.Primary, &b.Version, &b.CreatedAt, &b.UpdatedAt)
 }
@@ -286,13 +288,13 @@ func (r *Repository) UpdateProgram(ctx context.Context, actorID, brandID int64, 
 
 func (r *Repository) GetBenefit(ctx context.Context, actorID, brandID, benefitID int64) (model.Benefit, error) {
 	var b model.Benefit
-	err := scanBenefit(r.Pool.QueryRow(ctx, `SELECT b.id,b.programa_id,b.nombre,b.requisito_sellos,b.requisito_puntos,b.activo,b.version,b.descripcion,b.deleted_at,b.created_at,b.updated_at FROM beneficios b JOIN programas_fidelidad p ON p.id=b.programa_id WHERE b.id=$3 AND p.marca_id=$2 AND EXISTS(SELECT 1 FROM membresias_marca WHERE usuario_id=$1 AND marca_id=$2 AND activo)`, actorID, brandID, benefitID), &b)
+	err := scanBenefit(r.Pool.QueryRow(ctx, `SELECT b.id,b.programa_id,b.nombre,b.requisito_sellos,b.requisito_puntos,b.activo,b.version,b.descripcion,b.expires_on,b.deleted_at,b.created_at,b.updated_at FROM beneficios b JOIN programas_fidelidad p ON p.id=b.programa_id WHERE b.id=$3 AND p.marca_id=$2 AND EXISTS(SELECT 1 FROM membresias_marca WHERE usuario_id=$1 AND marca_id=$2 AND activo)`, actorID, brandID, benefitID), &b)
 	if errors.Is(err, pgx.ErrNoRows) {
 		err = ErrNotFound
 	}
 	return b, err
 }
-func (r *Repository) ReplaceBenefit(ctx context.Context, actorID, brandID, benefitID int64, version int, req model.ReplaceBenefitRequest) (model.Benefit, error) {
+func (r *Repository) ReplaceBenefit(ctx context.Context, actorID, brandID, benefitID int64, version int, req model.ReplaceBenefitRequest, expiresOn *time.Time) (model.Benefit, error) {
 	var role, typ string
 	err := r.Pool.QueryRow(ctx, `SELECT mm.rol,p.tipo FROM membresias_marca mm JOIN programas_fidelidad p ON p.marca_id=mm.marca_id WHERE mm.usuario_id=$1 AND mm.marca_id=$2 AND mm.activo`, actorID, brandID).Scan(&role, &typ)
 	if err != nil {
@@ -317,7 +319,7 @@ func (r *Repository) ReplaceBenefit(ctx context.Context, actorID, brandID, benef
 		stamps = &req.Requirement
 	}
 	var b model.Benefit
-	err = scanBenefit(r.Pool.QueryRow(ctx, `UPDATE beneficios b SET nombre=$1,descripcion=$2,requisito_sellos=$3,requisito_puntos=$4,activo=$5,deleted_at=CASE WHEN $5 THEN NULL ELSE COALESCE(b.deleted_at,now()) END,version=b.version+1,updated_at=now() FROM programas_fidelidad p WHERE b.id=$6 AND b.programa_id=p.id AND p.marca_id=$7 AND b.version=$8 RETURNING b.id,b.programa_id,b.nombre,b.requisito_sellos,b.requisito_puntos,b.activo,b.version,b.descripcion,b.deleted_at,b.created_at,b.updated_at`, req.Name, req.Description, stamps, points, req.Active, benefitID, brandID, version), &b)
+	err = scanBenefit(r.Pool.QueryRow(ctx, `UPDATE beneficios b SET nombre=$1,descripcion=$2,requisito_sellos=$3,requisito_puntos=$4,activo=$5,expires_on=$6,deleted_at=CASE WHEN $5 THEN NULL ELSE COALESCE(b.deleted_at,now()) END,version=b.version+1,updated_at=now() FROM programas_fidelidad p WHERE b.id=$7 AND b.programa_id=p.id AND p.marca_id=$8 AND b.version=$9 RETURNING b.id,b.programa_id,b.nombre,b.requisito_sellos,b.requisito_puntos,b.activo,b.version,b.descripcion,b.expires_on,b.deleted_at,b.created_at,b.updated_at`, req.Name, req.Description, stamps, points, req.Active, expiresOn, benefitID, brandID, version), &b)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return b, ErrPreconditionFailed
 	}
