@@ -5,10 +5,29 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"clientesFrecuentes/internal/config"
 	"clientesFrecuentes/internal/model"
 )
+
+func TestParseOptionalBenefitDate(t *testing.T) {
+	value := "2027-03-18"
+	got, err := parseOptionalBenefitDate(&value)
+	if err != nil || got == nil || got.Format("2006-01-02") != value {
+		t.Fatalf("parseOptionalBenefitDate() = %v, %v", got, err)
+	}
+	if !got.Equal(time.Date(2027, time.March, 18, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("parsed date = %v", got)
+	}
+	invalid := "18/03/2027"
+	if _, err = parseOptionalBenefitDate(&invalid); !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("invalid date error = %v", err)
+	}
+	if got, err = parseOptionalBenefitDate(nil); err != nil || got != nil {
+		t.Fatalf("nil date = %v, %v", got, err)
+	}
+}
 
 func TestRegisterCustomerRejectsWhenDemoSignupIsDisabled(t *testing.T) {
 	svc := &Service{Config: config.Config{DemoSignupEnabled: false}}

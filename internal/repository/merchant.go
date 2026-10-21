@@ -133,14 +133,14 @@ func (r *Repository) ListBrandCustomers(ctx context.Context, actorID, brandID in
 			WHEN $2='' THEN true
 			WHEN $2 ~ '^[0-9]{1,19}$' THEN u.id::text=$2
 			WHEN $3 THEN u.codigo_usuario=$2
-			ELSE strpos(lower(u.nombre),lower($2))>0 OR strpos(lower(u.email::text),lower($2))>0
+			ELSE strpos(lower(concat_ws(' ',u.nombre,u.apellido)),lower($2))>0 OR strpos(lower(u.email::text),lower($2))>0
 		END`
 	var total int64
 	if err = tx.QueryRow(ctx, `SELECT count(*)`+cardsFrom+cardsWhere, brandID, search, isPublicCode).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 
-	rows, err := tx.Query(ctx, `SELECT u.id,t.id,u.nombre,u.email::text,p.tipo,t.saldo_sellos,t.saldo_puntos,
+	rows, err := tx.Query(ctx, `SELECT u.id,t.id,btrim(concat_ws(' ',u.nombre,u.apellido)),u.email::text,p.tipo,t.saldo_sellos,t.saldo_puntos,
 		count(h.id),max(h.occurred_at),t.created_at,COALESCE(u.codigo_usuario,'#USER-'||lpad(u.id::text,greatest(4,length(u.id::text)),'0'))`+cardsFrom+`
 		JOIN programas_fidelidad p ON p.marca_id=t.marca_id AND p.activo
 		LEFT JOIN historial_movimientos h ON h.tarjeta_id=t.id AND h.marca_id=t.marca_id`+cardsWhere+`
@@ -169,6 +169,35 @@ func (r *Repository) ListBrandCustomers(ctx context.Context, actorID, brandID in
 	return items, total, nil
 }
 
+func (r *Repository) LookupBrandCustomer(ctx context.Context, actorID, brandID, customerID int64) (model.BrandCustomer, error) {
+	const query = `WITH authorized AS (
+		SELECT 1 FROM usuarios actor
+		JOIN membresias_marca mm ON mm.usuario_id=actor.id AND mm.marca_id=$2 AND mm.activo
+		JOIN marcas m ON m.id=mm.marca_id AND m.activo AND m.deleted_at IS NULL
+		WHERE actor.id=$1 AND actor.tipo_cuenta='PERSONAL_MARCA' AND actor.activo AND actor.deleted_at IS NULL
+	), program AS (
+		SELECT tipo FROM programas_fidelidad WHERE marca_id=$2 AND activo AND EXISTS(SELECT 1 FROM authorized)
+	)
+	SELECT u.id,COALESCE(t.id,0),btrim(concat_ws(' ',u.nombre,u.apellido)),u.email::text,p.tipo,
+		COALESCE(t.saldo_sellos,0),COALESCE(t.saldo_puntos,0),count(h.id),max(h.occurred_at),COALESCE(t.created_at,u.created_at),
+		COALESCE(u.codigo_usuario,'#USER-'||lpad(u.id::text,greatest(4,length(u.id::text)),'0'))
+	FROM usuarios u CROSS JOIN program p
+	LEFT JOIN tarjetas t ON t.usuario_id=u.id AND t.marca_id=$2 AND t.activo AND t.deleted_at IS NULL
+	LEFT JOIN historial_movimientos h ON h.tarjeta_id=t.id AND h.marca_id=$2
+	WHERE u.id=$3 AND u.tipo_cuenta='CLIENTE_FINAL' AND u.activo AND u.deleted_at IS NULL
+	GROUP BY u.id,t.id,u.nombre,u.apellido,u.email,p.tipo,t.saldo_sellos,t.saldo_puntos,t.created_at,u.created_at`
+	var item model.BrandCustomer
+	err := r.Pool.QueryRow(ctx, query, actorID, brandID, customerID).Scan(
+		&item.CustomerID, &item.CardID, &item.Name, &item.Email, &item.ProgramType,
+		&item.BalanceStamps, &item.BalancePoints, &item.MovementsCount, &item.LastMovementAt,
+		&item.JoinedAt, &item.UserCode,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.BrandCustomer{}, ErrNotFound
+	}
+	return item, err
+}
+
 func (r *Repository) BrandMetricsSummary(ctx context.Context, actorID, brandID int64) (model.BrandMetricsSummary, error) {
 	const query = `WITH authorized AS (
 		SELECT 1 FROM usuarios u
@@ -191,14 +220,20 @@ func (r *Repository) BrandMetricsSummary(ctx context.Context, actorID, brandID i
 			COALESCE(sum(h.cantidad) FILTER(WHERE h.programa_tipo='PUNTOS' AND h.operacion='CANJE' AND h.sentido='DEBITO'),0)::bigint AS points_redeemed,
 			max(h.occurred_at) AS last_movement_at
 		FROM historial_movimientos h WHERE h.marca_id=$2 AND EXISTS(SELECT 1 FROM authorized)
+	), reputation AS (
+		SELECT count(*) AS favorites_received,count(DISTINCT sf.usuario_id) AS favorite_customers
+		FROM sucursales_favoritas sf JOIN sucursales s ON s.id=sf.sucursal_id
+		WHERE s.marca_id=$2 AND EXISTS(SELECT 1 FROM authorized)
 	)
 	SELECT EXISTS(SELECT 1 FROM authorized),COALESCE((SELECT tipo FROM program),''),active_cards.active_customers,active_cards.current_stamp_balance,active_cards.current_point_balance,
-		ledger.accumulations,ledger.redemptions,ledger.stamps_issued,ledger.stamps_redeemed,ledger.points_issued,ledger.points_redeemed,ledger.last_movement_at
-	FROM active_cards CROSS JOIN ledger`
+		ledger.accumulations,ledger.redemptions,ledger.stamps_issued,ledger.stamps_redeemed,ledger.points_issued,ledger.points_redeemed,ledger.last_movement_at,
+		reputation.favorites_received,reputation.favorite_customers
+	FROM active_cards CROSS JOIN ledger CROSS JOIN reputation`
 	var authorized bool
 	var result model.BrandMetricsSummary
 	err := r.Pool.QueryRow(ctx, query, actorID, brandID).Scan(&authorized, &result.ProgramType, &result.ActiveCustomers, &result.CurrentStampBalance, &result.CurrentPointBalance,
-		&result.Accumulations, &result.Redemptions, &result.StampsIssued, &result.StampsRedeemed, &result.PointsIssued, &result.PointsRedeemed, &result.LastMovementAt)
+		&result.Accumulations, &result.Redemptions, &result.StampsIssued, &result.StampsRedeemed, &result.PointsIssued, &result.PointsRedeemed, &result.LastMovementAt,
+		&result.FavoritesReceived, &result.FavoriteCustomers)
 	if err != nil {
 		return model.BrandMetricsSummary{}, err
 	}
