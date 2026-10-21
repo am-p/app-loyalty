@@ -15,7 +15,7 @@ sigue siendo 24 horas; los aliases HTTP legacy no convierten tokens anteriores.
 
 ## Desarrollo local
 
-Requisitos: Go 1.26.9 o posterior, Docker y Docker Compose.
+Requisitos: Go 1.26.10 o posterior, Docker y Docker Compose.
 
 Para levantar PostgreSQL, aplicar las migraciones y arrancar la API con las mismas imágenes usadas en despliegue:
 
@@ -41,7 +41,7 @@ El [`Dockerfile`](./Dockerfile) contiene dos targets:
 - `api`: binario HTTP y migrador disponibles, sin ejecutar migraciones automáticamente al iniciar;
 - `migrate`: migrador con los SQL versionados incluidos y `MIGRATIONS_DIR=/migrations`.
 
-El builder y `go.mod` requieren Go 1.26.9. Los parches de seguridad de
+El builder y `go.mod` requieren Go 1.26.10. Los parches de seguridad de
 `golang.org/x/crypto` requieren la serie Go 1.26; el cambio de herramienta
 se valida con la suite completa, race, vet y govulncheck.
 
