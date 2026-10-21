@@ -352,6 +352,21 @@ func TestPostgresLegacyMerchantIdempotencyFingerprintUnchanged(t *testing.T) {
 	}
 }
 
+// Older migration upgrade fixtures start from the current source schema.
+func rollbackCodeMigrationFixture(t *testing.T, p *pgxpool.Pool) {
+	t.Helper()
+	body, err := os.ReadFile("../../migrations/0043_email_verification_codes.down.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = p.Exec(t.Context(), string(body)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = p.Exec(t.Context(), `DELETE FROM schema_migrations WHERE version='0043'`); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func codeLink(t *testing.T, pool *pgxpool.Pool, email string, id int64, code string) string {
 	t.Helper()
 	var deliveryID string

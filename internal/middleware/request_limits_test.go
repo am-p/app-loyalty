@@ -52,6 +52,59 @@ func TestRequestLogNeverIncludesInvitationTokenOrChallengeReceipt(t *testing.T) 
 		}
 	}
 }
+
+func TestRequestLimitsPermitMenuPDFOnlyOnRegisteredUploadRoute(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil))))
+	read := func(c *gin.Context) {
+		n, err := io.Copy(io.Discard, c.Request.Body)
+		if err != nil {
+			c.Status(http.StatusRequestEntityTooLarge)
+			return
+		}
+		if n != c.Request.ContentLength {
+			c.Status(http.StatusBadRequest)
+			return
+		}
+		c.Status(http.StatusNoContent)
+	}
+	const route = "/v1/marcas/:brand_id/sucursales/:resource_id/menu/documentos"
+	const path = "/v1/marcas/1/sucursales/2/menu/documentos"
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodGet} {
+		r.Handle(method, route, read)
+	}
+	r.POST(route+"/extra", read)
+	r.PUT("/v1/marcas/:brand_id/sucursales/:resource_id/menu/publicacion", read)
+	r.POST("/v1/auth/register", read)
+	const menuMultipartLimit int64 = (30 << 20) + (64 << 10)
+	for _, tc := range []struct {
+		name, method, path string
+		n                  int64
+		status             int
+	}{
+		{"three-megabyte-PDF-body", http.MethodPost, path, 3 << 20, 204},
+		{"above-former-ten-MiB-limit", http.MethodPost, path, 12 << 20, 204},
+		{"thirty-megabyte-file", http.MethodPost, path, 30 << 20, 204},
+		{"multipart-boundary", http.MethodPost, path, menuMultipartLimit, 204},
+		{"multipart-overflow", http.MethodPost, path, menuMultipartLimit + 1, 413},
+		{"neighbor-route", http.MethodPost, path + "/extra", config.MaxJSONBytes + 1, 413},
+		{"publish-stays-JSON", http.MethodPut, "/v1/marcas/1/sucursales/2/menu/publicacion", config.MaxJSONBytes + 1, 413},
+		{"ordinary-JSON", http.MethodPost, "/v1/auth/register", config.MaxJSONBytes + 1, 413},
+		{"PUT-stays-JSON", http.MethodPut, path, config.MaxJSONBytes + 1, 413},
+		{"DELETE-stays-JSON", http.MethodDelete, path, config.MaxJSONBytes + 1, 413},
+		{"GET-stays-JSON", http.MethodGet, path, config.MaxJSONBytes + 1, 413},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, httptest.NewRequest(tc.method, tc.path, bytes.NewReader(make([]byte, tc.n))))
+			if w.Code != tc.status {
+				t.Fatalf("%s %s %d bytes: got %d, want %d", tc.method, tc.path, tc.n, w.Code, tc.status)
+			}
+		})
+	}
+}
+
 func TestUploadSemaphoreRejectsDistinctActorsWithoutUnboundedWaiters(t *testing.T) {
 	gate := NewUploadSemaphore(2, 1)
 	r1, ok := gate.Acquire(t.Context(), 1)

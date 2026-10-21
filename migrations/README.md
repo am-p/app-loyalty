@@ -1,3 +1,27 @@
+# Menús PDF de hasta 30 MiB — esquema 0042
+
+`0042_branch_pdf_30mib` amplía únicamente el CHECK `branch_menu_documents_byte_size_check` de 10 a 30 MiB. Conserva byte_size, documentos, checksums y punteros existentes; 0041 permanece intacta. Go valida hasta 30 MiB, multipart hasta 30 MiB + 64 KiB y el proxy requiere 31 MiB para esa ruta; imágenes y JSON conservan sus límites. Páginas, roles, ETags, TTL y limpieza no cambian.
+
+Probar base vacía→0042 y upgrade0041→0042 con documentos existentes; un segundo `cmd/migrate up` no modifica datos ni reaplica versiones. Readiness y `EXPECTED_SCHEMA_VERSION` requieren0042. Para rollback de aplicación conservar0042 y configurar el valor esperado, sin DOWN; volver a un binario de10 MiB sólo limita nuevas cargas. El DOWN de0042 aborta si existe cualquier metadato de documento mayor de10 MiB, incluso retirado, y no elimina ni trunca datos.
+
+# Menús PDF por sucursal — esquema 0041
+
+`0041_branch_pdf_menus` es una expansión desde 0040. Crea documentos privados inmutables y un estado versionado por sucursal. No cambia migraciones anteriores ni amplía la carga de imágenes. La rama de testing depende de la promoción de 0036–0040 documentada debajo; no asumir que el main oficial ya contiene ese esquema.
+
+El archivo se valida como PDF no cifrado, 1–30 páginas y hasta 10 MiB. Su reserva se persiste antes del PUT al storage; sólo una carga confirmada y una versión vigente cambian el borrador. Publicar, retirar y descartar son transacciones con If-Match. Las URL firmadas duran hasta 300 segundos; retirar impide nuevas consultas de esa publicación, pero una URL emitida puede seguir funcionando hasta vencer. Una respuesta perdida tras COMMIT requiere refrescar el estado; no se promete rollback del transporte.
+
+La eliminación física usa cola persistida con lease, reintentos y gracia de seis minutos (TTL máximo cinco minutos más margen). Triggers de baja real de marca/sucursal retiran sus punteros y documentos; la anonimización que cierra marcas recorre el mismo camino. Transferir propiedad de una marca que continúa activa conserva sus menús. No se registra al usuario cargador como dueño del PDF comercial. GET no inserta filas y representa el estado inicial con versión 1.
+
+Probar upgrade 0040→0041, base vacía→0041 y segunda ejecución de `cmd/migrate up`. Para volver al binario anterior se conserva el esquema expandido y se configura su EXPECTED_SCHEMA_VERSION=0041. El DOWN es sólo para bases sin documentos que deban conservarse; retira los triggers/tablas y no borra objetos de storage. Producción requiere su propia promoción y configuración; esta entrega selecciona testing.
+
+# Mapa de sucursales y favoritos — esquema 0040
+
+Para la entrega del mapa se promueven sin modificación los archivos SQL 0036–0040 de la PR oficial am-p/app-loyalty#34, rama `gonzalo/codex/unified-backend-pr`. El código de web push, reversos y nuevas plantillas de esa PR no se incorpora en esta entrega: 0036/0037 crean estructuras todavía inertes, 0038 agrega vencimiento nullable, 0039 amplía el catálogo sin quitar valores y 0040 crea favoritos. No se reutilizan versiones ni se cambian migraciones aplicadas. `EXPECTED_SCHEMA_VERSION=0040` exige las cuarenta migraciones contiguas.
+
+0040 conserva la clave única `(usuario_id,sucursal_id)` y el índice por sucursal. PUT/DELETE son idempotentes y serializan las escrituras por sucursal; GET no escribe ni requiere tarjeta, programa o suscripción paga. Los favoritos se incluyen en la exportación de cuenta y se eliminan con su baja. Los beneficios descubiertos están activos, no borrados y no vencidos.
+
+Upgrade: ejecutar `cmd/migrate up` desde 0035 o desde una base vacía; un segundo pase omite versiones aplicadas. 0036–0040 son expansión compatible con el binario anterior. Si se revierte la aplicación, conservar el esquema expandido y `EXPECTED_SCHEMA_VERSION=0040`; no ejecutar DOWN sobre favoritos en uso. El DOWN de 0039 vuelve a un catálogo más estrecho y sólo es seguro cuando no existen valores nuevos. Las futuras promociones de PR34 deben conservar estos mismos archivos y versiones, sin duplicar 0040. Ramas locales históricas que reservan 0036–0038 para turnos requieren renumeración antes de su futura integración.
+
 # Migraciones
 
 ## Reversiones de movimientos 0037
@@ -159,8 +183,18 @@ Este checkout no implica migración ni despliegue de ningún ambiente.
 `0043_email_verification_codes` agrega intentos, vencimiento y prueba de registro
 separados de los enlaces históricos. Conserva las migraciones aplicadas y reserva
 0036–0042 para la historia existente de testing. El manifiesto incluido en el
-binario valida las versiones exactas presentes en cada árbol; main requiere
-0001–0035 y0043, mientras el candidato integrado también conserva0036–0042.
+binario valida las versiones exactas presentes en cada árbol; esta rama acumulativa requiere
+0001–0043 y conserva las migraciones de mapas y PDF de los PR38/39.
 Configurar `EXPECTED_SCHEMA_VERSION=0043` al entregar el API actualizado.
 La reversión elimina desafíos y cancela correos pendientes de sus cuentas; no
 revierte la verificación ya completada ni elimina cuentas.
+
+## Reconciliación con main oficial (20/10/2026)
+
+Main ya integró web push, reversiones, vencimiento de beneficios y favoritos
+(PR34), además de los fixtures de reloj (PR37). Se conserva todo ese código y
+los SQL0001–0040 byteidénticos. Esta propuesta mejora el mapa completo, firma
+los logos y agrega cobertura de permisos, búsqueda y concurrencia; las
+implementaciones anteriores del mapa se consolidan en los archivos `store.go`.
+Las referencias anteriores a tablas inertes o dependencias aún abiertas
+describen el estado histórico de la propuesta.

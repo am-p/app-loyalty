@@ -87,6 +87,7 @@ func (w Worker) RunMediaCleanup(ctx context.Context) {
 	if leaseOwner == "" {
 		leaseOwner = uuid.NewString()
 	}
+	w.runMenuCleanup(ctx, leaseOwner)
 	items, err := w.Repo.DueBrandMedia(ctx, w.Config.RetentionBatchSize, leaseOwner)
 	if err != nil {
 		w.Logger.Error("media cleanup claim failed", "error", err)
@@ -114,5 +115,32 @@ func (w Worker) RunMediaCleanup(ctx context.Context) {
 	}
 	if w.Observer != nil {
 		w.Observer.ObserveRetention("media", completed, time.Since(started), batchErr)
+	}
+}
+
+func (w Worker) runMenuCleanup(ctx context.Context, owner string) {
+	started := time.Now()
+	items, err := w.Repo.DueMenuMedia(ctx, w.Config.RetentionBatchSize, owner)
+	if err != nil {
+		w.Logger.Error("menu cleanup claim failed")
+		return
+	}
+	var completed int64
+	var batchErr error
+	for _, item := range items {
+		deletionErr := w.Store.Delete(ctx, item.ObjectKey)
+		if deletionErr != nil {
+			batchErr = deletionErr
+			w.Logger.Warn("menu cleanup will retry", "document_id", item.ID)
+		}
+		if err := w.Repo.CompleteMenuMediaDeletion(ctx, item.ID, owner, deletionErr != nil); err != nil {
+			batchErr = err
+			w.Logger.Error("menu cleanup completion will retry", "document_id", item.ID)
+		} else if deletionErr == nil {
+			completed++
+		}
+	}
+	if w.Observer != nil {
+		w.Observer.ObserveRetention("menu_media", completed, time.Since(started), batchErr)
 	}
 }

@@ -64,6 +64,316 @@ paths:
               schema: { type: string, format: binary }
         '404':
           description: Imagen fuera de la lista permitida
+
+  /public/sucursales/{branch_id}/menu:
+    get:
+      tags: [Clientes]
+      operationId: getPublicBranchPDFMenu
+      summary: Consulta sin sesión el PDF publicado de una sucursal
+      description: No expone borradores ni datos personales. Una sucursal activa sin menú devuelve published null. URLs privadas firmadas por un máximo de 300 segundos; Cache-Control no-store.
+      security: []
+      x-puntazo-implementation: IMPLEMENTED
+      parameters:
+        - { name: branch_id, in: path, required: true, schema: { type: integer, format: int64, minimum: 1 } }
+      responses:
+        '200':
+          description: Publicación vigente o published null
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PublicBranchMenuEnvelope' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/MenuStorageUnavailable' }
+  /public/marcas/{brand_id}/menus:
+    get:
+      tags: [Clientes]
+      operationId: listPublicBrandPDFMenus
+      summary: Lista completa de sucursales activas y disponibilidad de menú
+      description: Sin sesión, tarjeta ni suscripción. Coordenadas incompletas o inválidas devuelven ambas null. Cache-Control no-store. Orden por nombre e identificador, sin truncamiento.
+      security: []
+      x-puntazo-implementation: IMPLEMENTED
+      parameters:
+        - { $ref: '#/components/parameters/BrandId' }
+      responses:
+        '200':
+          description: Colección completa
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PublicBrandMenusEnvelope' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /marcas/{brand_id}/sucursales/{branch_id}/menu:
+    parameters:
+      - { $ref: '#/components/parameters/BrandId' }
+      - { name: branch_id, in: path, required: true, schema: { type: integer, format: int64, minimum: 1 } }
+    get:
+      tags: [Marcas]
+      operationId: getBranchPDFMenu
+      summary: Consulta borrador y publicación de la sucursal
+      description: |
+        IMPLEMENTED. Requiere propietario o administrador de marca activo, usuario y
+        sucursal activos sin baja, y confirmación de mayoría de edad. Operadores no
+        acceden a borradores. Estado inicial versión 1, GET no escribe. Cada cambio
+        real incrementa version y emite ETag. Retirar un puntero vacío puede conservar
+        versión. Una URL ya emitida puede seguir vigente hasta 300 segundos.
+      x-puntazo-implementation: IMPLEMENTED
+      responses:
+        '200':
+          description: Estado actual; borrador o publicación null cuando no existen
+          headers:
+            ETag: { schema: { type: string }, description: Versión actual para la siguiente mutación }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BranchMenuStateEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/MenuStorageUnavailable' }
+  /marcas/{brand_id}/sucursales/{branch_id}/menu/documentos:
+    parameters:
+      - { $ref: '#/components/parameters/BrandId' }
+      - { name: branch_id, in: path, required: true, schema: { type: integer, format: int64, minimum: 1 } }
+    post:
+      tags: [Marcas]
+      operationId: uploadBranchPDFMenu
+      summary: Carga un nuevo borrador PDF conservando la publicación vigente
+      description: |
+        IMPLEMENTED. Requiere propietario o administrador de marca activo, usuario y
+        sucursal activos sin baja, y confirmación de mayoría de edad. Operadores no
+        acceden a borradores. Estado inicial versión 1, GET no escribe. Cada cambio
+        real incrementa version y emite ETag. Retirar un puntero vacío puede conservar
+        versión. Una URL ya emitida puede seguir vigente hasta 300 segundos.
+      x-puntazo-implementation: IMPLEMENTED
+      parameters:
+        - { $ref: '#/components/parameters/MenuIfMatch' }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [archivo]
+              properties:
+                archivo: { type: string, format: binary, description: PDF válido no cifrado de 1 a 30 páginas y hasta 30 MiB; admite escaneos }
+      responses:
+        '201':
+          description: Estado actual; borrador o publicación null cuando no existen
+          headers:
+            ETag: { schema: { type: string }, description: Versión actual para la siguiente mutación }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BranchMenuStateEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/MenuStorageUnavailable' }
+        '412': { description: Versión desactualizada; PRECONDITION_FAILED, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '428': { $ref: '#/components/responses/MenuPreconditionRequired' }
+        '422': { description: 'INVALID_REQUEST o MENU_PDF_INVALID, MENU_PDF_PASSWORD_PROTECTED, MENU_PDF_PAGE_LIMIT', content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '413': { description: MENU_PDF_TOO_LARGE, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '415': { description: MENU_PDF_TYPE_UNSUPPORTED, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '429': { description: RATE_LIMITED, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+  /marcas/{brand_id}/sucursales/{branch_id}/menu/publicacion:
+    parameters:
+      - { $ref: '#/components/parameters/BrandId' }
+      - { name: branch_id, in: path, required: true, schema: { type: integer, format: int64, minimum: 1 } }
+    put:
+      tags: [Marcas]
+      operationId: publishBranchPDFMenu
+      summary: Publica el borrador validado de la sucursal
+      description: |
+        IMPLEMENTED. Requiere propietario o administrador de marca activo, usuario y
+        sucursal activos sin baja, y confirmación de mayoría de edad. Operadores no
+        acceden a borradores. Estado inicial versión 1, GET no escribe. Cada cambio
+        real incrementa version y emite ETag. Retirar un puntero vacío puede conservar
+        versión. Una URL ya emitida puede seguir vigente hasta 300 segundos.
+      x-puntazo-implementation: IMPLEMENTED
+      parameters:
+        - { $ref: '#/components/parameters/MenuIfMatch' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [document_id]
+              properties:
+                document_id: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Estado actual; borrador o publicación null cuando no existen
+          headers:
+            ETag: { schema: { type: string }, description: Versión actual para la siguiente mutación }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BranchMenuStateEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/MenuStorageUnavailable' }
+        '412': { description: Versión desactualizada; PRECONDITION_FAILED, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '428': { $ref: '#/components/responses/MenuPreconditionRequired' }
+        '422': { description: 'INVALID_REQUEST o MENU_PDF_INVALID, MENU_PDF_PASSWORD_PROTECTED, MENU_PDF_PAGE_LIMIT', content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+    delete:
+      tags: [Marcas]
+      operationId: unpublishBranchPDFMenu
+      summary: Retira la publicación y conserva el borrador existente
+      description: |
+        IMPLEMENTED. Requiere propietario o administrador de marca activo, usuario y
+        sucursal activos sin baja, y confirmación de mayoría de edad. Operadores no
+        acceden a borradores. Estado inicial versión 1, GET no escribe. Cada cambio
+        real incrementa version y emite ETag. Retirar un puntero vacío puede conservar
+        versión. Una URL ya emitida puede seguir vigente hasta 300 segundos.
+      x-puntazo-implementation: IMPLEMENTED
+      parameters:
+        - { $ref: '#/components/parameters/MenuIfMatch' }
+      responses:
+        '200':
+          description: Estado actual; borrador o publicación null cuando no existen
+          headers:
+            ETag: { schema: { type: string }, description: Versión actual para la siguiente mutación }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BranchMenuStateEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/MenuStorageUnavailable' }
+        '412': { description: Versión desactualizada; PRECONDITION_FAILED, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '428': { $ref: '#/components/responses/MenuPreconditionRequired' }
+        '422': { description: 'INVALID_REQUEST o MENU_PDF_INVALID, MENU_PDF_PASSWORD_PROTECTED, MENU_PDF_PAGE_LIMIT', content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+  /marcas/{brand_id}/sucursales/{branch_id}/menu/borrador:
+    parameters:
+      - { $ref: '#/components/parameters/BrandId' }
+      - { name: branch_id, in: path, required: true, schema: { type: integer, format: int64, minimum: 1 } }
+    delete:
+      tags: [Marcas]
+      operationId: discardBranchPDFMenuDraft
+      summary: Descarta el borrador conservando el PDF publicado
+      description: |
+        IMPLEMENTED. Requiere propietario o administrador de marca activo, usuario y
+        sucursal activos sin baja, y confirmación de mayoría de edad. Operadores no
+        acceden a borradores. Estado inicial versión 1, GET no escribe. Cada cambio
+        real incrementa version y emite ETag. Retirar un puntero vacío puede conservar
+        versión. Una URL ya emitida puede seguir vigente hasta 300 segundos.
+      x-puntazo-implementation: IMPLEMENTED
+      parameters:
+        - { $ref: '#/components/parameters/MenuIfMatch' }
+      responses:
+        '200':
+          description: Estado actual; borrador o publicación null cuando no existen
+          headers:
+            ETag: { schema: { type: string }, description: Versión actual para la siguiente mutación }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BranchMenuStateEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/MenuStorageUnavailable' }
+        '412': { description: Versión desactualizada; PRECONDITION_FAILED, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '428': { $ref: '#/components/responses/MenuPreconditionRequired' }
+        '422': { description: 'INVALID_REQUEST o MENU_PDF_INVALID, MENU_PDF_PASSWORD_PROTECTED, MENU_PDF_PAGE_LIMIT', content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+  /clientes/me/tiendas:
+    get:
+      tags: [Clientes]
+      operationId: listPuntazoStoreLocations
+      summary: Descubre todas las sucursales activas de marcas activas
+      description: |
+        IMPLEMENTED. Requiere una sesión CLIENTE_FINAL vigente y confirmación de edad.
+        No requiere tarjeta previa, coordenadas, programa ni suscripción paga.
+        Devuelve un array completo sin paginación ni truncamiento; ordena por nombre
+        de marca, sucursal e identificadores. GET no modifica preferencias.
+        Las coordenadas incompletas o inválidas se omiten juntas. No incluye datos
+        personales ni saldos. Beneficios activos, no borrados ni vencidos; imagen
+        de marca mediante URL temporal firmada cuando el storage está disponible.
+      x-puntazo-implementation: IMPLEMENTED
+      parameters:
+        - in: query
+          name: search
+          required: false
+          description: Subcadena literal, sin comodines, sobre marca, sucursal, localidad o dirección; se recortan espacios extremos.
+          schema: { type: string, maxLength: 200 }
+      responses:
+        '200':
+          description: Colección completa; data es un array vacío cuando no hay coincidencias
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StoreLocationListEnvelope' }
+        '400': { $ref: '#/components/responses/StoreInvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /clientes/me/tiendas/{branch_id}/resena-google:
+    get:
+      tags: [Clientes]
+      operationId: getPuntazoStoreGoogleReview
+      summary: Consulta el destino público de reseñas de una sucursal del mapa
+      description: |
+        IMPLEMENTED. Requiere sesión CLIENTE_FINAL y confirmación de edad, con
+        sucursal y marca activas no borradas. No exige tarjeta, compra ni
+        suscripción. Usa el destino MANUAL_LINK o GOOGLE_PLACE ya configurado;
+        enabled sólo controla las invitaciones automáticas. No crea, reserva,
+        consume ni registra eventos de invitaciones. Sin destino devuelve null.
+        Resuelve Places transitoriamente con un presupuesto máximo de cinco
+        segundos y valida la misma allowlist HTTPS Google que la configuración
+        comercial. La consulta de una sucursal se realiza al abrir su resumen;
+        no agrega resoluciones al listado completo del mapa.
+      x-puntazo-implementation: IMPLEMENTED
+      parameters:
+        - in: path
+          name: branch_id
+          required: true
+          schema: { type: integer, format: int64, minimum: 1 }
+      responses:
+        '200':
+          description: Destino Google validado o null; Cache-Control no-store
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StoreGoogleReviewEnvelope' }
+        '400': { $ref: '#/components/responses/StoreInvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { description: 'RATE_LIMITED; cuota compartida de resolución Places, con Retry-After' }
+        '503': { description: DEPENDENCY_UNAVAILABLE; destino configurado no disponible o control de tráfico no disponible }
+  /clientes/me/tiendas/{branch_id}/favorito:
+    parameters:
+      - in: path
+        name: branch_id
+        required: true
+        schema: { type: integer, format: int64, minimum: 1 }
+    put:
+      tags: [Clientes]
+      operationId: favoritePuntazoStore
+      summary: Guarda una sucursal favorita del cliente autenticado
+      description: Idempotente incluso bajo concurrencia. No requiere body ni tarjeta; sólo admite sucursales y marcas activas no borradas. El servidor determina el usuario.
+      x-puntazo-implementation: IMPLEMENTED
+      responses:
+        '200':
+          description: Favorito persistido y cantidad total de clientes activos que eligieron la sucursal
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StoreFavoriteEnvelope' }
+        '400': { $ref: '#/components/responses/StoreInvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Clientes]
+      operationId: unfavoritePuntazoStore
+      summary: Quita una sucursal de los favoritos del cliente autenticado
+      description: Idempotente incluso cuando ya no existe el favorito. No requiere body. Una sucursal o marca inactiva o borrada responde 404.
+      x-puntazo-implementation: IMPLEMENTED
+      responses:
+        '200':
+          description: Favorito eliminado y cantidad total restante
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StoreFavoriteEnvelope' }
+        '400': { $ref: '#/components/responses/StoreInvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /health/live:
     get:
       tags: [Health]
@@ -1131,57 +1441,6 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/CustomerEnvelope' }
         '403': { $ref: '#/components/responses/Forbidden' }
-  /clientes/me/tiendas:
-    get:
-      tags: [Clientes]
-      operationId: listPuntazoStoreLocations
-      summary: Lista las tiendas activas asociadas a Puntazo que decidieron publicar su ubicación
-      x-puntazo-implementation: IMPLEMENTED
-      parameters:
-        - name: search
-          in: query
-          required: false
-          schema: { type: string, maxLength: 120 }
-          description: Filtra por nombre de marca o sucursal.
-      responses:
-        '200':
-          description: Tiendas activas visibles para el cliente autenticado
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/StoreLocationListEnvelope' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-  /clientes/me/tiendas/{branch_id}/favorito:
-    parameters:
-      - name: branch_id
-        in: path
-        required: true
-        schema: { type: integer, format: int64, minimum: 1 }
-    put:
-      tags: [Clientes]
-      operationId: favoritePuntazoStore
-      summary: Marca una sucursal visible como favorita del cliente
-      x-puntazo-implementation: IMPLEMENTED
-      responses:
-        '200':
-          description: Favorito guardado y reputación actualizada
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/StoreFavoriteEnvelope' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-    delete:
-      tags: [Clientes]
-      operationId: unfavoritePuntazoStore
-      summary: Quita una sucursal de los favoritos del cliente
-      x-puntazo-implementation: IMPLEMENTED
-      responses:
-        '200':
-          description: Favorito retirado y reputación actualizada
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/StoreFavoriteEnvelope' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
   /clientes/me/tarjetas:
     get:
       tags: [Clientes]
@@ -2266,6 +2525,12 @@ components:
       description: "true cuando la respuesta se reprodujo desde el registro idempotente"
       schema: { type: boolean }
   parameters:
+    MenuIfMatch:
+      name: If-Match
+      in: header
+      required: true
+      description: ETag vigente del estado del menú; ausente 428, desactualizado 412
+      schema: { type: string, pattern: '^"[1-9][0-9]*"$' }
     BackofficeRequest:
       name: X-Backoffice-Request
       in: header
@@ -2332,6 +2597,21 @@ components:
       description: Búsqueda parcial por nombre o email; coincidencia exacta por código público normalizado (GG-1, #gg-1 o #USER-0001) o ID numérico anterior del cliente
       schema: { type: string, maxLength: 120 }
   responses:
+    MenuPreconditionRequired:
+      description: Falta If-Match; PRECONDITION_REQUIRED
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    MenuStorageUnavailable:
+      description: Storage o firma temporal no disponible; MENU_STORAGE_UNAVAILABLE
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    StoreInvalidRequest:
+      description: Parámetro inválido, búsqueda mayor a 200 caracteres o identificador fuera de rango
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
     Unauthenticated:
       description: Sesión ausente o inválida
       content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } }
@@ -2370,6 +2650,131 @@ components:
       description: Altas cerradas o código de demo inválido
       content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } }
   schemas:
+    MenuDocument:
+      type: object
+      required: [id, file_name, mime_type, byte_size, page_count, created_at, url, url_expires_at]
+      properties:
+        id: { type: string, format: uuid }
+        file_name: { type: string, maxLength: 160, description: Nombre saneado sin rutas }
+        mime_type: { type: string, const: application/pdf }
+        byte_size: { type: integer, format: int64, minimum: 1, maximum: 31457280 }
+        page_count: { type: integer, minimum: 1, maximum: 30 }
+        created_at: { type: string, format: date-time }
+        url: { type: string, format: uri, description: URL HTTPS firmada; nunca clave interna de storage }
+        url_expires_at: { type: string, format: date-time, description: Hasta 300 segundos desde la firma }
+    NullableMenuDocument:
+      oneOf:
+        - { $ref: '#/components/schemas/MenuDocument' }
+        - { type: 'null' }
+    BranchMenuState:
+      type: object
+      required: [brand_id, branch_id, version, draft, published]
+      properties:
+        brand_id: { type: integer, format: int64 }
+        branch_id: { type: integer, format: int64 }
+        version: { type: integer, minimum: 1 }
+        draft: { $ref: '#/components/schemas/NullableMenuDocument' }
+        published: { $ref: '#/components/schemas/NullableMenuDocument' }
+    BranchMenuStateEnvelope:
+      type: object
+      required: [data, request_id]
+      properties:
+        data: { $ref: '#/components/schemas/BranchMenuState' }
+        request_id: { type: string }
+    PublicBranchMenu:
+      type: object
+      required: [brand_id, branch_id, brand_name, branch_name, published]
+      properties:
+        brand_id: { type: integer, format: int64 }
+        branch_id: { type: integer, format: int64 }
+        brand_name: { type: string }
+        branch_name: { type: string }
+        published: { $ref: '#/components/schemas/NullableMenuDocument' }
+    PublicBranchMenuEnvelope:
+      type: object
+      required: [data, request_id]
+      properties:
+        data: { $ref: '#/components/schemas/PublicBranchMenu' }
+        request_id: { type: string }
+    PublicBrandMenu:
+      type: object
+      required: [brand_id, branch_id, brand_name, branch_name, address, latitud, longitud, has_menu]
+      properties:
+        brand_id: { type: integer, format: int64 }
+        branch_id: { type: integer, format: int64 }
+        brand_name: { type: string }
+        branch_name: { type: string }
+        address: { type: [string, 'null'] }
+        latitud: { type: [number, 'null'], minimum: -90, maximum: 90 }
+        longitud: { type: [number, 'null'], minimum: -180, maximum: 180 }
+        has_menu: { type: boolean }
+    PublicBrandMenusEnvelope:
+      type: object
+      required: [data, request_id]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/PublicBrandMenu' }
+        request_id: { type: string }
+    StoreLocationBenefit:
+      type: object
+      required: [id, nombre]
+      properties:
+        id: { type: integer, format: int64 }
+        nombre: { type: string }
+        descripcion: { type: string }
+    StoreLocation:
+      type: object
+      required: [brand_id, brand_name, branch_id, branch_name, beneficios, favorita, favoritos]
+      properties:
+        brand_id: { type: integer, format: int64 }
+        brand_name: { type: string }
+        branch_id: { type: integer, format: int64 }
+        branch_name: { type: string }
+        address: { type: [string, 'null'] }
+        localidad: { type: [string, 'null'] }
+        provincia: { type: [string, 'null'] }
+        latitud: { type: [number, 'null'], minimum: -90, maximum: 90 }
+        longitud: { type: [number, 'null'], minimum: -180, maximum: 180 }
+        descripcion: { type: [string, 'null'] }
+        image_url: { type: string, description: URL temporal del logo real; puede omitirse }
+        beneficios:
+          type: array
+          items: { $ref: '#/components/schemas/StoreLocationBenefit' }
+        favorita: { type: boolean }
+        favoritos: { type: integer, format: int64, minimum: 0 }
+    StoreLocationListEnvelope:
+      type: object
+      required: [data, request_id]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/StoreLocation' }
+        request_id: { type: string }
+    StoreGoogleReviewEnvelope:
+      type: object
+      required: [data, request_id]
+      properties:
+        request_id: { type: string }
+        data:
+          type: object
+          additionalProperties: false
+          required: [branch_id, review_url]
+          properties:
+            branch_id: { type: integer, format: int64, minimum: 1 }
+            review_url: { type: [string, 'null'], format: uri }
+    StoreFavoriteEnvelope:
+      type: object
+      required: [data, request_id]
+      properties:
+        data:
+          type: object
+          required: [branch_id, favorita, favoritos]
+          properties:
+            branch_id: { type: integer, format: int64 }
+            favorita: { type: boolean }
+            favoritos: { type: integer, format: int64, minimum: 0 }
+        request_id: { type: string }
     SubscriptionPricesEnvelope:
       type: object
       required: [data, request_id]
@@ -2734,7 +3139,7 @@ components:
           properties:
             code:
               type: string
-              enum: [INVALID_REQUEST, REGISTRATION_PROFILE_REQUIRED, REFERRAL_CODE_INVALID, ACCOUNT_TYPE_REQUIRED, IDENTITY_TOKEN_INVALID, INVITATION_INVALID, INVITATION_EMAIL_MISMATCH, SELF_ROLE_CHANGE_FORBIDDEN, EMAIL_VERIFICATION_REQUIRED, UNAUTHENTICATED, RECENT_AUTH_REQUIRED, FORBIDDEN, NOT_FOUND, EMAIL_EXISTS, RESOURCE_CONFLICT, PROGRAM_TYPE_HAS_BENEFITS, PROGRAM_TYPE_IMMUTABLE, IDEMPOTENCY_CONFLICT, IDEMPOTENCY_IN_PROGRESS, PREVIEW_EXPIRED, PREVIEW_CONSUMED, PREVIEW_CHANGED, PRECONDITION_FAILED, BILLING_IN_PROGRESS, BILLING_UNAVAILABLE, BILLING_PROVIDER_ERROR, INSUFFICIENT_BALANCE, DEMO_SIGNUP_DISABLED, DEMO_ACCESS_DENIED, MEDIA_TOO_LARGE, MEDIA_TYPE_UNSUPPORTED, MEDIA_STORAGE_UNAVAILABLE, RATE_LIMITED, DEPENDENCY_UNAVAILABLE, INTERNAL_ERROR]
+              enum: [PRECONDITION_REQUIRED, MENU_PDF_TOO_LARGE, MENU_PDF_TYPE_UNSUPPORTED, MENU_PDF_INVALID, MENU_PDF_PASSWORD_PROTECTED, MENU_PDF_PAGE_LIMIT, MENU_STORAGE_UNAVAILABLE, INVALID_REQUEST, REGISTRATION_PROFILE_REQUIRED, REFERRAL_CODE_INVALID, ACCOUNT_TYPE_REQUIRED, IDENTITY_TOKEN_INVALID, INVITATION_INVALID, INVITATION_EMAIL_MISMATCH, SELF_ROLE_CHANGE_FORBIDDEN, EMAIL_VERIFICATION_REQUIRED, UNAUTHENTICATED, RECENT_AUTH_REQUIRED, FORBIDDEN, NOT_FOUND, EMAIL_EXISTS, RESOURCE_CONFLICT, PROGRAM_TYPE_HAS_BENEFITS, PROGRAM_TYPE_IMMUTABLE, IDEMPOTENCY_CONFLICT, IDEMPOTENCY_IN_PROGRESS, PREVIEW_EXPIRED, PREVIEW_CONSUMED, PREVIEW_CHANGED, PRECONDITION_FAILED, BILLING_IN_PROGRESS, BILLING_UNAVAILABLE, BILLING_PROVIDER_ERROR, INSUFFICIENT_BALANCE, DEMO_SIGNUP_DISABLED, DEMO_ACCESS_DENIED, MEDIA_TOO_LARGE, MEDIA_TYPE_UNSUPPORTED, MEDIA_STORAGE_UNAVAILABLE, RATE_LIMITED, DEPENDENCY_UNAVAILABLE, INTERNAL_ERROR]
             message: { type: string }
             details: { type: object, additionalProperties: true }
         request_id: { $ref: '#/components/schemas/RequestId' }
@@ -3519,61 +3924,6 @@ components:
       required: [data, request_id]
       properties:
         data: { $ref: '#/components/schemas/Customer' }
-        request_id: { $ref: '#/components/schemas/RequestId' }
-    StoreLocation:
-      type: object
-      additionalProperties: false
-      required: [brand_id, brand_name, branch_id, branch_name, latitud, longitud, beneficios, favorita, favoritos]
-      properties:
-        brand_id: { type: integer, format: int64 }
-        brand_name: { type: string }
-        branch_id: { type: integer, format: int64 }
-        branch_name: { type: string }
-        address: { type: string }
-        localidad: { type: string }
-        provincia: { type: string }
-        latitud: { type: number, format: double, minimum: -90, maximum: 90 }
-        longitud: { type: number, format: double, minimum: -180, maximum: 180 }
-        image_url: { type: string, format: uri }
-        descripcion: { type: string }
-        categoria: { type: string }
-        telefono: { type: string }
-        horarios: { type: string }
-        favorita: { type: boolean, description: Indica si el cliente autenticado marcó la sucursal }
-        favoritos: { type: integer, format: int64, minimum: 0, description: Reputación de la sucursal medida por clientes que la marcaron como favorita }
-        beneficios:
-          type: array
-          items:
-            type: object
-            additionalProperties: false
-            required: [id, nombre]
-            properties:
-              id: { type: integer, format: int64 }
-              nombre: { type: string }
-              descripcion: { type: string }
-    StoreFavoriteEnvelope:
-      type: object
-      additionalProperties: false
-      required: [data, request_id]
-      properties:
-        data:
-          type: object
-          additionalProperties: false
-          required: [branch_id, favorita, favoritos]
-          properties:
-            branch_id: { type: integer, format: int64 }
-            favorita: { type: boolean }
-            favoritos: { type: integer, format: int64, minimum: 0 }
-        request_id: { $ref: '#/components/schemas/RequestId' }
-    StoreLocationListEnvelope:
-      type: object
-      additionalProperties: false
-      required: [data, request_id]
-      properties:
-        data:
-          type: array
-          maxItems: 200
-          items: { $ref: '#/components/schemas/StoreLocation' }
         request_id: { $ref: '#/components/schemas/RequestId' }
     PushTokenRequest:
       type: object
