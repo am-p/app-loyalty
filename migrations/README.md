@@ -1,5 +1,17 @@
 # Migraciones
 
+## Reversiones de movimientos 0037
+
+`0037_movement_reversals` registra cada reversión de forma idempotente y mantiene
+la referencia al movimiento original. Se aplica después de `0036_web_push`; iniciar
+la API con `EXPECTED_SCHEMA_VERSION=0037` una vez aplicadas ambas migraciones.
+
+## Web Push 0036
+
+`0036_web_push` agrega claves, suscripciones y notificaciones Web Push después
+de `0035_closed_test_privacy`. Luego se aplica `0037_movement_reversals`; la
+versión esperada del esquema unificado es `0037`.
+
 ## Prueba cerrada 0035
 
 `0035_closed_test_privacy` agrega la confirmación 18+, la cola de borrado de fotos

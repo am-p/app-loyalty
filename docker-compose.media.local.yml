@@ -1,0 +1,49 @@
+# Optional storage for local development only.
+# docker compose --env-file .env -f docker-compose.yml -f docker-compose.media.local.yml up -d
+services:
+  media:
+    image: app-loyalty-media-local
+    build:
+      context: .
+      dockerfile: Dockerfile.media.local
+      target: media
+    command: server /data --console-address :9001
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID:?Local S3 credentials are required}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY:?Local S3 credentials are required}
+    ports:
+      - "127.0.0.1:9000:9000"
+    volumes:
+      - media-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  media-init:
+    image: app-loyalty-media-init-local
+    build:
+      context: .
+      dockerfile: Dockerfile.media.local
+      target: media-client
+    restart: "no"
+    environment:
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:?Local S3 credentials are required}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:?Local S3 credentials are required}
+      S3_BUCKET: ${S3_BUCKET:-puntazo-media}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - 'mc alias set local http://media:9000 "$$S3_ACCESS_KEY_ID" "$$S3_SECRET_ACCESS_KEY" >/dev/null && mc mb --ignore-existing "local/$$S3_BUCKET"'
+    depends_on:
+      media:
+        condition: service_healthy
+
+  api:
+    depends_on:
+      media-init:
+        condition: service_completed_successfully
+
+volumes:
+  media-data:
