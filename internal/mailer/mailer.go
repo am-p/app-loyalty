@@ -14,10 +14,14 @@ import (
 )
 
 const mascotContentID = "mr-puntazo@puntazo"
+const puntazoLogoContentID = "puntazo-logo@puntazo"
 const brandLogoContentID = "brand-logo@puntazo"
 
 //go:embed assets/mr-puntazo.png
 var mascotPNG []byte
+
+//go:embed assets/puntazo-logo.png
+var puntazoLogoPNG []byte
 
 type Sender interface {
 	Send(context.Context, model.EmailMessage) error
@@ -143,7 +147,11 @@ func BrandInvitationMessage(appURL, to, token string, details BrandInvitationDet
 }
 
 func emailShell(title, label, preheader, content, footer string) string {
-	return fmt.Sprintf(`<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>%s</title></head><body style="margin:0;padding:0;background:#eef4fb;color:#10213a;font-family:Arial,Helvetica,sans-serif;"><div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">%s</div><table role="presentation" width="100%%" cellspacing="0" cellpadding="0" border="0" style="width:100%%;background:#eef4fb;"><tr><td align="center" style="padding:32px 12px;"><table role="presentation" width="100%%" cellspacing="0" cellpadding="0" border="0" style="width:100%%;max-width:640px;background:#ffffff;border:1px solid #dce6f3;border-radius:24px;overflow:hidden;box-shadow:0 12px 38px rgba(16,33,58,.10);"><tr><td style="padding:22px 32px;background:#07172a;color:#ffffff;"><table role="presentation" width="100%%" cellspacing="0" cellpadding="0" border="0"><tr><td style="font-size:25px;font-weight:800;letter-spacing:-.5px;"><span style="display:inline-block;width:34px;height:34px;line-height:34px;margin-right:8px;border-radius:50%%;background:#1687ff;color:#ffffff;text-align:center;vertical-align:middle;">P</span> Puntazo</td><td align="right" style="font-size:12px;color:#9fcaff;text-transform:uppercase;letter-spacing:1.2px;">%s</td></tr></table></td></tr><tr><td>%s</td></tr></table><p style="margin:18px 0 0;color:#75869a;font-size:12px;line-height:1.5;text-align:center;">Puntazo · Cuidamos la fidelidad<br>%s</p></td></tr></table></body></html>`, html.EscapeString(title), html.EscapeString(preheader), html.EscapeString(label), content, html.EscapeString(footer))
+	return emailShellWithBrandMark(title, label, preheader, content, footer, `<span style="display:inline-block;width:34px;height:34px;line-height:34px;margin-right:8px;border-radius:50%;background:#1687ff;color:#ffffff;text-align:center;vertical-align:middle;">P</span>`)
+}
+
+func emailShellWithBrandMark(title, label, preheader, content, footer, brandMark string) string {
+	return fmt.Sprintf(`<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>%s</title></head><body style="margin:0;padding:0;background:#eef4fb;color:#10213a;font-family:Arial,Helvetica,sans-serif;"><div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">%s</div><table role="presentation" width="100%%" cellspacing="0" cellpadding="0" border="0" style="width:100%%;background:#eef4fb;"><tr><td align="center" style="padding:32px 12px;"><table role="presentation" width="100%%" cellspacing="0" cellpadding="0" border="0" style="width:100%%;max-width:640px;background:#ffffff;border:1px solid #dce6f3;border-radius:24px;overflow:hidden;box-shadow:0 12px 38px rgba(16,33,58,.10);"><tr><td style="padding:22px 32px;background:#07172a;color:#ffffff;"><table role="presentation" width="100%%" cellspacing="0" cellpadding="0" border="0"><tr><td style="font-size:25px;font-weight:800;letter-spacing:-.5px;">%s Puntazo</td><td align="right" style="font-size:12px;color:#9fcaff;text-transform:uppercase;letter-spacing:1.2px;">%s</td></tr></table></td></tr><tr><td>%s</td></tr></table><p style="margin:18px 0 0;color:#75869a;font-size:12px;line-height:1.5;text-align:center;">Puntazo · Cuidamos la fidelidad<br>%s</p></td></tr></table></body></html>`, html.EscapeString(title), html.EscapeString(preheader), brandMark, html.EscapeString(label), content, html.EscapeString(footer))
 }
 
 func detailRow(label, value string, border bool) string {
@@ -192,4 +200,55 @@ func initial(value string) string {
 func transactional(kind, to, subject, text, title, action, link, note string) model.EmailMessage {
 	h := fmt.Sprintf(`<!doctype html><html lang="es"><body><h1>%s</h1><p>%s</p><p><a href="%s">%s</a></p><p>%s</p></body></html>`, html.EscapeString(title), html.EscapeString(note), html.EscapeString(link), html.EscapeString(action), html.EscapeString(note))
 	return model.EmailMessage{Kind: kind, To: to, Subject: subject, Text: text, HTML: h}
+}
+
+// VerificationCodeMessage contains no secret in the subject.
+func VerificationCodeMessage(to, code string) model.EmailMessage {
+	text := "Tu código de verificación de Puntazo es: " + code + "\n\nVence en 10 minutos y puede usarse una sola vez. Si no solicitaste esta cuenta, ignorá este correo."
+	brandMark := `<img src="cid:` + puntazoLogoContentID + `" width="42" height="42" alt="Logo de Puntazo" style="display:inline-block;width:42px;height:42px;margin-right:8px;vertical-align:middle;border:0;">`
+	content := fmt.Sprintf(`
+ <div style="padding:26px 28px 8px;text-align:center;"><img src="cid:%s" width="144" height="144" alt="Mr. Puntazo feliz te da la bienvenida" style="display:block;width:144px;height:144px;max-width:100%%;margin:0 auto;border:0;"></div>
+ <div style="padding:0 28px 32px;text-align:center;">
+ <h1 style="margin:0;color:#10213a;font-size:28px;line-height:1.2;">¡Te damos la bienvenida!</h1>
+ <p style="margin:16px 0;color:#50647e;font-size:16px;line-height:1.55;">Estás a un paso de Puntazo. Ingresá este código en la app para confirmar tu correo:</p>
+ <div style="padding:20px 8px;background:#e8f3ff;border:1px dashed #1687ff;border-radius:16px;">
+ <p style="margin:0 0 8px;color:#50647e;font-size:12px;font-weight:700;letter-spacing:1px;">TU CÓDIGO DE VERIFICACIÓN</p>
+ <p style="margin:0;color:#10213a;font-size:34px;font-weight:800;letter-spacing:6px;line-height:1.3;white-space:nowrap;">%s</p></div>
+ <p style="margin:18px 0 0;color:#50647e;font-size:14px;line-height:1.5;">Vence en <strong>10 minutos</strong> y puede usarse una sola vez. No lo compartas con nadie.</p>
+ <p style="margin:18px 0 0;color:#75869a;font-size:12px;line-height:1.5;">Si no solicitaste esta cuenta, podés ignorar este correo.</p></div>`, mascotContentID, html.EscapeString(code))
+	body := emailShellWithBrandMark("Verificá tu correo en Puntazo", "Seguridad de cuenta", "Tu código vence en 10 minutos.", content, "Este es un mensaje de seguridad; no es una comunicación promocional.", brandMark)
+	return model.EmailMessage{Kind: "VERIFY_EMAIL", To: to, Subject: "Tu código de verificación de Puntazo", Text: text, HTML: body, Token: "code:" + code, VerificationCode: true,
+		InlineImages: []model.EmailInlineImage{
+			{ContentID: puntazoLogoContentID, Filename: "puntazo-logo.png", ContentType: "image/png", Data: puntazoLogoPNG},
+			{ContentID: mascotContentID, Filename: "mr-puntazo.png", ContentType: "image/png", Data: mascotPNG},
+		}}
+}
+
+// VerificationCodeDelivery adds the alternative activation link and references
+// public branding assets, so recipients receive no image attachments.
+func VerificationCodeDelivery(appURL, to, code, token string) model.EmailMessage {
+	message := VerificationCodeMessage(to, code)
+	base := strings.TrimRight(appURL, "/")
+	message.HTML = strings.ReplaceAll(message.HTML, "cid:"+puntazoLogoContentID, html.EscapeString(base+"/api/v1/email-assets/v1/puntazo-logo"))
+	message.HTML = strings.ReplaceAll(message.HTML, "cid:"+mascotContentID, html.EscapeString(base+"/api/v1/email-assets/v1/mr-puntazo"))
+	message.InlineImages = nil
+	if token != "" {
+		link := actionURL(appURL, "/verify-email", token)
+		button := `<p style="margin:24px 0;text-align:center;"><a href="` + html.EscapeString(link) + `" style="display:inline-block;padding:16px 26px;background:#1687ff;color:#fff;text-decoration:none;font-weight:700;border-radius:12px;">Activar mi cuenta</a></p><p style="color:#50647e;font-size:14px;">También podés activar tu cuenta con este enlace. El enlace y el código vencen en 10 minutos; al usar uno, el otro deja de funcionar.</p>`
+		message.HTML = strings.Replace(message.HTML, `<p style="margin:18px 0 0;color:#75869a;`, button+`<p style="margin:18px 0 0;color:#75869a;`, 1)
+		message.Text += "\n\nTambién podés activar tu cuenta con este enlace: " + link + "\nEl enlace vence en 10 minutos. Usar el enlace o el código invalida ambos."
+	}
+	return message
+}
+
+// PublicEmailImage exposes only the two bundled, non-user branding assets.
+func PublicEmailImage(name string) []byte {
+	switch name {
+	case "puntazo-logo":
+		return puntazoLogoPNG
+	case "mr-puntazo":
+		return mascotPNG
+	default:
+		return nil
+	}
 }

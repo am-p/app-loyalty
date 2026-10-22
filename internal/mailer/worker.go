@@ -86,7 +86,17 @@ func (w Worker) flush(ctx context.Context) {
 			}
 			message = InfluencerWelcomeMessage(w.PublicAppURL, item.To, details)
 		case "VERIFY_EMAIL":
-			message = VerificationMessage(w.PublicAppURL, item.To, token)
+			if strings.HasPrefix(token, "code:") {
+				code := strings.TrimPrefix(token, "code:")
+				linkToken, linkErr := w.Repo.VerificationActivationToken(ctx, item, code)
+				if linkErr != nil {
+					_ = w.Repo.MarkEmailFailed(ctx, item.ID, item.LeaseOwner, item.Attempts, errors.New("activation link lookup failed"))
+					continue
+				}
+				message = VerificationCodeDelivery(w.PublicAppURL, item.To, code, linkToken)
+			} else {
+				message = VerificationMessage(w.PublicAppURL, item.To, token)
+			}
 		case "CHANGE_EMAIL":
 			message = EmailChangeMessage(w.PublicAppURL, item.To, token)
 		case "RESET_PASSWORD":

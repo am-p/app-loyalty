@@ -7,26 +7,28 @@ import (
 )
 
 type RegisterCustomerRequest struct {
-	LastName string `json:"apellido"`
-	Email    string `json:"email"`
-	Password string `json:"password"`
-	Name     string `json:"name"`
+	VerificationMethod string `json:"verification_method,omitempty"`
+	LastName           string `json:"apellido"`
+	Email              string `json:"email"`
+	Password           string `json:"password"`
+	Name               string `json:"name"`
 }
 type RegisterDemoMerchantRequest struct {
-	OwnerLastName    string   `json:"owner_last_name"`
-	Email            string   `json:"email"`
-	Password         string   `json:"password"`
-	OwnerName        string   `json:"owner_name"`
-	BrandName        string   `json:"brand_name"`
-	BranchName       string   `json:"branch_name"`
-	BranchAddress    *string  `json:"branch_address,omitempty"`
-	BranchLocality   *string  `json:"branch_locality,omitempty"`
-	BranchProvince   *string  `json:"branch_province,omitempty"`
-	BranchPostalCode *string  `json:"branch_postal_code,omitempty"`
-	BranchLatitude   *float64 `json:"branch_latitude,omitempty"`
-	BranchLongitude  *float64 `json:"branch_longitude,omitempty"`
-	ProgramType      string   `json:"program_type"`
-	ReferralCode     string   `json:"referral_code,omitempty"`
+	VerificationMethod string   `json:"verification_method,omitempty"`
+	OwnerLastName      string   `json:"owner_last_name"`
+	Email              string   `json:"email"`
+	Password           string   `json:"password"`
+	OwnerName          string   `json:"owner_name"`
+	BrandName          string   `json:"brand_name"`
+	BranchName         string   `json:"branch_name"`
+	BranchAddress      *string  `json:"branch_address,omitempty"`
+	BranchLocality     *string  `json:"branch_locality,omitempty"`
+	BranchProvince     *string  `json:"branch_province,omitempty"`
+	BranchPostalCode   *string  `json:"branch_postal_code,omitempty"`
+	BranchLatitude     *float64 `json:"branch_latitude,omitempty"`
+	BranchLongitude    *float64 `json:"branch_longitude,omitempty"`
+	ProgramType        string   `json:"program_type"`
+	ReferralCode       string   `json:"referral_code,omitempty"`
 }
 type BranchRegistrationLocation struct {
 	BranchAddress    *string  `json:"branch_address,omitempty"`
@@ -151,6 +153,8 @@ type AuthData struct {
 type RegisterCustomerData struct {
 	User                 User     `json:"user"`
 	Session              *Session `json:"session,omitempty"`
+	VerificationMethod   string   `json:"verification_method,omitempty"`
+	RegistrationToken    string   `json:"registration_token,omitempty"`
 	VerificationRequired bool     `json:"verification_required"`
 }
 type EmailRequest struct {
@@ -165,6 +169,9 @@ type PasswordResetConfirmRequest struct {
 }
 type EmailMessage struct {
 	Kind, To, Subject, Text, HTML, Token string
+	VerificationCode                     bool
+	RegistrationHash                     []byte
+	RegistrationExpires                  time.Time
 	InlineImages                         []EmailInlineImage
 }
 type EmailInlineImage struct {
@@ -467,6 +474,8 @@ type DemoMerchantData struct {
 	User                 User            `json:"user"`
 	Merchant             MerchantContext `json:"merchant"`
 	OnboardingComplete   bool            `json:"onboarding_complete"`
+	VerificationMethod   string          `json:"verification_method,omitempty"`
+	RegistrationToken    string          `json:"registration_token,omitempty"`
 	VerificationRequired bool            `json:"verification_required"`
 }
 

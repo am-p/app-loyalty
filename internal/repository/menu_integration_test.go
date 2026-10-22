@@ -435,6 +435,7 @@ func TestPostgresBranchPDFMenuHTTPContract(t *testing.T) {
 func TestPostgresBranchPDFMenuMigrationUpgrade(t *testing.T) {
 	p := referralBillingPool(t)
 	ctx := t.Context()
+	rollbackCodeMigrationFixture(t, p)
 	newerDown, err := os.ReadFile("../../migrations/0042_branch_pdf_30mib.down.sql")
 	if err != nil {
 		t.Fatal(err)
@@ -651,6 +652,7 @@ func TestPostgresMenuAbandonedUploadLeaseAndRetry(t *testing.T) {
 func TestPostgresMenuPDFThirtyMiBUpgradePreservesPublication(t *testing.T) {
 	p, repo, svc, _, f := menuFixture(t)
 	ctx := t.Context()
+	rollbackCodeMigrationFixture(t, p)
 	// Arrange the applied 0041 schema, including an actual existing publication.
 	down, err := os.ReadFile("../../migrations/0042_branch_pdf_30mib.down.sql")
 	if err != nil {

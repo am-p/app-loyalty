@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"errors"
+	"strings"
 	"time"
 
 	"clientesFrecuentes/internal/model"
@@ -58,6 +59,9 @@ func DecryptOutboxToken(item model.OutboxEmail, key []byte) (string, error) {
 // invitation: rotations, acceptance, revocation and expiry invalidate the
 // encrypted payload before it can leave the process.
 func (r *Repository) ValidateClaimedEmail(ctx context.Context, item model.OutboxEmail, token string) error {
+	if item.Kind == "VERIFY_EMAIL" && strings.HasPrefix(token, "code:") {
+		return r.validateClaimedCode(ctx, item, strings.TrimPrefix(token, "code:"))
+	}
 	if item.Kind == "CHANGE_EMAIL" {
 		hash := sha256.Sum256([]byte(token))
 		var valid bool
@@ -96,6 +100,14 @@ func (r *Repository) ValidateClaimedEmail(ctx context.Context, item model.Outbox
 }
 
 func enqueueIdentityEmail(ctx context.Context, tx pgx.Tx, key []byte, userID int64, tokenHash []byte, expiresAt time.Time, message model.EmailMessage) error {
+	if message.VerificationCode {
+		return enqueueVerificationCode(ctx, tx, key, userID, tokenHash, expiresAt, message)
+	}
+	if message.Kind == "VERIFY_EMAIL" {
+		if _, err := tx.Exec(ctx, `UPDATE email_verification_codes SET consumed_at=now() WHERE usuario_id=$1 AND consumed_at IS NULL`, userID); err != nil {
+			return err
+		}
+	}
 	if _, err := tx.Exec(ctx, `UPDATE email_outbox SET estado='FAILED',ultimo_error='superseded',token_ciphertext=NULL,token_nonce=NULL,token_expires_at=NULL WHERE usuario_id=$1 AND tipo=$2 AND estado='PENDING'`, userID, message.Kind); err != nil {
 		return err
 	}
@@ -192,6 +204,12 @@ func (r *Repository) VerifyEmail(ctx context.Context, tokenHash []byte, now time
 		return ErrIdentityTokenInvalid
 	}
 	if _, err = tx.Exec(ctx, `UPDATE tokens_identidad_email SET consumed_at=$2 WHERE id=$1`, tokenID, now); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE email_verification_codes SET consumed_at=$2,registration_hash=NULL,registration_expires_at=NULL WHERE usuario_id=$1 AND consumed_at IS NULL`, userID, now); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE email_outbox SET estado='FAILED',ultimo_error='verification completed',token_ciphertext=NULL,token_nonce=NULL,token_expires_at=NULL,lease_until=NULL,lease_owner=NULL WHERE usuario_id=$1 AND tipo='VERIFY_EMAIL' AND estado IN ('PENDING','SENDING')`, userID); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

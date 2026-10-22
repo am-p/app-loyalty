@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"clientesFrecuentes/internal/mailer"
 	"clientesFrecuentes/internal/model"
 	"clientesFrecuentes/internal/repository"
 	"clientesFrecuentes/internal/web"
@@ -69,23 +68,23 @@ func (s *Service) RegisterDemoMerchant(ctx context.Context, key, requestID strin
 		BranchLongitude                                                  *float64 `json:",omitempty"`
 		ProgramType, ReferralCode                                        string
 	}{email, req.Password, owner, ownerLastName, brand, branch, location.BranchAddress, location.BranchLocality, location.BranchProvince, location.BranchPostalCode, location.BranchLatitude, location.BranchLongitude, programType, strings.ToUpper(strings.TrimSpace(req.ReferralCode))})
+	if req.VerificationMethod != "" {
+		fingerprint = KeyedFingerprint(s.Config.QRPepper, struct {
+			Registration       []byte
+			VerificationMethod string
+		}{fingerprint, req.VerificationMethod})
+	}
+
 	credentials, err := newSessionCredentials()
 	if err != nil {
 		return repository.IdempotentResult{}, err
 	}
 	var verifiedAt *time.Time
-	var verificationHash []byte
-	var verificationExpires time.Time
-	var verificationMessage *model.EmailMessage
-	if s.Config.EmailVerificationRequired {
-		token, tokenHash, tokenErr := identityToken()
-		if tokenErr != nil {
-			return repository.IdempotentResult{}, tokenErr
-		}
-		verificationHash, verificationExpires = tokenHash, s.Now().Add(24*time.Hour)
-		m := mailer.VerificationMessage(s.Config.PublicAppURL, email, token)
-		verificationMessage = &m
-	} else {
+	registrationToken, verificationHash, verificationExpires, verificationMessage, err := s.registrationVerification(email, req.VerificationMethod, key)
+	if err != nil {
+		return repository.IdempotentResult{}, err
+	}
+	if !s.Config.EmailVerificationRequired {
 		now := s.Now()
 		verifiedAt = &now
 	}
@@ -94,7 +93,7 @@ func (s *Service) RegisterDemoMerchant(ctx context.Context, key, requestID strin
 		var e error
 		result, e = s.Repo.CreateDemoMerchant(ctx, key, fingerprint, email, string(passwordHash), owner, ownerLastName, brand, branch, location, programType, req.ReferralCode, credentials.id, credentials.hash, credentials.expiresAt, credentials.authTime, verifiedAt, verificationHash, verificationExpires, verificationMessage, func(u model.User, m model.MerchantContext) ([]byte, error) {
 			if s.Config.EmailVerificationRequired {
-				return json.Marshal(web.Envelope[model.DemoMerchantData]{Data: model.DemoMerchantData{User: u, Merchant: m, VerificationRequired: true}, RequestID: requestID})
+				return json.Marshal(web.Envelope[model.DemoMerchantData]{Data: model.DemoMerchantData{User: u, Merchant: m, VerificationRequired: true, VerificationMethod: req.VerificationMethod}, RequestID: requestID})
 			}
 			merchantSession, e := s.session(u, credentials)
 			if e != nil {
@@ -115,6 +114,9 @@ func (s *Service) RegisterDemoMerchant(ctx context.Context, key, requestID strin
 		return repository.IdempotentResult{}, err
 	}
 	if envelope.Data.VerificationRequired {
+		if envelope.Data.VerificationMethod == "code" {
+			envelope.Data.RegistrationToken = registrationToken
+		}
 		result.Body, err = json.Marshal(envelope)
 		return result, err
 	}
