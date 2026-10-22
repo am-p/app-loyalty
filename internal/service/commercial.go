@@ -23,6 +23,8 @@ var cardTemplates = map[string]bool{
 	"EMBLEM_CHECKS": true, "MARQUEE_CHECKS": true, "EMBLEM_POINTS": true, "MARQUEE_POINTS": true,
 	"CLASSIC_EDITORIAL_CHECKS": true, "CLASSIC_TICKET_CHECKS": true, "CLASSIC_ORBIT_CHECKS": true, "CLASSIC_SPLIT_CHECKS": true,
 	"CLASSIC_EDITORIAL_POINTS": true, "CLASSIC_TICKET_POINTS": true, "CLASSIC_ORBIT_POINTS": true, "CLASSIC_SPLIT_POINTS": true,
+	"SPOTLIGHT_CHECKS": true, "DIAGONAL_CHECKS": true, "GALLERY_CHECKS": true,
+	"SPOTLIGHT_POINTS": true, "DIAGONAL_POINTS": true, "GALLERY_POINTS": true,
 }
 
 func (s *Service) UpdateBrand(ctx context.Context, a, b int64, v int, r model.UpdateBrandRequest) (model.MerchantContext, error) {
