@@ -2,9 +2,6 @@ package model
 
 // StoreLocation contains public merchant information only, never loyalty balances.
 type StoreLocation struct {
-	Category      string                 `json:"categoria,omitempty"`
-	Phone         string                 `json:"telefono,omitempty"`
-	OpeningHours  string                 `json:"horarios,omitempty"`
 	BrandID       int64                  `json:"brand_id"`
 	BrandName     string                 `json:"brand_name"`
 	BranchID      int64                  `json:"branch_id"`
@@ -15,6 +12,9 @@ type StoreLocation struct {
 	Latitude      *float64               `json:"latitud,omitempty"`
 	Longitude     *float64               `json:"longitud,omitempty"`
 	Description   *string                `json:"descripcion,omitempty"`
+	Category      string                 `json:"categoria,omitempty"`
+	Phone         string                 `json:"telefono,omitempty"`
+	OpeningHours  string                 `json:"horarios,omitempty"`
 	ImageURL      string                 `json:"image_url,omitempty"`
 	LogoObjectKey string                 `json:"-"`
 	Benefits      []StoreLocationBenefit `json:"beneficios"`

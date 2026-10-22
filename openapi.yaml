@@ -64,7 +64,6 @@ paths:
               schema: { type: string, format: binary }
         '404':
           description: Imagen fuera de la lista permitida
-
   /public/sucursales/{branch_id}/menu:
     get:
       tags: [Clientes]
@@ -2737,6 +2736,9 @@ components:
         latitud: { type: [number, 'null'], minimum: -90, maximum: 90 }
         longitud: { type: [number, 'null'], minimum: -180, maximum: 180 }
         descripcion: { type: [string, 'null'] }
+        categoria: { type: string }
+        telefono: { type: string }
+        horarios: { type: string }
         image_url: { type: string, description: URL temporal del logo real; puede omitirse }
         beneficios:
           type: array

@@ -244,6 +244,18 @@ func TestTrustedProxyCIDRsRejectBroadMalformedTrustInput(t *testing.T) {
 	}
 }
 
+func TestCurrentFeaturesRequireSchema0043(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("EXPECTED_SCHEMA_VERSION", "")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ExpectedSchemaVersion != "0043" {
+		t.Fatalf("schema=%q", cfg.ExpectedSchemaVersion)
+	}
+}
+
 func TestVerificationEnabledAllowsCaptureOnlyInDevelopment(t *testing.T) {
 	setRequiredEnv(t)
 	t.Setenv("EMAIL_VERIFICATION_REQUIRED", "true")
@@ -257,17 +269,5 @@ func TestVerificationEnabledAllowsCaptureOnlyInDevelopment(t *testing.T) {
 	t.Setenv("APP_ENV", "testing")
 	if _, err := Load(); err == nil {
 		t.Fatal("testing accepted capture for verification")
-	}
-}
-
-func TestMenuPDFRequiresSchema0043(t *testing.T) {
-	setRequiredEnv(t)
-	t.Setenv("EXPECTED_SCHEMA_VERSION", "")
-	cfg, err := Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.ExpectedSchemaVersion != "0043" {
-		t.Fatalf("schema=%q", cfg.ExpectedSchemaVersion)
 	}
 }

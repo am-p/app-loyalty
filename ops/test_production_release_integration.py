@@ -27,10 +27,15 @@ def main():
         db_env.write_text('POSTGRES_USER=fixture\nPOSTGRES_DB=fixture\nPOSTGRES_PASSWORD=' + password + '\n')
         fixture = root / 'migrations'
         shutil.copytree(Path(__file__).resolve().parents[1] / 'migrations', fixture)
-        latest = list(release.migration_files(fixture))[-1]
-        # These fixtures adapt to the real source tip, rather than reusing 0036 forever.
-        next_version = f'{int(latest) + 1:04}'
-        failure_version = f'{int(latest) + 2:04}'
+        source_files = release.migration_files(fixture)
+        versions = list(source_files)
+        assert len(versions) >= 2, 'Release rehearsal needs at least two source migrations'
+        previous, latest = versions[-2:]
+        # Rehearse the real source-tip migration so the candidate binary's embedded
+        # schema manifest can validate readiness after upgrading the restored copy.
+        latest_path = source_files[latest]
+        held_latest = root / latest_path.name
+        failure_version = f'{int(latest) + 1:04}'
 
         class FixtureRelease(release.Release):
             def __init__(self, sha):
@@ -56,21 +61,22 @@ def main():
                     break
                 release.time.sleep(1)
             release.require(ready, 'Fixture PostgreSQL not ready')
-            worker.image_command('puntazo-migrate', {'DATABASE_URL': url, 'MIGRATIONS_DIR': '/migrations'}, ['up'])
+            latest_path.replace(held_latest)
+            try:
+                worker.image_command('puntazo-migrate', {'DATABASE_URL': url, 'MIGRATIONS_DIR': '/migrations'}, ['up'])
+            finally:
+                held_latest.replace(latest_path)
             worker.docker('exec', database, 'psql', '-U', 'fixture', '-d', 'fixture', '-v', 'ON_ERROR_STOP=1', '-c',
                 "CREATE TABLE release_preserved(id INT PRIMARY KEY, value TEXT); INSERT INTO release_preserved VALUES(1,'preserved');")
-            (fixture / (next_version + '_release_fixture.up.sql')).write_text(
-                '-- deploy: expand\nCREATE TABLE release_fixture(id INT PRIMARY KEY);\nINSERT INTO release_fixture VALUES(1);\n')
-            (fixture / (next_version + '_release_fixture.up.sql')).chmod(0o644)
             worker.files = release.migration_files(fixture)
             worker.target = list(worker.files)[-1]
             worker.pending = release.migration_plan(worker.files, worker.applied(database))
             worker.backup_and_rehearse()
-            assert worker.applied(database)[-1] == latest, 'Rehearsal modified the live fixture'
+            assert worker.applied(database)[-1] == previous, 'Rehearsal modified the live fixture'
             assert not (worker.directory / 'production.dump').exists(), 'Plaintext dump left behind'
             assert (worker.directory / 'production.dump.enc').exists()
             worker.image_command('puntazo-migrate', {'DATABASE_URL': url, 'MIGRATIONS_DIR': '/migrations'}, ['up'])
-            assert worker.applied(database)[-1] == next_version
+            assert worker.applied(database)[-1] == latest
             preserved = worker.sql(database, 'SELECT json_build_object(\'value\',value) FROM release_preserved WHERE id=1')[0]
             assert preserved['value'] == 'preserved'
             worker.log.close()
@@ -87,9 +93,9 @@ def main():
             except release.ReleaseError:
                 failed = True
             assert failed, 'Invalid migration was accepted'
-            assert worker.applied(database)[-1] == next_version, 'Failed rehearsal changed live fixture'
+            assert worker.applied(database)[-1] == latest, 'Failed rehearsal changed live fixture'
             assert not (worker.directory / 'production.dump').exists(), 'Failed rehearsal left plaintext'
-            print(json.dumps({'isolated': True, 'restored_and_upgraded': next_version, 'idempotent': True,
+            print(json.dumps({'isolated': True, 'restored_and_upgraded': latest, 'idempotent': True,
                 'candidate_ready': True, 'existing_data_preserved': True, 'failed_migration_blocked': failure_version,
                 'production_touched': False}))
         except Exception:

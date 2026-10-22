@@ -193,7 +193,7 @@ revierte la verificación ya completada ni elimina cuentas.
 
 Main ya integró web push, reversiones, vencimiento de beneficios y favoritos
 (PR34), además de los fixtures de reloj (PR37). Se conserva todo ese código y
-los SQL0001–0040 byteidénticos. Esta propuesta mejora el mapa completo, firma
+los SQL 0001–0040 byte idénticos. Esta propuesta mejora el mapa completo, firma
 los logos y agrega cobertura de permisos, búsqueda y concurrencia; las
 implementaciones anteriores del mapa se consolidan en los archivos `store.go`.
 Las referencias anteriores a tablas inertes o dependencias aún abiertas
