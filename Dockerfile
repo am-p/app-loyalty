@@ -23,7 +23,8 @@ RUN apk upgrade --no-cache \
 FROM runtime AS migrate
 
 COPY --from=build /out/puntazo-migrate /usr/local/bin/puntazo-migrate
-COPY --chmod=0644 migrations/*.sql /migrations/
+COPY migrations /migrations
+RUN chmod 0755 /migrations && chmod 0644 /migrations/*.sql
 
 ENV MIGRATIONS_DIR=/migrations
 USER app
@@ -35,7 +36,8 @@ FROM runtime AS api
 COPY --from=build /out/puntazo-api /usr/local/bin/puntazo-api
 COPY --from=build /out/puntazo-deletion-journal /usr/local/bin/puntazo-deletion-journal
 COPY --from=build /out/puntazo-migrate /usr/local/bin/puntazo-migrate
-COPY --chmod=0644 migrations/*.sql /migrations/
+COPY migrations /migrations
+RUN chmod 0755 /migrations && chmod 0644 /migrations/*.sql
 
 ENV MIGRATIONS_DIR=/migrations
 USER app
