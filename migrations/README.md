@@ -183,8 +183,18 @@ Este checkout no implica migración ni despliegue de ningún ambiente.
 `0043_email_verification_codes` agrega intentos, vencimiento y prueba de registro
 separados de los enlaces históricos. Conserva las migraciones aplicadas y reserva
 0036–0042 para la historia existente de testing. El manifiesto incluido en el
-binario valida las versiones exactas presentes en cada árbol; main requiere
-0001–0035 y0043, mientras el candidato integrado también conserva0036–0042.
+binario valida las versiones exactas presentes en cada árbol; esta rama acumulativa requiere
+0001–0043 y conserva las migraciones de mapas y PDF de los PR38/39.
 Configurar `EXPECTED_SCHEMA_VERSION=0043` al entregar el API actualizado.
 La reversión elimina desafíos y cancela correos pendientes de sus cuentas; no
 revierte la verificación ya completada ni elimina cuentas.
+
+## Reconciliación con main oficial (20/10/2026)
+
+Main ya integró web push, reversiones, vencimiento de beneficios y favoritos
+(PR34), además de los fixtures de reloj (PR37). Se conserva todo ese código y
+los SQL 0001–0040 byte idénticos. Esta propuesta mejora el mapa completo, firma
+los logos y agrega cobertura de permisos, búsqueda y concurrencia; las
+implementaciones anteriores del mapa se consolidan en los archivos `store.go`.
+Las referencias anteriores a tablas inertes o dependencias aún abiertas
+describen el estado histórico de la propuesta.
