@@ -243,3 +243,15 @@ func TestTrustedProxyCIDRsRejectBroadMalformedTrustInput(t *testing.T) {
 		t.Fatal(e, cfg.TrustedProxyCIDRs)
 	}
 }
+
+func TestStoreDiscoveryRequiresSchema0040(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("EXPECTED_SCHEMA_VERSION", "")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ExpectedSchemaVersion != "0040" {
+		t.Fatalf("schema=%q", cfg.ExpectedSchemaVersion)
+	}
+}
