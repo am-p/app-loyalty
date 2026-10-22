@@ -52,11 +52,11 @@ func (r *Repository) ListCards(ctx context.Context, actorID int64, page, pageSiz
 	}
 	rows, err := r.Pool.Query(ctx, `SELECT t.id,m.id,m.nombre,m.color_primario,m.color_secundario,m.plantilla_tarjeta,m.icono_premio,
 		COALESCE((SELECT a.object_key FROM archivos_marca a WHERE a.marca_id=m.id AND a.tipo='LOGO' AND a.estado='ACTIVA' ORDER BY a.created_at DESC LIMIT 1),''),
-		p.tipo,t.saldo_sellos,t.saldo_puntos,COALESCE(b.id,0),COALESCE(b.programa_id,p.id),COALESCE(b.nombre,''),b.requisito_sellos,b.requisito_puntos,COALESCE(b.activo,false),COALESCE(b.version,0),
+		p.tipo,t.saldo_sellos,t.saldo_puntos,COALESCE(b.id,0),COALESCE(b.programa_id,p.id),COALESCE(b.nombre,''),b.requisito_sellos,b.requisito_puntos,COALESCE(b.activo,false),COALESCE(b.version,0),b.expires_on,
 		COALESCE((SELECT a.object_key FROM archivos_marca a WHERE a.marca_id=m.id AND a.tipo='BENEFICIO' AND a.beneficio_id=b.id AND a.estado='ACTIVA' ORDER BY a.created_at DESC LIMIT 1),'')
 		FROM tarjetas t JOIN marcas m ON m.id=t.marca_id JOIN programas_fidelidad p ON p.marca_id=m.id AND p.activo
-		LEFT JOIN LATERAL (SELECT id,programa_id,nombre,requisito_sellos,requisito_puntos,activo,version FROM beneficios
-			WHERE programa_id=p.id AND activo AND deleted_at IS NULL ORDER BY id LIMIT 1) b ON true
+		LEFT JOIN LATERAL (SELECT id,programa_id,nombre,requisito_sellos,requisito_puntos,activo,version,expires_on FROM beneficios
+			WHERE programa_id=p.id AND activo AND deleted_at IS NULL AND (expires_on IS NULL OR expires_on >= (now() AT TIME ZONE m.zona_horaria)::date) ORDER BY id LIMIT 1) b ON true
 		WHERE t.usuario_id=$1 AND t.activo ORDER BY t.id LIMIT $2 OFFSET $3`, actorID, pageSize, (page-1)*pageSize)
 	if err != nil {
 		return nil, 0, err
@@ -67,7 +67,7 @@ func (r *Repository) ListCards(ctx context.Context, actorID int64, page, pageSiz
 	for rows.Next() {
 		var c model.Card
 		var benefit model.Benefit
-		if err = rows.Scan(&c.ID, &c.BrandID, &c.BrandName, &c.PrimaryColor, &c.SecondaryColor, &c.CardTemplate, &c.RewardImage, &c.BrandLogoObjectKey, &c.ProgramType, &c.BalanceStamps, &c.BalancePoints, &benefit.ID, &benefit.ProgramID, &benefit.Name, &benefit.RequiredStamps, &benefit.RequiredPoints, &benefit.Active, &benefit.Version, &benefit.ImageObjectKey); err != nil {
+		if err = rows.Scan(&c.ID, &c.BrandID, &c.BrandName, &c.PrimaryColor, &c.SecondaryColor, &c.CardTemplate, &c.RewardImage, &c.BrandLogoObjectKey, &c.ProgramType, &c.BalanceStamps, &c.BalancePoints, &benefit.ID, &benefit.ProgramID, &benefit.Name, &benefit.RequiredStamps, &benefit.RequiredPoints, &benefit.Active, &benefit.Version, &benefit.ExpiresOn, &benefit.ImageObjectKey); err != nil {
 			return nil, 0, err
 		}
 		if benefit.ID != 0 {

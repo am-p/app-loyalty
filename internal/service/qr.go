@@ -41,32 +41,61 @@ func (s *Service) resolveMovementIdentity(ctx context.Context, qrToken, customer
 		return qrToken, nil
 	}
 
+	customerID, err := s.resolveCustomerCodeID(ctx, customerCode)
+	if err != nil {
+		return "", err
+	}
+	token, _ := s.QRForUser(customerID)
+	return token, nil
+}
+
+func (s *Service) resolveMovementIdentityHash(ctx context.Context, qrToken, customerCode string) (string, []byte, error) {
+	qrToken = strings.TrimSpace(qrToken)
+	customerCode = strings.TrimSpace(customerCode)
+	if (qrToken == "") == (customerCode == "") {
+		return "", nil, ErrInvalidRequest
+	}
+	if qrToken != "" {
+		if len(qrToken) < 32 || len(qrToken) > 256 {
+			return "", nil, ErrInvalidRequest
+		}
+		return qrToken, s.QRHash(qrToken), nil
+	}
+
+	customerID, err := s.resolveCustomerCodeID(ctx, customerCode)
+	if err != nil {
+		return "", nil, err
+	}
+	storedHash, err := s.Repo.CustomerQRHashByID(ctx, customerID)
+	if err != nil {
+		return "", nil, err
+	}
+	token, _ := s.QRForUser(customerID)
+	return token, storedHash, nil
+}
+
+func (s *Service) resolveCustomerCodeID(ctx context.Context, customerCode string) (int64, error) {
+	customerCode = strings.TrimSpace(customerCode)
 	normalizedCode := strings.ToUpper(strings.TrimPrefix(customerCode, "#"))
 	if !strings.HasPrefix(normalizedCode, "USER-") {
 		code, ok := identitycode.Normalize(customerCode)
 		if !ok {
-			return "", ErrInvalidRequest
+			return 0, ErrInvalidRequest
 		}
-		id, err := s.Repo.CustomerIDByCode(ctx, code)
-		if err != nil {
-			return "", err
-		}
-		token, _ := s.QRForUser(id)
-		return token, nil
+		return s.Repo.CustomerIDByCode(ctx, code)
 	}
 	digits := strings.TrimPrefix(normalizedCode, "USER-")
 	if len(digits) < 4 || len(digits) > 19 {
-		return "", ErrInvalidRequest
+		return 0, ErrInvalidRequest
 	}
 	for _, r := range digits {
 		if r < '0' || r > '9' {
-			return "", ErrInvalidRequest
+			return 0, ErrInvalidRequest
 		}
 	}
 	customerID, err := strconv.ParseInt(digits, 10, 64)
 	if err != nil || customerID < 1 {
-		return "", ErrInvalidRequest
+		return 0, ErrInvalidRequest
 	}
-	token, _ := s.QRForUser(customerID)
-	return token, nil
+	return customerID, nil
 }

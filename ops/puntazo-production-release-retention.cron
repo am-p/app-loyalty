@@ -1,0 +1,2 @@
+# Root-owned release copies expire after 60 days; cumulative deletion journal is preserved.
+35 3 * * * root /usr/bin/python3 /usr/local/lib/puntazo/production_release.py --prune-apply >> /var/log/puntazo-production-release-retention.log 2>&1

@@ -1,0 +1,15 @@
+FROM golang:1.26.10-alpine AS build
+ENV CGO_ENABLED=0
+RUN go install github.com/minio/minio@RELEASE.2025-09-07T16-13-09Z \
+    && go install github.com/minio/mc@RELEASE.2025-08-13T08-35-41Z
+
+FROM alpine:3.21 AS media
+RUN apk add --no-cache ca-certificates
+COPY --from=build /go/bin/minio /usr/local/bin/minio
+COPY --from=build /go/bin/mc /usr/local/bin/mc
+ENTRYPOINT ["minio"]
+
+FROM alpine:3.21 AS media-client
+RUN apk add --no-cache ca-certificates
+COPY --from=build /go/bin/mc /usr/local/bin/mc
+ENTRYPOINT ["mc"]

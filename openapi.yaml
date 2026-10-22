@@ -1503,6 +1503,77 @@ paths:
         '200': { description: Token registrado, content: { application/json: { schema: { $ref: '#/components/schemas/PushTokenEnvelope' } } } }
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/ValidationError' }
+  /clientes/me/web-push/key:
+    get:
+      tags: [Clientes]
+      operationId: getWebPushPublicKey
+      summary: Obtiene la clave pública VAPID persistente para suscribir una PWA
+      x-puntazo-implementation: IMPLEMENTED
+      responses:
+        '200':
+          description: Clave pública, sin secretos del servidor
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      public_key: { type: string }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '503': { $ref: '#/components/responses/DependencyUnavailable' }
+  /clientes/me/web-push/subscription:
+    put:
+      tags: [Clientes]
+      operationId: saveWebPushSubscription
+      summary: Registra la suscripción del navegador del cliente autenticado
+      description: Requiere consentimiento del navegador. Se guarda cifrada y los avisos se encolan solamente al confirmar movimientos.
+      x-puntazo-implementation: IMPLEMENTED
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [endpoint, keys]
+              properties:
+                endpoint: { type: string, format: uri, maxLength: 4096 }
+                expirationTime: { type: [integer, 'null'] }
+                keys:
+                  type: object
+                  required: [p256dh, auth]
+                  properties:
+                    p256dh: { type: string }
+                    auth: { type: string }
+      responses:
+        '200': { description: Suscripción registrada }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/DependencyUnavailable' }
+    delete:
+      tags: [Clientes]
+      operationId: deleteWebPushSubscription
+      summary: Elimina la suscripción de este navegador del cliente autenticado
+      x-puntazo-implementation: IMPLEMENTED
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [endpoint]
+              properties:
+                endpoint: { type: string, maxLength: 4096 }
+      responses:
+        '204': { description: Suscripción eliminada }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
   /clientes/me/movimientos:
     get:
       tags: [Clientes]
@@ -2665,6 +2736,9 @@ components:
         latitud: { type: [number, 'null'], minimum: -90, maximum: 90 }
         longitud: { type: [number, 'null'], minimum: -180, maximum: 180 }
         descripcion: { type: [string, 'null'] }
+        categoria: { type: string }
+        telefono: { type: string }
+        horarios: { type: string }
         image_url: { type: string, description: URL temporal del logo real; puede omitirse }
         beneficios:
           type: array
@@ -3859,6 +3933,7 @@ components:
       required: [expo_push_token]
       properties:
         expo_push_token: { type: string, pattern: '^(ExpoPushToken|ExponentPushToken)\[[A-Za-z0-9_-]{1,200}\]$' }
+        platform: { type: string, enum: [ios, android] }
         device_id: { type: string, minLength: 1, maxLength: 128 }
     PushTokenEnvelope:
       type: object
@@ -3894,7 +3969,7 @@ components:
           items: { $ref: '#/components/schemas/Benefit' }
     CardTemplate:
       type: string
-      enum: [COMIC_HQ, MINIMAL_PRO, POP_BADGE, PREMIUM_GOLD_CHECKS, DARK_LUXURY_CHECKS, PREMIUM_GOLD, DARK_LUXURY, POP_HEADER, COMIC_HQ_POINTS, MINIMAL_PRO_POINTS, POP_BADGE_POINTS, NEON_PULSE, SUNSET_GRADIENT]
+      enum: [COMIC_HQ, MINIMAL_PRO, POP_BADGE, PREMIUM_GOLD_CHECKS, DARK_LUXURY_CHECKS, PREMIUM_GOLD, DARK_LUXURY, POP_HEADER, COMIC_HQ_POINTS, MINIMAL_PRO_POINTS, POP_BADGE_POINTS, NEON_PULSE, SUNSET_GRADIENT, EDITORIAL_CHECKS, TICKET_CHECKS, ORBIT_CHECKS, SPLIT_CHECKS, EDITORIAL_POINTS, TICKET_POINTS, ORBIT_POINTS, SPLIT_POINTS, EMBLEM_CHECKS, MARQUEE_CHECKS, EMBLEM_POINTS, MARQUEE_POINTS, CLASSIC_EDITORIAL_CHECKS, CLASSIC_TICKET_CHECKS, CLASSIC_ORBIT_CHECKS, CLASSIC_SPLIT_CHECKS, CLASSIC_EDITORIAL_POINTS, CLASSIC_TICKET_POINTS, CLASSIC_ORBIT_POINTS, CLASSIC_SPLIT_POINTS, SPOTLIGHT_CHECKS, DIAGONAL_CHECKS, GALLERY_CHECKS, SPOTLIGHT_POINTS, DIAGONAL_POINTS, GALLERY_POINTS]
     Pagination:
       type: object
       additionalProperties: false
@@ -3943,9 +4018,11 @@ components:
     OperationalSummary:
       type: object
       additionalProperties: false
-      required: [active_customers, program_type, current_stamp_balance, current_point_balance, accumulations, redemptions, stamps_issued, stamps_redeemed, points_issued, points_redeemed, last_movement_at]
+      required: [active_customers, favorites_received, favorite_customers, program_type, current_stamp_balance, current_point_balance, accumulations, redemptions, stamps_issued, stamps_redeemed, points_issued, points_redeemed, last_movement_at]
       properties:
         active_customers: { type: integer, format: int64, minimum: 0 }
+        favorites_received: { type: integer, format: int64, minimum: 0, description: Estrellas recibidas por todas las sucursales de la marca }
+        favorite_customers: { type: integer, format: int64, minimum: 0, description: Clientes únicos que marcaron al menos una sucursal de la marca }
         program_type: { type: string, enum: [SELLOS, PUNTOS] }
         current_stamp_balance: { type: integer, format: int64, minimum: 0 }
         current_point_balance: { type: integer, format: int64, minimum: 0 }
