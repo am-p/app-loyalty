@@ -97,7 +97,24 @@ jobs:
         run: npx --yes @redocly/cli@2.20.3 lint openapi.yaml
 
       - name: Build runtime image
-        run: docker build --target api --tag puntazo-api:ci .
+        run: |
+          chmod 0700 migrations
+          chmod 0600 migrations/*.sql
+          docker build --target api --tag puntazo-api:ci .
+
+      - name: Verify migration files as the runtime user
+        run: |
+          docker build --target migrate --tag puntazo-migrate:ci .
+          for image in puntazo-api:ci puntazo-migrate:ci; do
+            docker run --rm --entrypoint sh "$image" -ec '
+              test "$(id -u)" -ne 0
+              test -x /migrations
+              for migration in /migrations/*.sql; do
+                test -f "$migration"
+                test -r "$migration"
+              done
+            '
+          done
 
       - name: Rehearse production release on isolated PostgreSQL
         run: python3 ops/test_production_release_integration.py --image puntazo-api:ci
