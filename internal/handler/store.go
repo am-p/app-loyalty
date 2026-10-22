@@ -9,6 +9,31 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+func (h *Handler) CustomerStoreGoogleReview(c *gin.Context) {
+	a, ok := actor(c)
+	if !ok {
+		return
+	}
+	if a.AccountType != "CLIENTE_FINAL" {
+		writeErr(c, service.ErrForbidden)
+		return
+	}
+	id, err := positiveID(c.Param("branch_id"))
+	if err != nil {
+		web.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "Sucursal inválida", nil)
+		return
+	}
+	if !h.reviewProviderLimit(c, a.ID) {
+		return
+	}
+	data, err := h.Service.CustomerStoreGoogleReview(c.Request.Context(), a.ID, id)
+	if err != nil {
+		h.storeError(c, err)
+		return
+	}
+	reviewJSON(c, data)
+}
+
 func (h *Handler) CustomerStoreLocations(c *gin.Context) {
 	a, ok := actor(c)
 	if !ok {

@@ -16,9 +16,14 @@ func TestStoreBoundaryRejectsInvalidActorAndInput(t *testing.T) {
 		want               int
 	}{
 		{"GET", "/tiendas", "", 401},
+		{"GET", "/tiendas/1/resena-google", "", 401},
 		{"PUT", "/tiendas/1/favorito", "", 401},
 		{"DELETE", "/tiendas/1/favorito", "", 401},
 		{"GET", "/tiendas", "PERSONAL_MARCA", 403},
+		{"GET", "/tiendas/1/resena-google", "PERSONAL_MARCA", 403},
+		{"GET", "/tiendas/0/resena-google", "CLIENTE_FINAL", 400},
+		{"GET", "/tiendas/nope/resena-google", "CLIENTE_FINAL", 400},
+		{"GET", "/tiendas/9223372036854775808/resena-google", "CLIENTE_FINAL", 400},
 		{"PUT", "/tiendas/1/favorito", "PERSONAL_MARCA", 403},
 		{"DELETE", "/tiendas/1/favorito", "PERSONAL_MARCA", 403},
 		{"GET", "/tiendas?search=" + strings.Repeat("a", 201), "CLIENTE_FINAL", 400},
@@ -34,6 +39,7 @@ func TestStoreBoundaryRejectsInvalidActorAndInput(t *testing.T) {
 				r.Use(func(c *gin.Context) { c.Set(middleware.ActorKey, middleware.Actor{ID: 1, AccountType: tt.kind}) })
 			}
 			r.GET("/tiendas", h.CustomerStoreLocations)
+			r.GET("/tiendas/:branch_id/resena-google", h.CustomerStoreGoogleReview)
 			r.PUT("/tiendas/:branch_id/favorito", h.SetCustomerStoreFavorite)
 			r.DELETE("/tiendas/:branch_id/favorito", h.DeleteCustomerStoreFavorite)
 			w := httptest.NewRecorder()

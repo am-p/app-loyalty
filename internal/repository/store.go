@@ -16,6 +16,32 @@ func storeSearchPattern(search string) string {
 	return "%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(search) + "%"
 }
 
+// CustomerStoreReviewSettings is a read-only discovery lookup. Invitation
+// enablement, cards, purchases and subscriptions do not gate this manual action.
+func (r *Repository) CustomerStoreReviewSettings(ctx context.Context, actorID, branchID int64) (model.ReviewSettings, error) {
+	var kind string
+	err := r.Pool.QueryRow(ctx, `SELECT tipo_cuenta FROM usuarios WHERE id=$1 AND activo AND deleted_at IS NULL`, actorID).Scan(&kind)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.ReviewSettings{}, ErrNotFound
+	}
+	if err != nil {
+		return model.ReviewSettings{}, err
+	}
+	if kind != "CLIENTE_FINAL" {
+		return model.ReviewSettings{}, ErrForbidden
+	}
+	var out model.ReviewSettings
+	err = r.Pool.QueryRow(ctx, `SELECT s.id,COALESCE(c.destination_type,'MANUAL_LINK'),c.google_place_id,c.manual_review_url
+		FROM sucursales s JOIN marcas m ON m.id=s.marca_id AND m.activo AND m.deleted_at IS NULL
+		LEFT JOIN configuracion_resenas c ON c.sucursal_id=s.id
+		WHERE s.id=$1 AND s.activo AND s.deleted_at IS NULL`, branchID).
+		Scan(&out.BranchID, &out.DestinationType, &out.GooglePlaceID, &out.ManualReviewURL)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.ReviewSettings{}, ErrNotFound
+	}
+	return out, err
+}
+
 func (r *Repository) ListCustomerStoreLocations(ctx context.Context, actorID int64, search string) ([]model.StoreLocation, error) {
 	var kind string
 	err := r.Pool.QueryRow(ctx, `SELECT tipo_cuenta FROM usuarios WHERE id=$1 AND activo AND deleted_at IS NULL`, actorID).Scan(&kind)

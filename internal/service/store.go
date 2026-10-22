@@ -3,10 +3,40 @@ package service
 import (
 	"context"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"clientesFrecuentes/internal/model"
 )
+
+func (s *Service) CustomerStoreGoogleReview(ctx context.Context, actorID, branchID int64) (model.StoreGoogleReview, error) {
+	if branchID <= 0 {
+		return model.StoreGoogleReview{}, ErrInvalidRequest
+	}
+	settings, err := s.Repo.CustomerStoreReviewSettings(ctx, actorID, branchID)
+	if err != nil {
+		return model.StoreGoogleReview{}, err
+	}
+	return s.customerStoreGoogleReview(ctx, settings)
+}
+
+func (s *Service) customerStoreGoogleReview(ctx context.Context, settings model.ReviewSettings) (model.StoreGoogleReview, error) {
+	out := model.StoreGoogleReview{BranchID: settings.BranchID}
+	if (settings.DestinationType == "MANUAL_LINK" && settings.ManualReviewURL == nil) ||
+		(settings.DestinationType == "GOOGLE_PLACE" && settings.GooglePlaceID == nil) {
+		return out, nil
+	}
+	// Reuse the same provider and official-URL allowlist as merchant configuration
+	// and automatic invitations, without reserving or recording any invitation.
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	link, err := s.reviewURL(ctx, settings)
+	if err != nil {
+		return model.StoreGoogleReview{}, err
+	}
+	out.ReviewURL = &link
+	return out, nil
+}
 
 func NormalizeStoreSearch(search string) (string, error) {
 	search = strings.TrimSpace(search)

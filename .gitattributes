@@ -3,3 +3,4 @@ ops/*.sh text eol=lf
 ops/*.php text eol=lf
 ops/*.cron text eol=lf
 ops/*.logrotate text eol=lf
+internal/service/testdata/*.pdf binary

@@ -26,6 +26,9 @@ func RequestContext(logger *slog.Logger) gin.HandlerFunc {
 			if c.Request.Method == http.MethodPost && (c.FullPath() == "/v1/me/foto" || c.FullPath() == "/v1/marcas/:brand_id/imagenes") {
 				limit = config.MaxMultipartBytes
 			}
+			if c.Request.Method == http.MethodPost && c.FullPath() == "/v1/marcas/:brand_id/sucursales/:resource_id/menu/documentos" {
+				limit = config.MaxMenuMultipartBytes
+			}
 			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, limit)
 		}
 		c.Next()
