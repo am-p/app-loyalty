@@ -299,7 +299,7 @@ func TestPostgresAppleChallengeConsumptionSerializesConcurrentLogins(t *testing.
 			defer wg.Done()
 			<-start
 			session := repository.AppleSession{ID: uuid.NewString(), RefreshHash: []byte(uuid.NewString()), ExpiresAt: time.Now().Add(time.Hour), AuthTime: time.Now()}
-			_, _, e := repo.CompleteAppleLogin(ctx, challenge, provider.identity, appleidentity.Tokens{RefreshToken: "concurrent-refresh", ClientID: p.clientID}, nil, session)
+			_, _, e := repo.CompleteAppleLogin(ctx, challenge, provider.identity, appleidentity.Tokens{RefreshToken: "concurrent-refresh", ClientID: provider.clientID}, nil, session)
 			results <- e
 		}()
 	}
