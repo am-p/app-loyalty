@@ -115,6 +115,14 @@ func main() {
 	if identity != nil {
 		svc.AppleIdentity = identity
 	}
+	if cfg.AppleBrowserClientID != "" {
+		browser, err := appleidentity.New(appleidentity.Config{ClientID: cfg.AppleBrowserClientID, TeamID: cfg.AppleIdentityTeamID, KeyID: cfg.AppleIdentityKeyID, PrivateKeyPEM: string(cfg.AppleIdentityPrivateKeyPEM), RedirectURI: cfg.AppleBrowserRedirectURI})
+		if err != nil {
+			logger.Error("invalid Apple browser identity configuration")
+			os.Exit(1)
+		}
+		svc.AppleBrowser = browser
+	}
 	go svc.RunAppleRevocations(workerCtx)
 	svc.Challenge = &challenge.Manager{Enabled: cfg.CaptchaEnabled, SiteKey: cfg.CaptchaSiteKey, Secret: cfg.CaptchaSecret, Hostnames: cfg.CaptchaHostnames, Store: limiter}
 	if cfg.MercadoPagoProvider == "api" {

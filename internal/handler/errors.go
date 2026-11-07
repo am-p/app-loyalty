@@ -35,6 +35,10 @@ func writeErr(c *gin.Context, err error) {
 	}
 
 	switch {
+	case errors.Is(err, service.ErrAppleAuthPending):
+		web.Error(c, http.StatusConflict, "APPLE_AUTH_PENDING", "Apple todavía no confirmó el acceso", nil)
+	case errors.Is(err, service.ErrAppleAuthCancelled):
+		web.Error(c, http.StatusConflict, "APPLE_AUTH_CANCELLED", "Se canceló el acceso con Apple", nil)
 	case errors.Is(err, service.ErrAppleAuthUnavailable):
 		web.Error(c, http.StatusServiceUnavailable, "APPLE_AUTH_UNAVAILABLE", "El acceso con Apple no está disponible", nil)
 	case errors.Is(err, repository.ErrAppleLinkRequired):

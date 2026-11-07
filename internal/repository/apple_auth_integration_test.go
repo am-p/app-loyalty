@@ -23,6 +23,7 @@ import (
 
 type testAppleIdentityProvider struct {
 	identity    appleidentity.Identity
+	clientID    string
 	exchanges   atomic.Int32
 	revocations atomic.Int32
 	failRevoke  atomic.Bool
@@ -45,7 +46,7 @@ func (p *testAppleIdentityProvider) Exchange(_ context.Context, code string, _ a
 		return appleidentity.Tokens{}, appleidentity.ErrInvalidToken
 	}
 	p.exchanges.Add(1)
-	return appleidentity.Tokens{AccessToken: "sensitive-access-token", RefreshToken: "sensitive-refresh-token", ClientID: "com.puntazo.test"}, nil
+	return appleidentity.Tokens{AccessToken: "sensitive-access-token", RefreshToken: "sensitive-refresh-token", ClientID: p.clientID}, nil
 }
 func (p *testAppleIdentityProvider) Revoke(_ context.Context, token, kind string) error {
 	p.revocations.Add(1)
@@ -63,8 +64,8 @@ func appleTestService(t *testing.T) (*service.Service, *repository.Repository, *
 	pool := reviewsDB(t)
 	applyReviews(t, pool)
 	repo := repository.New(pool, bytes.Repeat([]byte{0x42}, 32))
-	svc := service.New(repo, auth.NewTokens("12345678901234567890123456789012", "apple-integration"), config.Config{DemoSignupEnabled: true})
-	provider := &testAppleIdentityProvider{identity: appleidentity.Identity{Subject: "apple-subject", Email: "hidden@privaterelay.appleid.com", EmailVerified: true, PrivateRelay: true}}
+	svc := service.New(repo, auth.NewTokens("12345678901234567890123456789012", "apple-integration"), config.Config{DemoSignupEnabled: true, AppleIdentityClientID: "com.puntazo.test"})
+	provider := &testAppleIdentityProvider{clientID: "com.puntazo.test", identity: appleidentity.Identity{Subject: "apple-subject", Email: "hidden@privaterelay.appleid.com", EmailVerified: true, PrivateRelay: true}}
 	svc.AppleIdentity = provider
 	return svc, repo, provider
 }
@@ -298,7 +299,7 @@ func TestPostgresAppleChallengeConsumptionSerializesConcurrentLogins(t *testing.
 			defer wg.Done()
 			<-start
 			session := repository.AppleSession{ID: uuid.NewString(), RefreshHash: []byte(uuid.NewString()), ExpiresAt: time.Now().Add(time.Hour), AuthTime: time.Now()}
-			_, _, e := repo.CompleteAppleLogin(ctx, challenge, provider.identity, appleidentity.Tokens{RefreshToken: "concurrent-refresh", ClientID: "com.puntazo.test"}, nil, session)
+			_, _, e := repo.CompleteAppleLogin(ctx, challenge, provider.identity, appleidentity.Tokens{RefreshToken: "concurrent-refresh", ClientID: p.clientID}, nil, session)
 			results <- e
 		}()
 	}

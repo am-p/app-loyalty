@@ -54,6 +54,7 @@ type Service struct {
 	Billing           BillingProvider
 	Places            ReviewPlaces
 	AppleIdentity     AppleIdentityProvider
+	AppleBrowser      AppleIdentityProvider
 }
 
 type BillingProvider interface {

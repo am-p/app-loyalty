@@ -18,13 +18,17 @@ func registerPublicRoutes(r *gin.RouterGroup, h *handler.Handler) {
 	r.POST("/auth/register", h.RegisterCustomer)
 	r.POST("/auth/login", h.Login)
 	r.POST("/auth/google", h.LoginGoogle)
-	r.POST("/auth/apple/challenge", func(c *gin.Context) {
+	optionalAuth := func(c *gin.Context) {
 		if c.GetHeader("Authorization") != "" {
 			middleware.RequireAuth(h.Tokens, h.Repo)(c)
 		} else {
 			c.Next()
 		}
-	}, h.AppleChallenge)
+	}
+	r.POST("/auth/apple/challenge", optionalAuth, h.AppleChallenge)
+	r.POST("/auth/apple/browser/start", optionalAuth, h.StartAppleBrowser)
+	r.POST("/auth/apple/browser/callback", h.AppleBrowserCallback)
+	r.POST("/auth/apple/browser/finish", optionalAuth, h.FinishAppleBrowser)
 	r.POST("/auth/apple", h.LoginApple)
 	r.POST("/auth/refresh", h.Refresh)
 	r.POST("/auth/logout", h.Logout)

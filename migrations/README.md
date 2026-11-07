@@ -198,3 +198,12 @@ los logos y agrega cobertura de permisos, búsqueda y concurrencia; las
 implementaciones anteriores del mapa se consolidan en los archivos `store.go`.
 Las referencias anteriores a tablas inertes o dependencias aún abiertas
 describen el estado histórico de la propuesta.
+
+### 0046 · Inicio con Apple por navegador
+
+Expande 0044 con intentos de cinco minutos y credenciales revocables por cliente
+de Apple. El número 0045 permanece reservado a StoreKit. El esquema 0046 incluye
+0044 y no aplica la migración de cobros. Actualizar EXPECTED_SCHEMA_VERSION a
+0046 antes de servir el binario nuevo. Ante un fallo, desactivar nuevas
+autorizaciones con APPLE_BROWSER_AUTH_ENABLED=false y conservar el esquema,
+los identificadores y la clave de Apple para completar revocaciones.
