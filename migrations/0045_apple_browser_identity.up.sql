@@ -1,5 +1,4 @@
 -- deploy: expand
--- 0045 is reserved for the independent StoreKit proposal.
 CREATE TABLE apple_browser_flows (
   id UUID PRIMARY KEY,
   platform TEXT NOT NULL CHECK (platform IN ('web','native')),
