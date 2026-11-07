@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"clientesFrecuentes/internal/auth"
@@ -28,6 +29,7 @@ func TestRouteInventoryAndAuthentication(t *testing.T) {
 		"POST /v1/auth/password-reset/request", "POST /v1/auth/password-reset/confirm",
 		"GET /v1/invitaciones/:token", "POST /v1/invitaciones/:token/registrar",
 		"POST /v1/mercado-pago/webhooks", "POST /v1/auth/apple", "POST /v1/auth/apple/challenge",
+		"POST /v1/auth/apple/browser/start", "POST /v1/auth/apple/browser/callback", "POST /v1/auth/apple/browser/finish",
 		"POST /v1/referidos/validacion",
 		"POST /v1/backoffice/login",
 		"POST /auth/register", "POST /auth/login", "POST /auth/google",
@@ -189,6 +191,26 @@ func TestBackofficeRejectsCustomerAndMerchantAppTokens(t *testing.T) {
 			if response.Code != http.StatusUnauthorized {
 				t.Fatalf("%s on %s: expected 401, got %d", accountType, route, response.Code)
 			}
+		}
+	}
+}
+
+func TestAppleBrowserCallbackAllowsAppleFormWithoutExtendingCORS(t *testing.T) {
+	t.Setenv("CORS_ORIGINS", "https://testing.puntazo.test")
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	h := &handler.Handler{Service: &service.Service{}, Limiter: middleware.NewRateLimiter(), Logger: logger}
+	r := newRouter(h, auth.NewTokens("01234567890123456789012345678901", "puntazo"), logger)
+	for path, status := range map[string]int{
+		"/v1/auth/apple/browser/callback": http.StatusServiceUnavailable,
+		"/v1/auth/apple/browser/finish":   http.StatusForbidden,
+	} {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader("state=00000000-0000-4000-8000-000000000001"))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("Origin", "https://appleid.apple.com")
+		res := httptest.NewRecorder()
+		r.ServeHTTP(res, req)
+		if res.Code != status || res.Header().Get("Access-Control-Allow-Origin") != "" {
+			t.Fatalf("%s: status %d; headers %v", path, res.Code, res.Header())
 		}
 	}
 }

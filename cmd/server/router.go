@@ -17,7 +17,14 @@ import (
 func newRouter(h *handler.Handler, tokens *auth.Tokens, logger *slog.Logger) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
-	r.Use(middleware.RequestContext(logger), middleware.Recovery(logger), middleware.CORS(), func(c *gin.Context) {
+	cors := middleware.CORS()
+	r.Use(middleware.RequestContext(logger), middleware.Recovery(logger), func(c *gin.Context) {
+		// Apple posts a form from its own origin. This route never grants a
+		// session and needs no CORS permission to complete a form navigation.
+		if c.Request.Method != http.MethodPost || c.Request.URL.Path != "/v1/auth/apple/browser/callback" {
+			cors(c)
+		}
+	}, func(c *gin.Context) {
 		c.Header("Cache-Control", "no-store, private")
 		c.Header("Pragma", "no-cache")
 		c.Request = c.Request.WithContext(challenge.WithReceipt(c.Request.Context(), c.GetHeader("X-Captcha-Token")))

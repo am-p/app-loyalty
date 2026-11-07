@@ -15,6 +15,16 @@ func queueAppleIdentityDeletion(ctx context.Context, tx pgx.Tx, userID int64, no
 	 SELECT $2,client_id,token_type,token_ciphertext,token_nonce,$3,$3 FROM apple_identities WHERE usuario_id=$1`, userID, uuid.NewString(), now); err != nil {
 		return err
 	}
+	if _, err := tx.Exec(ctx, `INSERT INTO apple_identity_revocations(id,client_id,token_type,token_ciphertext,token_nonce,requested_at,available_at)
+	 SELECT gen_random_uuid(),client_id,token_type,token_ciphertext,token_nonce,$2,$2 FROM apple_browser_credentials WHERE usuario_id=$1`, userID, now); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM apple_browser_credentials WHERE usuario_id=$1`, userID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM apple_browser_flows WHERE usuario_id=$1`, userID); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(ctx, `DELETE FROM apple_identities WHERE usuario_id=$1`, userID); err != nil {
 		return err
 	}
@@ -68,6 +78,9 @@ func (r *Repository) RetryAppleRevocation(ctx context.Context, item AppleRevocat
 // PruneAppleChallenges bounds anonymous challenge retention. Consumed nonces
 // need not outlive their expiry, and raw nonces are never stored at all.
 func (r *Repository) PruneAppleChallenges(ctx context.Context, now time.Time) error {
+	if _, err := r.Pool.Exec(ctx, `DELETE FROM apple_browser_flows WHERE expires_at<$1`, now); err != nil {
+		return err
+	}
 	_, err := r.Pool.Exec(ctx, `DELETE FROM apple_auth_challenges WHERE expires_at<$1::timestamptz-interval '1 hour'`, now)
 	return err
 }
