@@ -43,7 +43,9 @@ func validateMenuPDF(ctx context.Context, body []byte) (int, []byte, error) {
 	if err != nil {
 		return 0, nil, ErrMenuPDFInvalid
 	}
-	conf.ValidationMode = pdfmodel.ValidationStrict
+	// Accept metadata conventions used by PDF exporters. Parser resource limits
+	// and the encryption and page-count checks still apply.
+	conf.ValidationMode = pdfmodel.ValidationRelaxed
 	conf.ValidateLinks = false
 	conf.DecodeAllStreams = false
 	conf.Cmd = pdfmodel.VALIDATE
