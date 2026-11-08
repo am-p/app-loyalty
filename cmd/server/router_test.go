@@ -29,6 +29,7 @@ func TestRouteInventoryAndAuthentication(t *testing.T) {
 		"POST /v1/auth/password-reset/request", "POST /v1/auth/password-reset/confirm",
 		"GET /v1/invitaciones/:token", "POST /v1/invitaciones/:token/registrar",
 		"POST /v1/mercado-pago/webhooks", "POST /v1/auth/apple", "POST /v1/auth/apple/challenge",
+		"GET /v1/auth/google/browser/config", "POST /v1/auth/google/browser/start", "POST /v1/auth/google/browser/callback", "POST /v1/auth/google/browser/finish",
 		"POST /v1/auth/apple/browser/start", "POST /v1/auth/apple/browser/callback", "POST /v1/auth/apple/browser/finish",
 		"POST /v1/referidos/validacion",
 		"POST /v1/backoffice/login",
@@ -195,22 +196,27 @@ func TestBackofficeRejectsCustomerAndMerchantAppTokens(t *testing.T) {
 	}
 }
 
-func TestAppleBrowserCallbackAllowsAppleFormWithoutExtendingCORS(t *testing.T) {
+func TestBrowserCallbacksAllowProviderFormsWithoutExtendingCORS(t *testing.T) {
 	t.Setenv("CORS_ORIGINS", "https://testing.puntazo.test")
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	h := &handler.Handler{Service: &service.Service{}, Limiter: middleware.NewRateLimiter(), Logger: logger}
 	r := newRouter(h, auth.NewTokens("01234567890123456789012345678901", "puntazo"), logger)
-	for path, status := range map[string]int{
-		"/v1/auth/apple/browser/callback": http.StatusServiceUnavailable,
-		"/v1/auth/apple/browser/finish":   http.StatusForbidden,
+	for _, tc := range []struct {
+		path, origin string
+		status       int
+	}{
+		{"/v1/auth/apple/browser/callback", "https://appleid.apple.com", http.StatusServiceUnavailable},
+		{"/v1/auth/apple/browser/finish", "https://appleid.apple.com", http.StatusForbidden},
+		{"/v1/auth/google/browser/callback", "https://accounts.google.com", http.StatusServiceUnavailable},
+		{"/v1/auth/google/browser/finish", "https://accounts.google.com", http.StatusForbidden},
 	} {
-		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader("state=00000000-0000-4000-8000-000000000001"))
+		req := httptest.NewRequest(http.MethodPost, tc.path, strings.NewReader("state=00000000-0000-4000-8000-000000000001"))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		req.Header.Set("Origin", "https://appleid.apple.com")
+		req.Header.Set("Origin", tc.origin)
 		res := httptest.NewRecorder()
 		r.ServeHTTP(res, req)
-		if res.Code != status || res.Header().Get("Access-Control-Allow-Origin") != "" {
-			t.Fatalf("%s: status %d; headers %v", path, res.Code, res.Header())
+		if res.Code != tc.status || res.Header().Get("Access-Control-Allow-Origin") != "" {
+			t.Fatalf("%s: status %d; headers %v", tc.path, res.Code, res.Header())
 		}
 	}
 }

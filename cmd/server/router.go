@@ -19,9 +19,10 @@ func newRouter(h *handler.Handler, tokens *auth.Tokens, logger *slog.Logger) *gi
 	r := gin.New()
 	cors := middleware.CORS()
 	r.Use(middleware.RequestContext(logger), middleware.Recovery(logger), func(c *gin.Context) {
-		// Apple posts a form from its own origin. This route never grants a
-		// session and needs no CORS permission to complete a form navigation.
-		if c.Request.Method != http.MethodPost || c.Request.URL.Path != "/v1/auth/apple/browser/callback" {
+		// Identity providers post forms across origins. These callbacks never
+		// grant a session and need no CORS permission for form navigation.
+		path := c.Request.URL.Path
+		if c.Request.Method != http.MethodPost || (path != "/v1/auth/apple/browser/callback" && path != "/v1/auth/google/browser/callback") {
 			cors(c)
 		}
 	}, func(c *gin.Context) {

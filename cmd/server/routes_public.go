@@ -18,6 +18,10 @@ func registerPublicRoutes(r *gin.RouterGroup, h *handler.Handler) {
 	r.POST("/auth/register", h.RegisterCustomer)
 	r.POST("/auth/login", h.Login)
 	r.POST("/auth/google", h.LoginGoogle)
+	r.GET("/auth/google/browser/config", h.GoogleBrowserConfig)
+	r.POST("/auth/google/browser/start", h.StartGoogleBrowser)
+	r.POST("/auth/google/browser/callback", h.GoogleBrowserCallback)
+	r.POST("/auth/google/browser/finish", h.FinishGoogleBrowser)
 	optionalAuth := func(c *gin.Context) {
 		if c.GetHeader("Authorization") != "" {
 			middleware.RequireAuth(h.Tokens, h.Repo)(c)
