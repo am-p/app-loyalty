@@ -2899,6 +2899,8 @@ components:
         id: { type: integer, format: int64 }
         nombre: { type: string }
         descripcion: { type: string }
+        required_stamps: { type: integer, format: int64 }
+        required_points: { type: integer, format: int64 }
     StoreLocation:
       type: object
       required: [brand_id, brand_name, branch_id, branch_name, beneficios, favorita, favoritos, has_menu, has_english_menu]
