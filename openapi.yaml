@@ -73,6 +73,7 @@ paths:
       security: []
       x-puntazo-implementation: IMPLEMENTED
       parameters:
+        - { name: lang, in: query, schema: { type: string, enum: [es, en], default: es }, description: Idioma del PDF y su versión independiente }
         - { name: branch_id, in: path, required: true, schema: { type: integer, format: int64, minimum: 1 } }
       responses:
         '200':
@@ -101,6 +102,7 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
   /marcas/{brand_id}/sucursales/{branch_id}/menu:
     parameters:
+      - { name: lang, in: query, schema: { type: string, enum: [es, en], default: es }, description: Idioma del PDF y su versión independiente }
       - { $ref: '#/components/parameters/BrandId' }
       - { name: branch_id, in: path, required: true, schema: { type: integer, format: int64, minimum: 1 } }
     get:
@@ -128,6 +130,7 @@ paths:
         '503': { $ref: '#/components/responses/MenuStorageUnavailable' }
   /marcas/{brand_id}/sucursales/{branch_id}/menu/documentos:
     parameters:
+      - { name: lang, in: query, schema: { type: string, enum: [es, en], default: es }, description: Idioma del PDF y su versión independiente }
       - { $ref: '#/components/parameters/BrandId' }
       - { name: branch_id, in: path, required: true, schema: { type: integer, format: int64, minimum: 1 } }
     post:
@@ -173,6 +176,7 @@ paths:
         '429': { description: RATE_LIMITED, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
   /marcas/{brand_id}/sucursales/{branch_id}/menu/publicacion:
     parameters:
+      - { name: lang, in: query, schema: { type: string, enum: [es, en], default: es }, description: Idioma del PDF y su versión independiente }
       - { $ref: '#/components/parameters/BrandId' }
       - { name: branch_id, in: path, required: true, schema: { type: integer, format: int64, minimum: 1 } }
     put:
@@ -243,6 +247,7 @@ paths:
         '422': { description: 'INVALID_REQUEST o MENU_PDF_INVALID, MENU_PDF_PASSWORD_PROTECTED', content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
   /marcas/{brand_id}/sucursales/{branch_id}/menu/borrador:
     parameters:
+      - { name: lang, in: query, schema: { type: string, enum: [es, en], default: es }, description: Idioma del PDF y su versión independiente }
       - { $ref: '#/components/parameters/BrandId' }
       - { name: branch_id, in: path, required: true, schema: { type: integer, format: int64, minimum: 1 } }
     delete:
@@ -2896,7 +2901,7 @@ components:
         descripcion: { type: string }
     StoreLocation:
       type: object
-      required: [brand_id, brand_name, branch_id, branch_name, beneficios, favorita, favoritos, has_menu]
+      required: [brand_id, brand_name, branch_id, branch_name, beneficios, favorita, favoritos, has_menu, has_english_menu]
       properties:
         brand_id: { type: integer, format: int64 }
         brand_name: { type: string }
@@ -2912,7 +2917,8 @@ components:
         telefono: { type: string }
         horarios: { type: string, description: Horarios en texto libre de clientes anteriores }
         perfil_publico: { $ref: '#/components/schemas/BranchPublicProfile' }
-        has_menu: { type: boolean, description: Tiene un menú PDF publicado y disponible }
+        has_menu: { type: boolean, description: Tiene un menú PDF en español publicado y disponible }
+        has_english_menu: { type: boolean, description: Tiene un menú PDF en inglés publicado y disponible }
         image_url: { type: string, description: URL temporal del logo real; puede omitirse }
         beneficios:
           type: array
