@@ -209,3 +209,9 @@ No modifica filas existentes ni completa horarios o enlaces automáticamente.
 Quita el máximo de páginas y conserva el requisito de al menos una página.
 El límite de 30 MiB sigue aplicando. El DOWN falla si hay documentos con más
 de 30 páginas, sin borrar ni truncar documentos.
+
+### 0048 · Menús PDF por idioma
+
+Los menús y borradores existentes pasan a ser los de español. Cada sucursal
+puede publicar un segundo PDF en inglés con versión y ciclo independientes.
+El DOWN rechaza registros en inglés para proteger sus archivos y publicaciones.

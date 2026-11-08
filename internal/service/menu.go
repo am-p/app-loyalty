@@ -128,10 +128,10 @@ func (s *Service) signMenuState(ctx context.Context, state model.BranchMenuState
 	}
 	return state, nil
 }
-func (s *Service) BranchMenu(ctx context.Context, actor, brand, branch int64) (model.BranchMenuState, error) {
-	return s.Repo.BranchMenu(ctx, actor, brand, branch, s.signMenuState)
+func (s *Service) BranchMenu(ctx context.Context, actor, brand, branch int64, language model.MenuLanguage) (model.BranchMenuState, error) {
+	return s.Repo.BranchMenu(ctx, actor, brand, branch, language, s.signMenuState)
 }
-func (s *Service) UploadMenuDocument(ctx context.Context, actor, brand, branch int64, version int, name string, body []byte) (model.BranchMenuState, error) {
+func (s *Service) UploadMenuDocument(ctx context.Context, actor, brand, branch int64, language model.MenuLanguage, version int, name string, body []byte) (model.BranchMenuState, error) {
 	if err := s.Repo.AuthorizeBranchMenu(ctx, actor, brand, branch); err != nil {
 		return model.BranchMenuState{}, err
 	}
@@ -144,7 +144,7 @@ func (s *Service) UploadMenuDocument(ctx context.Context, actor, brand, branch i
 	}
 	id := uuid.NewString()
 	d := model.MenuDocument{ID: id, FileName: menuFileName(name), MIMEType: "application/pdf", ByteSize: int64(len(body)), PageCount: pages, ObjectKey: "menus/" + id + ".pdf"}
-	if err = s.Repo.ReserveMenuDocument(ctx, actor, brand, branch, version, d, digest); err != nil {
+	if err = s.Repo.ReserveMenuDocument(ctx, actor, brand, branch, language, version, d, digest); err != nil {
 		return model.BranchMenuState{}, err
 	}
 	if err = s.Media.Put(ctx, d.ObjectKey, d.MIMEType, body, digest); err != nil {
@@ -153,7 +153,7 @@ func (s *Service) UploadMenuDocument(ctx context.Context, actor, brand, branch i
 		_ = s.Repo.FailMenuUpload(compensation, id)
 		return model.BranchMenuState{}, ErrMenuStorage
 	}
-	out, err := s.Repo.ActivateMenuDraft(ctx, actor, brand, branch, version, id, s.signMenuState)
+	out, err := s.Repo.ActivateMenuDraft(ctx, actor, brand, branch, language, version, id, s.signMenuState)
 	if err != nil {
 		compensation, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
@@ -161,7 +161,7 @@ func (s *Service) UploadMenuDocument(ctx context.Context, actor, brand, branch i
 	}
 	return out, err
 }
-func (s *Service) ChangeMenuPublication(ctx context.Context, actor, brand, branch int64, version int, action, document string) (model.BranchMenuState, error) {
+func (s *Service) ChangeMenuPublication(ctx context.Context, actor, brand, branch int64, language model.MenuLanguage, version int, action, document string) (model.BranchMenuState, error) {
 	if action == "publish" {
 		parsed, err := uuid.Parse(document)
 		if err != nil || parsed == uuid.Nil {
@@ -169,10 +169,10 @@ func (s *Service) ChangeMenuPublication(ctx context.Context, actor, brand, branc
 		}
 		document = parsed.String()
 	}
-	return s.Repo.ChangeMenuPublication(ctx, actor, brand, branch, version, action, document, s.signMenuState)
+	return s.Repo.ChangeMenuPublication(ctx, actor, brand, branch, language, version, action, document, s.signMenuState)
 }
-func (s *Service) PublicBranchMenu(ctx context.Context, branch int64) (model.PublicBranchMenu, error) {
-	return s.Repo.PublicBranchMenu(ctx, branch, s.signMenuDocument)
+func (s *Service) PublicBranchMenu(ctx context.Context, branch int64, language model.MenuLanguage) (model.PublicBranchMenu, error) {
+	return s.Repo.PublicBranchMenu(ctx, branch, language, s.signMenuDocument)
 }
 func (s *Service) PublicBrandMenus(ctx context.Context, brand int64) ([]model.PublicBrandMenu, error) {
 	return s.Repo.PublicBrandMenus(ctx, brand)
