@@ -208,3 +208,7 @@ promoverse. Actualizar EXPECTED_SCHEMA_VERSION a
 0045 antes de servir el binario nuevo. Ante un fallo, desactivar nuevas
 autorizaciones con APPLE_BROWSER_AUTH_ENABLED=false y conservar el esquema,
 los identificadores y la clave de Apple para completar revocaciones.
+
+### 0046 · Perfil público de sucursales
+
+Agrega horarios y enlaces opcionales por sucursal, sin modificar las filas existentes.

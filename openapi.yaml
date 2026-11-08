@@ -2896,7 +2896,7 @@ components:
         descripcion: { type: string }
     StoreLocation:
       type: object
-      required: [brand_id, brand_name, branch_id, branch_name, beneficios, favorita, favoritos]
+      required: [brand_id, brand_name, branch_id, branch_name, beneficios, favorita, favoritos, has_menu]
       properties:
         brand_id: { type: integer, format: int64 }
         brand_name: { type: string }
@@ -2910,7 +2910,9 @@ components:
         descripcion: { type: [string, 'null'] }
         categoria: { type: string }
         telefono: { type: string }
-        horarios: { type: string }
+        horarios: { type: string, description: Horarios en texto libre de clientes anteriores }
+        perfil_publico: { $ref: '#/components/schemas/BranchPublicProfile' }
+        has_menu: { type: boolean, description: Tiene un menú PDF publicado y disponible }
         image_url: { type: string, description: URL temporal del logo real; puede omitirse }
         beneficios:
           type: array
@@ -3605,6 +3607,7 @@ components:
         branch_postal_code: { type: string, maxLength: 20 }
         branch_latitude: { type: number, format: double, minimum: -90, maximum: 90, description: Debe enviarse junto con branch_longitude }
         branch_longitude: { type: number, format: double, minimum: -180, maximum: 180, description: Debe enviarse junto con branch_latitude }
+        perfil_publico: { $ref: '#/components/schemas/BranchPublicProfile' }
         program_type: { type: string, enum: [SELLOS, PUNTOS] }
         referral_code: { type: string, pattern: '^[A-Za-z0-9-]{4,40}$', description: Código opcional; se congela una única atribución por marca }
     LoginRequest:
@@ -3650,6 +3653,7 @@ components:
         branch_postal_code: { type: string, maxLength: 20 }
         branch_latitude: { type: number, format: double, minimum: -90, maximum: 90, description: Debe enviarse junto con branch_longitude }
         branch_longitude: { type: number, format: double, minimum: -180, maximum: 180, description: Debe enviarse junto con branch_latitude }
+        perfil_publico: { $ref: '#/components/schemas/BranchPublicProfile' }
         program_type: { type: string, enum: [SELLOS, PUNTOS] }
         referral_code: { type: string, pattern: '^[A-Za-z0-9-]{4,40}$', description: Código opcional al crear la marca; se ignora al ingresar a una cuenta existente }
     CreateInvitationRequest:
@@ -3822,6 +3826,46 @@ components:
         automatic_charge: { type: boolean, const: false }
         active: { type: boolean }
         started_at: { $ref: '#/components/schemas/Timestamp' }
+    BranchHoursSlot:
+      type: object
+      additionalProperties: false
+      required: [dias, abre, cierra]
+      properties:
+        dias:
+          type: array
+          minItems: 1
+          maxItems: 7
+          uniqueItems: true
+          items: { type: integer, minimum: 0, maximum: 6 }
+          description: Lunes es 0 y domingo es 6.
+        abre: { type: string, pattern: '^(?:[01][0-9]|2[0-3]):[0-5][0-9]$' }
+        cierra: { type: string, pattern: '^(?:[01][0-9]|2[0-3]):[0-5][0-9]$', description: Si es anterior a abre indica el día siguiente; ambas horas deben ser distintas. }
+    BranchPublicLink:
+      type: string
+      format: uri
+      pattern: '^[Hh][Tt][Tt][Pp][Ss]://'
+      maxLength: 2048
+    BranchPublicProfile:
+      type: object
+      additionalProperties: false
+      description: Información pública opcional, cargada por el comercio para cada sucursal.
+      properties:
+        horarios:
+          type: array
+          maxItems: 28
+          description: Bloques semanales en hora local de la sucursal. No pueden superponerse.
+          items: { $ref: '#/components/schemas/BranchHoursSlot' }
+        enlaces:
+          type: object
+          additionalProperties: false
+          description: Las redes sociales deben usar el dominio de cada plataforma.
+          properties:
+            sitio_web: { $ref: '#/components/schemas/BranchPublicLink' }
+            menu_ingles: { $ref: '#/components/schemas/BranchPublicLink' }
+            instagram: { $ref: '#/components/schemas/BranchPublicLink' }
+            facebook: { $ref: '#/components/schemas/BranchPublicLink' }
+            tiktok: { $ref: '#/components/schemas/BranchPublicLink' }
+            linkedin: { $ref: '#/components/schemas/BranchPublicLink' }
     Branch:
       type: object
       additionalProperties: false
@@ -3837,6 +3881,7 @@ components:
         codigo_postal: { type: string }
         latitud: { type: number, minimum: -90, maximum: 90 }
         longitud: { type: number, minimum: -180, maximum: 180 }
+        perfil_publico: { $ref: '#/components/schemas/BranchPublicProfile' }
         principal: { type: boolean }
         version: { type: integer, minimum: 1 }
         created_at: { $ref: '#/components/schemas/Timestamp' }
@@ -3884,8 +3929,9 @@ components:
     CreateBranchRequest:
       type: object
       required: [nombre]
-      properties: { nombre: { type: string }, direccion: { type: string }, localidad: { type: string }, provincia: { type: string }, codigo_postal: { type: string }, latitud: { type: number }, longitud: { type: number } }
+      properties: { nombre: { type: string }, direccion: { type: string }, localidad: { type: string }, provincia: { type: string }, codigo_postal: { type: string }, latitud: { type: number }, longitud: { type: number }, perfil_publico: { $ref: '#/components/schemas/BranchPublicProfile' } }
     UpdateBranchRequest:
+      description: Omitir perfil_publico conserva el perfil existente; enviar un objeto lo reemplaza y un objeto vacío lo quita de la ficha pública.
       allOf:
         - { $ref: '#/components/schemas/CreateBranchRequest' }
         - type: object

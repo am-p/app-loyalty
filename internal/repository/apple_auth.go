@@ -192,7 +192,7 @@ func (r *Repository) CompleteAppleLogin(ctx context.Context, challenge AppleChal
 			if m == nil {
 				return u, false, ErrInvalidRequest
 			}
-			location := model.BranchRegistrationLocation{BranchAddress: m.BranchAddress, BranchLocality: m.BranchLocality, BranchProvince: m.BranchProvince, BranchPostalCode: m.BranchPostalCode, BranchLatitude: m.BranchLatitude, BranchLongitude: m.BranchLongitude}
+			location := model.BranchRegistrationLocation{BranchAddress: m.BranchAddress, BranchLocality: m.BranchLocality, BranchProvince: m.BranchProvince, BranchPostalCode: m.BranchPostalCode, BranchLatitude: m.BranchLatitude, BranchLongitude: m.BranchLongitude, PublicProfile: m.PublicProfile}
 			merchant, e := createMerchantResources(ctx, tx, u.ID, m.BrandName, m.BranchName, location, m.ProgramType)
 			if e != nil {
 				return u, false, e
