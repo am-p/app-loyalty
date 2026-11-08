@@ -2618,6 +2618,137 @@ paths:
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '409': { description: "Conflicto de identidad, intención, producto, oferta o compra" }
         '503': { description: Proveedor Apple no configurado o no disponible }
+  /auth/google/browser/config:
+    get:
+      tags: [Auth]
+      operationId: getGoogleBrowserConfig
+      summary: Consultar disponibilidad del acceso web con Google mediante redirección
+      x-puntazo-implementation: IMPLEMENTED_SOURCE_NOT_DEPLOYED
+      security: []
+      responses:
+        '200':
+          description: Disponibilidad del flujo
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, request_id]
+                properties:
+                  data:
+                    type: object
+                    required: [enabled]
+                    properties:
+                      enabled: { type: boolean }
+                  request_id: { type: string }
+  /auth/google/browser/start:
+    post:
+      tags: [Auth]
+      operationId: startGoogleBrowser
+      summary: Crear un intento vinculado al navegador para redirigir a Google
+      x-puntazo-implementation: IMPLEMENTED_SOURCE_NOT_DEPLOYED
+      security: []
+      parameters:
+        - { name: X-Client-Platform, in: header, required: true, schema: { type: string, const: web } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [code_challenge]
+              properties:
+                code_challenge: { type: string, pattern: '^[A-Za-z0-9_-]{43}$', description: SHA-256 del verificador en Base64URL sin padding }
+      responses:
+        '200':
+          description: Intento válido por cinco minutos
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, request_id]
+                properties:
+                  data:
+                    type: object
+                    required: [flow_id, authorization_url, expires_at]
+                    properties:
+                      flow_id: { type: string, format: uuid }
+                      authorization_url: { type: string, format: uri }
+                      expires_at: { type: string, format: date-time }
+                  request_id: { type: string }
+        '400': { description: GOOGLE_BROWSER_INVALID }
+        '429': { description: Límite de intentos excedido }
+        '503': { description: GOOGLE_BROWSER_UNAVAILABLE o DEPENDENCY_UNAVAILABLE }
+  /auth/google/browser/callback:
+    post:
+      tags: [Auth]
+      operationId: receiveGoogleBrowserCallback
+      summary: Recibir el formulario de retorno de Google sin emitir una sesión
+      x-puntazo-implementation: IMPLEMENTED_SOURCE_NOT_DEPLOYED
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [state]
+              properties:
+                state: { type: string, format: uuid }
+                id_token: { type: string, maxLength: 16384 }
+                error: { type: string, maxLength: 128 }
+                iss: { type: string, const: 'https://accounts.google.com' }
+              oneOf:
+                - required: [id_token]
+                - required: [error]
+      responses:
+        '303':
+          description: Regresa al login del origen configurado con google_flow_id como única referencia
+          headers:
+            Location: { schema: { type: string, format: uri } }
+        '400': { description: GOOGLE_BROWSER_INVALID }
+        '429': { description: Límite de intentos excedido }
+        '503': { description: GOOGLE_BROWSER_UNAVAILABLE o DEPENDENCY_UNAVAILABLE }
+  /auth/google/browser/finish:
+    post:
+      tags: [Auth]
+      operationId: finishGoogleBrowser
+      summary: Recuperar la prueba Google verificada una sola vez desde el navegador que inició el intento
+      description: La sesión o el alta se tramitan después en POST /auth/google con esta prueba.
+      x-puntazo-implementation: IMPLEMENTED_SOURCE_NOT_DEPLOYED
+      security: []
+      parameters:
+        - { name: X-Client-Platform, in: header, required: true, schema: { type: string, const: web } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [flow_id, code_verifier]
+              properties:
+                flow_id: { type: string, format: uuid }
+                code_verifier: { type: string, pattern: '^[A-Za-z0-9._~-]{43,128}$' }
+      responses:
+        '200':
+          description: Credencial de Google verificada para el intento
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, request_id]
+                properties:
+                  data:
+                    type: object
+                    required: [id_token]
+                    properties:
+                      id_token: { type: string }
+                  request_id: { type: string }
+        '400': { description: GOOGLE_BROWSER_INVALID }
+        '409': { description: GOOGLE_BROWSER_CANCELLED }
+        '429': { description: Límite de intentos excedido }
+        '503': { description: GOOGLE_BROWSER_UNAVAILABLE o DEPENDENCY_UNAVAILABLE }
   /auth/apple/link:
     post:
       tags: [Auth]
