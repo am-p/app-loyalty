@@ -224,3 +224,11 @@ de 30 páginas, sin borrar ni truncar documentos.
 Los menús y borradores existentes pasan a ser los de español. Cada sucursal
 puede publicar un segundo PDF en inglés con versión y ciclo independientes.
 El DOWN rechaza registros en inglés para proteger sus archivos y publicaciones.
+
+
+### 0049 · Acceso web con Google mediante redirección
+
+Agrega una tabla independiente para intentos de cinco minutos con nonce y
+verificador en hash. El retorno guarda la credencial con cifrado autenticado
+y el canje la borra al consumirla. El proceso de retención elimina intentos
+vencidos. La reversión elimina sólo esta tabla y caduca los intentos abiertos.
