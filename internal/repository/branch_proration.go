@@ -180,7 +180,7 @@ func readBranchOperation(ctx context.Context, p branchQuerier, brand int64, id s
 	}
 	if branch != nil {
 		var b model.Branch
-		e = scanBranch(p.QueryRow(ctx, `SELECT id,marca_id,nombre,direccion,activo,localidad,provincia,codigo_postal,latitud,longitud,principal,version,created_at,updated_at FROM sucursales WHERE id=$1`, *branch), &b)
+		e = scanBranch(p.QueryRow(ctx, `SELECT id,marca_id,nombre,direccion,activo,localidad,provincia,codigo_postal,latitud,longitud,principal,version,created_at,updated_at,perfil_publico FROM sucursales WHERE id=$1`, *branch), &b)
 		if e != nil {
 			return o, e
 		}

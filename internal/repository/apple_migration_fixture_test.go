@@ -7,10 +7,10 @@ import (
 )
 
 // Historical migration tests deliberately exercise pre-Apple schemas.
-// Only their empty Apple tables are rolled back; operational rollback gates stay intact.
+// Only fixture migrations are rolled back; operational rollback gates stay intact.
 func rollbackAppleMigrationFixture(t *testing.T, p *pgxpool.Pool) {
 	t.Helper()
-	for _, name := range []string{"0045_apple_billing", "0044_apple_identity"} {
+	for _, name := range []string{"0046_branch_public_profile", "0045_apple_billing", "0044_apple_identity"} {
 		body, err := os.ReadFile("../../migrations/" + name + ".down.sql")
 		if err != nil {
 			t.Fatal(err)

@@ -14,6 +14,8 @@ type StoreLocation struct {
 	Description   *string                `json:"descripcion,omitempty"`
 	Category      string                 `json:"categoria,omitempty"`
 	Phone         string                 `json:"telefono,omitempty"`
+	PublicProfile *BranchPublicProfile   `json:"perfil_publico,omitempty"`
+	HasMenu       bool                   `json:"has_menu"`
 	OpeningHours  string                 `json:"horarios,omitempty"`
 	ImageURL      string                 `json:"image_url,omitempty"`
 	LogoObjectKey string                 `json:"-"`

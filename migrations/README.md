@@ -198,3 +198,8 @@ los logos y agrega cobertura de permisos, búsqueda y concurrencia; las
 implementaciones anteriores del mapa se consolidan en los archivos `store.go`.
 Las referencias anteriores a tablas inertes o dependencias aún abiertas
 describen el estado histórico de la propuesta.
+
+## Perfil público de sucursales (`0046`)
+
+`0046_branch_public_profile` agrega un perfil público opcional a cada sucursal.
+No modifica filas existentes ni completa horarios o enlaces automáticamente.

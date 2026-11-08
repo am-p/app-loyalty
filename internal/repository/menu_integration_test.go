@@ -139,6 +139,10 @@ func TestPostgresBranchPDFMenuLifecycle(t *testing.T) {
 	if err != nil || published.Version != 3 || published.Draft != nil || published.Published == nil {
 		t.Fatalf("publish=%+v err=%v", published, err)
 	}
+	catalog, err := repo.ListCustomerStoreLocations(ctx, f.customer, "Main")
+	if err != nil || len(catalog) != 1 || !catalog[0].HasMenu {
+		t.Fatalf("published menu missing from customer catalog: %+v err=%v", catalog, err)
+	}
 	original := published.Published.ID
 	if store.maxTTL > 300*time.Second || store.maxTTL <= 0 {
 		t.Fatalf("ttl=%s", store.maxTTL)
