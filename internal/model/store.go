@@ -26,9 +26,11 @@ type StoreLocation struct {
 }
 
 type StoreLocationBenefit struct {
-	ID          int64  `json:"id"`
-	Name        string `json:"nombre"`
-	Description string `json:"descripcion,omitempty"`
+	ID             int64  `json:"id"`
+	Name           string `json:"nombre"`
+	Description    string `json:"descripcion,omitempty"`
+	RequiredStamps *int64 `json:"required_stamps,omitempty"`
+	RequiredPoints *int64 `json:"required_points,omitempty"`
 }
 
 type StoreFavorite struct {
