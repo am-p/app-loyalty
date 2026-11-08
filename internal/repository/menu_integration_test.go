@@ -736,3 +736,56 @@ func TestPostgresMenuPDFThirtyMiBUpgradePreservesPublication(t *testing.T) {
 		t.Fatalf("large metadata lost after rejected down: count=%d err=%v", large, err)
 	}
 }
+
+func TestPostgresMenuPDFPageCountExpansion(t *testing.T) {
+	p, repo, svc, _, f := menuFixture(t)
+	ctx := t.Context()
+	up, err := os.ReadFile("../../migrations/0047_branch_pdf_no_page_cap.up.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	down, err := os.ReadFile("../../migrations/0047_branch_pdf_no_page_cap.down.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = p.Exec(ctx, string(down)); err != nil {
+		t.Fatal(err)
+	}
+	draft := uploadMenu(t, svc, f, 1)
+	before, err := svc.ChangeMenuPublication(ctx, f.owner, f.brand, f.branch, draft.Version, "publish", draft.Draft.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = p.Exec(ctx, string(up)); err != nil {
+		t.Fatal(err)
+	}
+	after, err := svc.BranchMenu(ctx, f.owner, f.brand, f.branch)
+	if err != nil || after.Version != before.Version || after.Published == nil || after.Published.ID != before.Published.ID {
+		t.Fatalf("publication changed during expansion: before=%+v after=%+v err=%v", before, after, err)
+	}
+	body, err := os.ReadFile("../service/testdata/menu-31.pdf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	long, err := svc.UploadMenuDocument(ctx, f.owner, f.brand, f.branch, after.Version, "carta.pdf", body)
+	if err != nil || long.Draft == nil || long.Draft.PageCount != 31 {
+		t.Fatalf("31-page menu was not stored: state=%+v err=%v", long, err)
+	}
+	published, err := svc.ChangeMenuPublication(ctx, f.owner, f.brand, f.branch, long.Version, "publish", long.Draft.ID)
+	if err != nil || published.Published == nil || published.Published.PageCount != 31 {
+		t.Fatalf("31-page menu was not published: state=%+v err=%v", published, err)
+	}
+	if _, err = p.Exec(ctx, string(down)); err == nil {
+		t.Fatal("unsafe down accepted an existing 31-page document")
+	}
+	var pages int
+	if err = p.QueryRow(ctx, `SELECT page_count FROM branch_menu_documents WHERE id=$1`, published.Published.ID).Scan(&pages); err != nil || pages != 31 {
+		t.Fatalf("31-page document changed after failed down: pages=%d err=%v", pages, err)
+	}
+	id := uuid.NewString()
+	empty := model.MenuDocument{ID: id, FileName: "empty.pdf", MIMEType: "application/pdf", ByteSize: 1, PageCount: 0, ObjectKey: "menus/" + id + ".pdf"}
+	var pgErr *pgconn.PgError
+	if err = repo.ReserveMenuDocument(ctx, f.owner, f.brand, f.branch, published.Version, empty, make([]byte, 32)); !errors.As(err, &pgErr) || pgErr.ConstraintName != "branch_menu_documents_page_count_check" {
+		t.Fatalf("zero-page document must fail DB check: %v", err)
+	}
+}

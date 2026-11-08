@@ -212,3 +212,9 @@ los identificadores y la clave de Apple para completar revocaciones.
 ### 0046 · Perfil público de sucursales
 
 Agrega horarios y enlaces opcionales por sucursal, sin modificar las filas existentes.
+
+### 0047 · Cantidad de páginas del menú PDF
+
+Quita el máximo de páginas y conserva el requisito de al menos una página.
+El límite de 30 MiB sigue aplicando. El DOWN falla si hay documentos con más
+de 30 páginas, sin borrar ni truncar documentos.

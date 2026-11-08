@@ -152,7 +152,7 @@ paths:
               additionalProperties: false
               required: [archivo]
               properties:
-                archivo: { type: string, format: binary, description: PDF válido no cifrado de 1 a 30 páginas y hasta 30 MiB; admite escaneos }
+                archivo: { type: string, format: binary, description: PDF válido no cifrado con al menos una página y hasta 30 MiB; admite escaneos }
       responses:
         '201':
           description: Estado actual; borrador o publicación null cuando no existen
@@ -167,7 +167,7 @@ paths:
         '503': { $ref: '#/components/responses/MenuStorageUnavailable' }
         '412': { description: Versión desactualizada; PRECONDITION_FAILED, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
         '428': { $ref: '#/components/responses/MenuPreconditionRequired' }
-        '422': { description: 'INVALID_REQUEST o MENU_PDF_INVALID, MENU_PDF_PASSWORD_PROTECTED, MENU_PDF_PAGE_LIMIT', content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '422': { description: 'INVALID_REQUEST o MENU_PDF_INVALID, MENU_PDF_PASSWORD_PROTECTED', content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
         '413': { description: MENU_PDF_TOO_LARGE, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
         '415': { description: MENU_PDF_TYPE_UNSUPPORTED, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
         '429': { description: RATE_LIMITED, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
@@ -212,7 +212,7 @@ paths:
         '503': { $ref: '#/components/responses/MenuStorageUnavailable' }
         '412': { description: Versión desactualizada; PRECONDITION_FAILED, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
         '428': { $ref: '#/components/responses/MenuPreconditionRequired' }
-        '422': { description: 'INVALID_REQUEST o MENU_PDF_INVALID, MENU_PDF_PASSWORD_PROTECTED, MENU_PDF_PAGE_LIMIT', content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '422': { description: 'INVALID_REQUEST o MENU_PDF_INVALID, MENU_PDF_PASSWORD_PROTECTED', content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
     delete:
       tags: [Marcas]
       operationId: unpublishBranchPDFMenu
@@ -240,7 +240,7 @@ paths:
         '503': { $ref: '#/components/responses/MenuStorageUnavailable' }
         '412': { description: Versión desactualizada; PRECONDITION_FAILED, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
         '428': { $ref: '#/components/responses/MenuPreconditionRequired' }
-        '422': { description: 'INVALID_REQUEST o MENU_PDF_INVALID, MENU_PDF_PASSWORD_PROTECTED, MENU_PDF_PAGE_LIMIT', content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '422': { description: 'INVALID_REQUEST o MENU_PDF_INVALID, MENU_PDF_PASSWORD_PROTECTED', content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
   /marcas/{brand_id}/sucursales/{branch_id}/menu/borrador:
     parameters:
       - { $ref: '#/components/parameters/BrandId' }
@@ -272,7 +272,7 @@ paths:
         '503': { $ref: '#/components/responses/MenuStorageUnavailable' }
         '412': { description: Versión desactualizada; PRECONDITION_FAILED, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
         '428': { $ref: '#/components/responses/MenuPreconditionRequired' }
-        '422': { description: 'INVALID_REQUEST o MENU_PDF_INVALID, MENU_PDF_PASSWORD_PROTECTED, MENU_PDF_PAGE_LIMIT', content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '422': { description: 'INVALID_REQUEST o MENU_PDF_INVALID, MENU_PDF_PASSWORD_PROTECTED', content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
   /clientes/me/tiendas:
     get:
       tags: [Clientes]
@@ -2829,7 +2829,7 @@ components:
         file_name: { type: string, maxLength: 160, description: Nombre saneado sin rutas }
         mime_type: { type: string, const: application/pdf }
         byte_size: { type: integer, format: int64, minimum: 1, maximum: 31457280 }
-        page_count: { type: integer, minimum: 1, maximum: 30 }
+        page_count: { type: integer, minimum: 1 }
         created_at: { type: string, format: date-time }
         url: { type: string, format: uri, description: URL HTTPS firmada; nunca clave interna de storage }
         url_expires_at: { type: string, format: date-time, description: Hasta 300 segundos desde la firma }
@@ -3315,7 +3315,7 @@ components:
           properties:
             code:
               type: string
-              enum: [PRECONDITION_REQUIRED, MENU_PDF_TOO_LARGE, MENU_PDF_TYPE_UNSUPPORTED, MENU_PDF_INVALID, MENU_PDF_PASSWORD_PROTECTED, MENU_PDF_PAGE_LIMIT, MENU_STORAGE_UNAVAILABLE, INVALID_REQUEST, REGISTRATION_PROFILE_REQUIRED, REFERRAL_CODE_INVALID, ACCOUNT_TYPE_REQUIRED, IDENTITY_TOKEN_INVALID, INVITATION_INVALID, INVITATION_EMAIL_MISMATCH, SELF_ROLE_CHANGE_FORBIDDEN, EMAIL_VERIFICATION_REQUIRED, UNAUTHENTICATED, RECENT_AUTH_REQUIRED, FORBIDDEN, NOT_FOUND, EMAIL_EXISTS, RESOURCE_CONFLICT, PROGRAM_TYPE_HAS_BENEFITS, PROGRAM_TYPE_IMMUTABLE, IDEMPOTENCY_CONFLICT, IDEMPOTENCY_IN_PROGRESS, PREVIEW_EXPIRED, PREVIEW_CONSUMED, PREVIEW_CHANGED, PRECONDITION_FAILED, BILLING_IN_PROGRESS, BILLING_UNAVAILABLE, BILLING_PROVIDER_ERROR, INSUFFICIENT_BALANCE, DEMO_SIGNUP_DISABLED, DEMO_ACCESS_DENIED, MEDIA_TOO_LARGE, MEDIA_TYPE_UNSUPPORTED, MEDIA_STORAGE_UNAVAILABLE, RATE_LIMITED, DEPENDENCY_UNAVAILABLE, INTERNAL_ERROR]
+              enum: [PRECONDITION_REQUIRED, MENU_PDF_TOO_LARGE, MENU_PDF_TYPE_UNSUPPORTED, MENU_PDF_INVALID, MENU_PDF_PASSWORD_PROTECTED, MENU_STORAGE_UNAVAILABLE, INVALID_REQUEST, REGISTRATION_PROFILE_REQUIRED, REFERRAL_CODE_INVALID, ACCOUNT_TYPE_REQUIRED, IDENTITY_TOKEN_INVALID, INVITATION_INVALID, INVITATION_EMAIL_MISMATCH, SELF_ROLE_CHANGE_FORBIDDEN, EMAIL_VERIFICATION_REQUIRED, UNAUTHENTICATED, RECENT_AUTH_REQUIRED, FORBIDDEN, NOT_FOUND, EMAIL_EXISTS, RESOURCE_CONFLICT, PROGRAM_TYPE_HAS_BENEFITS, PROGRAM_TYPE_IMMUTABLE, IDEMPOTENCY_CONFLICT, IDEMPOTENCY_IN_PROGRESS, PREVIEW_EXPIRED, PREVIEW_CONSUMED, PREVIEW_CHANGED, PRECONDITION_FAILED, BILLING_IN_PROGRESS, BILLING_UNAVAILABLE, BILLING_PROVIDER_ERROR, INSUFFICIENT_BALANCE, DEMO_SIGNUP_DISABLED, DEMO_ACCESS_DENIED, MEDIA_TOO_LARGE, MEDIA_TYPE_UNSUPPORTED, MEDIA_STORAGE_UNAVAILABLE, RATE_LIMITED, DEPENDENCY_UNAVAILABLE, INTERNAL_ERROR]
             message: { type: string }
             details: { type: object, additionalProperties: true }
         request_id: { $ref: '#/components/schemas/RequestId' }

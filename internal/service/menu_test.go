@@ -18,7 +18,7 @@ func TestMenuPDFValidation(t *testing.T) {
 		name  string
 		pages int
 		err   error
-	}{{"menu.pdf", 1, nil}, {"menu-30.pdf", 30, nil}, {"menu-31.pdf", 0, ErrMenuPDFPages}, {"menu-scanned.pdf", 1, nil}, {"menu-protected-pypdf.pdf", 0, ErrMenuPDFPassword}} {
+	}{{"menu.pdf", 1, nil}, {"menu-30.pdf", 30, nil}, {"menu-31.pdf", 31, nil}, {"menu-scanned.pdf", 1, nil}, {"menu-protected-pypdf.pdf", 0, ErrMenuPDFPassword}} {
 		t.Run(tt.name, func(t *testing.T) {
 			body, err := os.ReadFile("testdata/" + tt.name)
 			if err != nil {

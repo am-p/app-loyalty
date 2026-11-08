@@ -10,7 +10,7 @@ import (
 // Only isolated fixture migrations are rolled back; operational rollback gates stay intact.
 func rollbackAppleMigrationFixture(t *testing.T, p *pgxpool.Pool) {
 	t.Helper()
-	for _, name := range []string{"0046_branch_public_profile", "0045_apple_browser_identity", "0044_apple_identity"} {
+	for _, name := range []string{"0047_branch_pdf_no_page_cap", "0046_branch_public_profile", "0045_apple_browser_identity", "0044_apple_identity"} {
 		body, err := os.ReadFile("../../migrations/" + name + ".down.sql")
 		if err != nil {
 			t.Fatal(err)
