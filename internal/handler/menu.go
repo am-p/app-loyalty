@@ -63,8 +63,6 @@ func (h *Handler) writeMenuError(c *gin.Context, err error) {
 		web.Error(c, 422, "MENU_PDF_INVALID", "El PDF está dañado o no se pudo validar", nil)
 	case errors.Is(err, service.ErrMenuPDFPassword):
 		web.Error(c, 422, "MENU_PDF_PASSWORD_PROTECTED", "El PDF debe estar sin contraseña ni cifrado", nil)
-	case errors.Is(err, service.ErrMenuPDFPages):
-		web.Error(c, 422, "MENU_PDF_PAGE_LIMIT", "El PDF debe tener entre 1 y 30 páginas", nil)
 	case errors.Is(err, service.ErrMenuStorage):
 		web.Error(c, 503, "MENU_STORAGE_UNAVAILABLE", "No pudimos guardar o abrir el PDF; reintentá", nil)
 	default:

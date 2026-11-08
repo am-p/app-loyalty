@@ -26,7 +26,6 @@ var (
 	ErrMenuPDFType     = errors.New("menu PDF type unsupported")
 	ErrMenuPDFInvalid  = errors.New("menu PDF invalid")
 	ErrMenuPDFPassword = errors.New("menu PDF encrypted")
-	ErrMenuPDFPages    = errors.New("menu PDF page limit")
 	ErrMenuStorage     = errors.New("menu storage unavailable")
 )
 
@@ -67,8 +66,8 @@ func validateMenuPDF(ctx context.Context, body []byte) (int, []byte, error) {
 	if err = api.ValidateContext(parseCtx, pdf); err != nil {
 		return 0, nil, ErrMenuPDFInvalid
 	}
-	if pdf.PageCount < 1 || pdf.PageCount > 30 {
-		return 0, nil, ErrMenuPDFPages
+	if pdf.PageCount < 1 {
+		return 0, nil, ErrMenuPDFInvalid
 	}
 	sum := sha256.Sum256(body)
 	return pdf.PageCount, sum[:], nil

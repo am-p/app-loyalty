@@ -203,3 +203,9 @@ describen el estado histórico de la propuesta.
 
 `0046_branch_public_profile` agrega un perfil público opcional a cada sucursal.
 No modifica filas existentes ni completa horarios o enlaces automáticamente.
+
+### 0047 · Cantidad de páginas del menú PDF
+
+Quita el máximo de páginas y conserva el requisito de al menos una página.
+El límite de 30 MiB sigue aplicando. El DOWN falla si hay documentos con más
+de 30 páginas, sin borrar ni truncar documentos.
