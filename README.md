@@ -83,7 +83,8 @@ ALLOW_MIGRATION_DOWN=true go run ./cmd/migrate down
 | `DEMO_SIGNUP_ENABLED` | Habilita o cierra nuevas altas gratuitas sin bloquear cuentas existentes. |
 | `CORS_ORIGINS` | Orígenes web exactos permitidos, separados por comas; habilita credenciales para la cookie HttpOnly de refresh. |
 | `GOOGLE_CLIENT_ID` | Audiencia web de Google; opcional para el alias legado. |
-| `EXPECTED_SCHEMA_VERSION` | Versión de esquema requerida por readiness; por defecto `0043`. |
+| `GOOGLE_BROWSER_REDIRECT_URI` | Habilita el acceso web mediante redirección si se configura el callback HTTPS `/api/v1/auth/google/browser/callback` en el mismo origen que `PUBLIC_APP_URL`. Requiere que la URI esté autorizada en el cliente Google web y que exista la clave de cifrado de outbox. |
+| `EXPECTED_SCHEMA_VERSION` | Versión de esquema requerida por readiness; por defecto `0049`. |
 | `MERCADO_PAGO_PROVIDER` | `api` habilita checkout y webhooks de suscripciones; `disabled` los mantiene apagados. |
 | `MERCADO_PAGO_ACCESS_TOKEN`, `MERCADO_PAGO_WEBHOOK_SECRET` | Secretos del backend para crear suscripciones y validar notificaciones. Nunca se exponen al frontend. |
 | `MERCADO_PAGO_BRANCH_PRICE_CENTS` | Precio mensual de Sellos por sucursal activa; por defecto `2500000` (ARS 25.000) para el piloto; configurable por entorno. |
@@ -222,6 +223,14 @@ importe. Ver [liquidación manual de crédito](docs/referral-merchant-credit.md)
 
 ## Primer acceso con Google
 
+Para navegadores que no completan el botón de Google, el flujo alternativo
+usa una redirección a Google y un retorno por formulario HTTPS. El servidor
+verifica audiencia web, emisor, correo verificado y nonce antes de guardar
+la prueba cifrada. El navegador que inició el intento puede recuperarla
+una sola vez en cinco minutos con su verificador. El retorno no emite una
+sesión. El alta o ingreso sigue pasando por `POST /v1/auth/google`.
+La ruta de retorno se autoriza en el cliente web de Google por ambiente.
+
 `POST /v1/auth/google` y el alias temporal `POST /auth/google` validan primero el
 `id_token`. Si la identidad corresponde a una cuenta existente, emiten la sesión
 con el `tipo_cuenta` persistido; cualquier `account_type` o
@@ -341,6 +350,5 @@ Solicitar un código rota la verificación pendiente e invalida enlaces anterior
 la API de enlaces sigue disponible. Verificación, reset e invitaciones conservan
 propósitos separados. Capture se permite sólo en desarrollo para pruebas locales.
 
-Esquema requerido: `0043`. Los números 0036–0042 están reservados por historial de
-testing; readiness valida el manifiesto de migraciones incluido en el binario,
-permitiendo esos huecos sin aceptar migraciones faltantes o inesperadas.
+Esquema requerido: `0049`. Readiness valida el manifiesto de migraciones del
+binario y rechaza migraciones faltantes o inesperadas.

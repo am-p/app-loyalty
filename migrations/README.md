@@ -198,3 +198,28 @@ los logos y agrega cobertura de permisos, búsqueda y concurrencia; las
 implementaciones anteriores del mapa se consolidan en los archivos `store.go`.
 Las referencias anteriores a tablas inertes o dependencias aún abiertas
 describen el estado histórico de la propuesta.
+
+## Perfil público de sucursales (`0046`)
+
+`0046_branch_public_profile` agrega un perfil público opcional a cada sucursal.
+No modifica filas existentes ni completa horarios o enlaces automáticamente.
+
+### 0047 · Cantidad de páginas del menú PDF
+
+Quita el máximo de páginas y conserva el requisito de al menos una página.
+El límite de 30 MiB sigue aplicando. El DOWN falla si hay documentos con más
+de 30 páginas, sin borrar ni truncar documentos.
+
+### 0048 · Menús PDF por idioma
+
+Los menús y borradores existentes pasan a ser los de español. Cada sucursal
+puede publicar un segundo PDF en inglés con versión y ciclo independientes.
+El DOWN rechaza registros en inglés para proteger sus archivos y publicaciones.
+
+
+### 0049 · Acceso web con Google mediante redirección
+
+Agrega una tabla independiente para intentos de cinco minutos con nonce y
+verificador en hash. El retorno guarda la credencial con cifrado autenticado
+y el canje la borra al consumirla. El proceso de retención elimina intentos
+vencidos. La reversión elimina sólo esta tabla y caduca los intentos abiertos.
