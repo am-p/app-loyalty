@@ -30,6 +30,7 @@ func TestRouteInventoryAndAuthentication(t *testing.T) {
 		"GET /v1/invitaciones/:token", "POST /v1/invitaciones/:token/registrar",
 		"POST /v1/mercado-pago/webhooks", "POST /v1/auth/apple", "POST /v1/auth/apple/challenge", "POST /v1/apple/app-store/notifications",
 		"GET /v1/auth/google/browser/config", "POST /v1/auth/google/browser/start", "POST /v1/auth/google/browser/callback", "POST /v1/auth/google/browser/finish",
+		"POST /v1/auth/apple/browser/start", "POST /v1/auth/apple/browser/callback", "POST /v1/auth/apple/browser/finish",
 		"POST /v1/referidos/validacion",
 		"POST /v1/backoffice/login",
 		"POST /auth/register", "POST /auth/login", "POST /auth/google",
@@ -211,6 +212,8 @@ func TestBrowserCallbacksAllowProviderFormsWithoutExtendingCORS(t *testing.T) {
 	}{
 		{"/v1/auth/google/browser/callback", "https://accounts.google.com", http.StatusServiceUnavailable},
 		{"/v1/auth/google/browser/finish", "https://accounts.google.com", http.StatusForbidden},
+		{"/v1/auth/apple/browser/callback", "https://appleid.apple.com", http.StatusServiceUnavailable},
+		{"/v1/auth/apple/browser/finish", "https://appleid.apple.com", http.StatusForbidden},
 	} {
 		req := httptest.NewRequest(http.MethodPost, tc.path, strings.NewReader("state=00000000-0000-4000-8000-000000000001"))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")

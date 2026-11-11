@@ -2749,6 +2749,92 @@ paths:
         '409': { description: GOOGLE_BROWSER_CANCELLED }
         '429': { description: Límite de intentos excedido }
         '503': { description: GOOGLE_BROWSER_UNAVAILABLE o DEPENDENCY_UNAVAILABLE }
+  /auth/apple/browser/start:
+    post:
+      tags: [Auth]
+      operationId: startAppleBrowser
+      summary: Iniciar Apple para una cuenta ya vinculada
+      x-puntazo-implementation: IMPLEMENTED_SOURCE_NOT_DEPLOYED
+      security: [{}, { bearerAuth: [] }]
+      parameters:
+        - { name: X-Client-Platform, in: header, required: true, schema: { type: string, enum: [web, native] } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AppleBrowserStartRequest' }
+      responses:
+        '200':
+          description: Flujo que expira a los cinco minutos
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, request_id]
+                properties:
+                  data: { $ref: '#/components/schemas/AppleBrowserStart' }
+                  request_id: { type: string }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '429': { description: Límite de intentos excedido }
+        '503': { description: APPLE_AUTH_UNAVAILABLE }
+  /auth/apple/browser/callback:
+    post:
+      tags: [Auth]
+      operationId: appleBrowserCallback
+      summary: Recibir el formulario de retorno de Apple
+      x-puntazo-implementation: IMPLEMENTED_SOURCE_NOT_DEPLOYED
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [state]
+              properties:
+                state: { type: string, format: uuid }
+                code: { type: string, maxLength: 4096 }
+                id_token: { type: string, maxLength: 16384 }
+                error: { type: string }
+      responses:
+        '303':
+          description: Regresa a la app o la web con una referencia temporal
+          headers:
+            Location: { schema: { type: string, format: uri } }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '422': { description: Formulario inválido }
+        '503': { description: APPLE_AUTH_UNAVAILABLE }
+  /auth/apple/browser/finish:
+    post:
+      tags: [Auth]
+      operationId: finishAppleBrowser
+      summary: Canjear una prueba Apple de navegador por una sesión
+      x-puntazo-implementation: IMPLEMENTED_SOURCE_NOT_DEPLOYED
+      security: [{}, { bearerAuth: [] }]
+      parameters:
+        - { name: X-Client-Platform, in: header, required: true, schema: { type: string, enum: [web, native] } }
+        - { name: If-Match, in: header, description: Requerido para reautenticar, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AppleBrowserFinishRequest' }
+      responses:
+        '200':
+          description: Sesión emitida para el usuario vinculado a Apple
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, request_id]
+                properties:
+                  data: { $ref: '#/components/schemas/AuthData' }
+                  request_id: { type: string }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '409': { description: 'APPLE_AUTH_PENDING (admite reintento), APPLE_AUTH_CANCELLED o APPLE_LINK_REQUIRED' }
+        '412': { description: La versión de cuenta cambió }
+        '429': { description: Límite de intentos excedido }
+        '503': { description: APPLE_AUTH_UNAVAILABLE }
   /auth/apple/link:
     post:
       tags: [Auth]
@@ -4814,6 +4900,10 @@ components:
     AppleChallengeRequest: {"type": "object", "additionalProperties": false, "properties": {"purpose": {"type": "string", "enum": ["login", "link", "reauthenticate"]}}, "required": ["purpose"]}
 
     AppleChallenge: {"type": "object", "additionalProperties": false, "properties": {"challenge_id": {"type": "string", "format": "uuid"}, "nonce": {"type": "string"}, "expires_at": {"type": "string", "format": "date-time"}}, "required": ["challenge_id", "nonce", "expires_at"]}
+
+    AppleBrowserStartRequest: {"type": "object", "additionalProperties": false, "properties": {"purpose": {"type": "string", "enum": ["login", "reauthenticate"]}, "code_challenge": {"type": "string", "pattern": "^[A-Za-z0-9_-]{43}$"}}, "required": ["purpose", "code_challenge"]}
+    AppleBrowserStart: {"type": "object", "additionalProperties": false, "properties": {"flow_id": {"type": "string", "format": "uuid"}, "authorization_url": {"type": "string", "format": "uri"}, "expires_at": {"type": "string", "format": "date-time"}}, "required": ["flow_id", "authorization_url", "expires_at"]}
+    AppleBrowserFinishRequest: {"type": "object", "additionalProperties": false, "properties": {"flow_id": {"type": "string", "format": "uuid"}, "code_verifier": {"type": "string", "pattern": "^[A-Za-z0-9._~-]{43,128}$"}, "version": {"type": "integer", "minimum": 1}}, "required": ["flow_id", "code_verifier"]}
 
     AppleAuthRequest: {"type": "object", "additionalProperties": false, "properties": {"challenge_id": {"type": "string", "format": "uuid"}, "id_token": {"type": "string"}, "authorization_code": {"type": "string"}, "name": {"type": "string"}, "apellido": {"type": "string"}, "account_type": {"type": "string", "enum": ["CLIENTE_FINAL", "PERSONAL_MARCA"]}, "merchant_registration": {"$ref": "#/components/schemas/GoogleMerchantRegistration"}}, "required": ["challenge_id", "id_token", "authorization_code"]}
 

@@ -28,7 +28,18 @@ func (s *Service) ProcessAppleRevocations(ctx context.Context, limit int) (int, 
 		}
 		token, e := appleidentity.DecryptToken(s.Repo.OutboxCipherKey, item.ClientID, item.TokenType, item.Ciphertext, item.Nonce)
 		if e == nil {
-			e = s.AppleIdentity.Revoke(ctx, token, item.TokenType)
+			provider := s.AppleIdentity
+			if item.ClientID != s.Config.AppleIdentityClientID {
+				provider = nil
+				if item.ClientID == s.Config.AppleBrowserClientID {
+					provider = s.AppleBrowser
+				}
+			}
+			if provider == nil || !provider.Enabled() {
+				e = ErrAppleAuthUnavailable
+			} else {
+				e = provider.Revoke(ctx, token, item.TokenType)
+			}
 		}
 		if e != nil {
 			if retryErr := s.Repo.RetryAppleRevocation(ctx, item, s.Now()); retryErr != nil {

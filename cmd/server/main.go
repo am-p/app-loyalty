@@ -117,6 +117,14 @@ func main() {
 	if identity != nil {
 		svc.AppleIdentity = identity
 	}
+	if cfg.AppleBrowserClientID != "" {
+		browser, err := appleidentity.New(appleidentity.Config{ClientID: cfg.AppleBrowserClientID, TeamID: cfg.AppleIdentityTeamID, KeyID: cfg.AppleIdentityKeyID, PrivateKeyPEM: string(cfg.AppleIdentityPrivateKeyPEM), RedirectURI: cfg.AppleBrowserRedirectURI})
+		if err != nil {
+			logger.Error("invalid Apple browser identity configuration")
+			os.Exit(1)
+		}
+		svc.AppleBrowser = browser
+	}
 	appleBilling, err := applebilling.New(applebilling.Config{Enabled: cfg.AppleBillingEnabled, PurchasesEnabled: cfg.AppleIAPPurchasesEnabled, SubscriptionGroupID: cfg.AppleBillingSubscriptionGroupID, Environment: cfg.AppleBillingEnvironment, BundleID: "com.puntazo.app", AppAppleID: cfg.AppleBillingAppAppleID, IssuerID: cfg.AppleBillingIssuerID, KeyID: cfg.AppleBillingKeyID, PrivateKeyPEM: cfg.AppleBillingPrivateKeyPEM, RootsPEM: cfg.AppleBillingRootsPEM, AllowXcode: cfg.AppleBillingAllowXcode, Production: cfg.Production}, &http.Client{Timeout: 10 * time.Second})
 	if err != nil {
 		logger.Error("invalid Apple billing configuration")

@@ -223,3 +223,16 @@ Agrega una tabla independiente para intentos de cinco minutos con nonce y
 verificador en hash. El retorno guarda la credencial con cifrado autenticado
 y el canje la borra al consumirla. El proceso de retención elimina intentos
 vencidos. La reversión elimina sólo esta tabla y caduca los intentos abiertos.
+
+### 0050 · Inicio con Apple por navegador
+
+Agrega intentos de cinco minutos y credenciales revocables por cliente de
+Apple. En la rama propietaria 0045 corresponde a StoreKit. Para suspender
+nuevas autorizaciones, usar `APPLE_BROWSER_AUTH_ENABLED=false` y conservar
+el esquema, los identificadores y la clave de Apple para las revocaciones.
+
+El candidato de testing aplicó el esquema de Apple por navegador con el
+número 0045. Antes de promover esta rama a esa base, reconciliar ese
+historial y verificar las tablas de StoreKit en una restauración aislada.
+La migración 0050 rechaza ese historial divergente para evitar que el
+registro de versiones dé por aplicados cambios que faltan.

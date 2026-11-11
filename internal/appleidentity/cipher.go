@@ -52,3 +52,33 @@ func DecryptToken(key []byte, clientID, kind string, encrypted, nonce []byte) (s
 	}
 	return string(raw), nil
 }
+
+// Browser proofs are short-lived and bound to their flow, separate from the
+// encryption domain of durable provider credentials.
+func SealBrowserProof(key []byte, flowID string, proof []byte) ([]byte, []byte, error) {
+	gcm, err := tokenGCM(key)
+	if err != nil {
+		return nil, nil, err
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err = rand.Read(nonce); err != nil {
+		return nil, nil, err
+	}
+	return gcm.Seal(nil, nonce, proof, browserProofAAD(flowID)), nonce, nil
+}
+
+func OpenBrowserProof(key []byte, flowID string, proof, nonce []byte) ([]byte, error) {
+	gcm, err := tokenGCM(key)
+	if err != nil || len(nonce) != gcm.NonceSize() {
+		return nil, ErrCipher
+	}
+	raw, err := gcm.Open(nil, nonce, proof, browserProofAAD(flowID))
+	if err != nil {
+		return nil, ErrCipher
+	}
+	return raw, nil
+}
+
+func browserProofAAD(flowID string) []byte {
+	return []byte("puntazo:apple-browser-proof:v1\x00" + flowID)
+}
