@@ -1,9 +1,9 @@
 -- deploy: expand
 DO $$
 BEGIN
-  IF to_regclass('apple_billing_accounts') IS NULL
-      OR to_regclass('apple_browser_flows') IS NOT NULL
-      OR to_regclass('apple_browser_credentials') IS NOT NULL THEN
+  IF to_regclass(format('%I.apple_billing_accounts', current_schema())) IS NULL
+      OR to_regclass(format('%I.apple_browser_flows', current_schema())) IS NOT NULL
+      OR to_regclass(format('%I.apple_browser_credentials', current_schema())) IS NOT NULL THEN
     RAISE EXCEPTION 'Reconcile the divergent Apple 0045 schema before applying 0050';
   END IF;
 END $$;
