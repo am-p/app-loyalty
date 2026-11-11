@@ -35,6 +35,10 @@ func writeErr(c *gin.Context, err error) {
 	}
 
 	switch {
+	case errors.Is(err, service.ErrAppleAuthPending):
+		web.Error(c, http.StatusConflict, "APPLE_AUTH_PENDING", "Apple todavía no confirmó el acceso", nil)
+	case errors.Is(err, service.ErrAppleAuthCancelled):
+		web.Error(c, http.StatusConflict, "APPLE_AUTH_CANCELLED", "Se canceló el acceso con Apple", nil)
 	case errors.Is(err, service.ErrGoogleBrowserInvalid):
 		web.Error(c, http.StatusBadRequest, "GOOGLE_BROWSER_INVALID", "El acceso con Google venció o no es válido. Volvé a iniciarlo.", nil)
 	case errors.Is(err, service.ErrGoogleBrowserCancelled):

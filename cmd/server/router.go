@@ -22,7 +22,7 @@ func newRouter(h *handler.Handler, tokens *auth.Tokens, logger *slog.Logger) *gi
 		// Identity providers post forms across origins. These callbacks never
 		// grant a session and need no CORS permission for form navigation.
 		path := c.Request.URL.Path
-		if c.Request.Method != http.MethodPost || (path != "/v1/auth/google/browser/callback") {
+		if c.Request.Method != http.MethodPost || (path != "/v1/auth/google/browser/callback" && path != "/v1/auth/apple/browser/callback") {
 			cors(c)
 		}
 	}, func(c *gin.Context) {
