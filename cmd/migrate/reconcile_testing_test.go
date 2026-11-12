@@ -205,7 +205,9 @@ func TestReconcileTestingApple0045RejectsUnknownStateAtomically(t *testing.T) {
 				t.Fatal("failed reconciliation changed rows or history")
 			}
 			var leaked bool
-			if err := p.QueryRow(t.Context(), `SELECT to_regclass('schema_reconciliation_log') IS NOT NULL OR to_regclass('apple_billing_accounts') IS NOT NULL OR EXISTS(SELECT 1 FROM pg_namespace WHERE nspname='puntazo_apple_0045_reference')`).Scan(&leaked); err != nil || leaked {
+			if err := p.QueryRow(t.Context(), `SELECT to_regclass(format('%I.schema_reconciliation_log',current_schema())) IS NOT NULL
+				OR to_regclass(format('%I.apple_billing_accounts',current_schema())) IS NOT NULL
+				OR EXISTS(SELECT 1 FROM pg_namespace WHERE nspname='puntazo_apple_0045_reference')`).Scan(&leaked); err != nil || leaked {
 				t.Fatal("failed reconciliation left DDL", err)
 			}
 		})
