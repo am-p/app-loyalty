@@ -128,8 +128,7 @@ func TestReconcileTestingApple0045PreservesDataHistoryAndOIDs(t *testing.T) {
 	if err := repository.New(p).CheckSchema(t.Context(), "0051"); err != nil {
 		t.Fatal(err)
 	}
-	// Remove only the two newly added versions from a transaction snapshot to
-	// compare every original row/timestamp and browser table OID byte for byte.
+	// Verify that the audit retains every original migration timestamp.
 	tx, err := p.Begin(t.Context())
 	if err != nil {
 		t.Fatal(err)
