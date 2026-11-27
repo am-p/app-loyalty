@@ -283,3 +283,32 @@ Esta herramienta no convierte los SQL históricos de testing en los de main:
 la diferencia de origen queda registrada explícitamente. Los futuros controles
 de hashes del entorno deben consumir y conservar esa auditoría; nunca sustituir
 silenciosamente el hash original de 0045 por el de StoreKit.
+
+### 0052 · Gift Cards de un solo uso
+
+Agrega lotes de Gift Cards y códigos individuales con tokens almacenados como
+hash SHA-256. Cada lote puede emitir hasta 100 códigos visualmente equivalentes,
+pero cada QR es único y sólo puede canjearse una vez. El canje bloquea el código,
+acredita puntos o sellos y registra el movimiento en una única transacción.
+
+Aplicar después de la reconciliación 0051 y publicar la API con
+`EXPECTED_SCHEMA_VERSION=0052`. El DOWN elimina las tablas de Gift Cards y sólo
+debe utilizarse cuando no sea necesario conservar lotes, códigos ni canjes.
+
+### 0053 · Estadísticas y reimpresión segura de Gift Cards
+
+Agrega almacenamiento cifrado del token de los nuevos QR para permitir que el
+comercio vuelva a descargar únicamente códigos todavía disponibles. El token
+continúa protegido por hash para el canje y se cifra con la clave de aplicación
+para su recuperación autorizada. Los lotes anteriores mantienen sus métricas y
+datos de canje, pero sus tokens históricos no pueden reconstruirse.
+
+El detalle autenticado del lote muestra fecha y cliente de cada canje.
+Configurar `EXPECTED_SCHEMA_VERSION=0053` después de aplicar la migración.
+
+### 0054 · Baja segura de lotes de Gift Cards
+
+Agrega una baja lógica a los lotes. El comercio puede retirarlos de su lista y
+los QR pendientes dejan de estar disponibles, mientras los canjes y movimientos
+ya realizados se conservan para auditoría. Publicar la API con
+`EXPECTED_SCHEMA_VERSION=0054` después de aplicar 0053 y 0054.
