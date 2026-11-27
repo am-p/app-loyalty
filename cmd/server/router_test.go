@@ -21,6 +21,7 @@ func TestRouteInventoryAndAuthentication(t *testing.T) {
 	h := &handler.Handler{Service: &service.Service{}, Limiter: middleware.NewRateLimiter(), Logger: logger}
 	r := newRouter(h, auth.NewTokens("01234567890123456789012345678901", "puntazo"), logger)
 	public := []string{
+		"GET /v1/public/gift-cards/:token",
 		"GET /v1/public/sucursales/:branch_id/menu", "GET /v1/public/marcas/:brand_id/menus",
 		"GET /v1/email-assets/v1/:name", "GET /v1/suscripciones/precios", "GET /v1/health/live", "GET /v1/health/ready", "GET /v1/version",
 		"GET /v1/auth/challenge", "POST /v1/auth/challenge/verify", "POST /v1/auth/logout", "POST /v1/auth/register", "POST /v1/auth/login", "POST /v1/auth/google", "POST /v1/auth/refresh", "POST /v1/demo/comercios",
@@ -93,6 +94,11 @@ func TestRouteInventoryAndAuthentication(t *testing.T) {
 		{"GET", "/me", "/me"},
 		{"GET", "/v1/marcas", "/v1/marcas"},
 		{"GET", "/v1/marcas/:brand_id", "/v1/marcas/1"},
+		{"POST", "/v1/marcas/:brand_id/gift-cards/:batch_id/revocar", "/v1/marcas/1/gift-cards/00000000-0000-4000-8000-000000000001/revocar"},
+		{"DELETE", "/v1/marcas/:brand_id/gift-cards/:batch_id", "/v1/marcas/1/gift-cards/00000000-0000-4000-8000-000000000001"},
+		{"GET", "/v1/marcas/:brand_id/gift-cards/:batch_id", "/v1/marcas/1/gift-cards/00000000-0000-4000-8000-000000000001"},
+		{"POST", "/v1/marcas/:brand_id/gift-cards", "/v1/marcas/1/gift-cards"},
+		{"GET", "/v1/marcas/:brand_id/gift-cards", "/v1/marcas/1/gift-cards"},
 		{"PATCH", "/v1/marcas/:brand_id", "/v1/marcas/1"},
 		{"DELETE", "/v1/marcas/:brand_id", "/v1/marcas/1"},
 		{"GET", "/v1/marcas/:brand_id/sucursales", "/v1/marcas/1/sucursales"},
@@ -136,6 +142,7 @@ func TestRouteInventoryAndAuthentication(t *testing.T) {
 		{"POST", "/v1/marcas/:brand_id/suscripcion/checkout", "/v1/marcas/1/suscripcion/checkout"},
 		{"POST", "/v1/marcas/:brand_id/suscripcion/cancelacion", "/v1/marcas/1/suscripcion/cancelacion"},
 		{"GET", "/v1/clientes/me", "/v1/clientes/me"},
+		{"POST", "/v1/clientes/me/gift-cards/canjear", "/v1/clientes/me/gift-cards/canjear"},
 		{"GET", "/v1/clientes/me/tiendas", "/v1/clientes/me/tiendas?search=cafe"},
 		{"GET", "/v1/clientes/me/tiendas/:branch_id/resena-google", "/v1/clientes/me/tiendas/1/resena-google"},
 		{"PUT", "/v1/clientes/me/tiendas/:branch_id/favorito", "/v1/clientes/me/tiendas/1/favorito"},

@@ -7,6 +7,11 @@ import (
 )
 
 func registerMerchantRoutes(r *gin.RouterGroup, h *handler.Handler) {
+	r.GET("/marcas/:brand_id/gift-cards", h.GiftCardBatches)
+	r.POST("/marcas/:brand_id/gift-cards", h.CreateGiftCardBatch)
+	r.GET("/marcas/:brand_id/gift-cards/:batch_id", h.GiftCardBatch)
+	r.DELETE("/marcas/:brand_id/gift-cards/:batch_id", h.DeleteGiftCardBatch)
+	r.POST("/marcas/:brand_id/gift-cards/:batch_id/revocar", h.RevokeGiftCardBatch)
 	r.GET("/marcas/:brand_id/sucursales/:resource_id/menu", h.BranchMenu)
 	r.POST("/marcas/:brand_id/sucursales/:resource_id/menu/documentos", h.UploadMenuDocument)
 	r.PUT("/marcas/:brand_id/sucursales/:resource_id/menu/publicacion", h.PublishBranchMenu)
