@@ -3,12 +3,15 @@ package service
 import (
 	"clientesFrecuentes/internal/model"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 )
 
 const minutesPerDay = 24 * 60
 const minutesPerWeek = 7 * minutesPerDay
+
+var branchWhatsApp = regexp.MustCompile(`^\+[1-9][0-9]{6,14}$`)
 
 func branchTimeMinutes(value string) (int, bool) {
 	parsed, err := time.Parse("15:04", value)
@@ -18,6 +21,13 @@ func branchTimeMinutes(value string) (int, bool) {
 func cleanBranchPublicProfile(profile *model.BranchPublicProfile) error {
 	if profile == nil {
 		return nil
+	}
+	if profile.WhatsApp != nil {
+		clean := strings.TrimSpace(*profile.WhatsApp)
+		if clean != "" && !branchWhatsApp.MatchString(clean) {
+			return ErrInvalidRequest
+		}
+		profile.WhatsApp = &clean
 	}
 	if len(profile.Hours) > 28 || len(profile.Links) > 6 {
 		return ErrInvalidRequest
